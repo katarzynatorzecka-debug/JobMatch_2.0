@@ -6,8 +6,13 @@ import { OfferDetailsPage } from '../pages/OfferDetailsPage'
 import { OffersPage } from '../pages/OffersPage'
 import { ProfilePage } from '../pages/ProfilePage'
 import { StartPage } from '../pages/StartPage'
+import { AccessGate } from '../features/access/AccessGate'
+import { useAppMode } from '../features/access/AppModeProvider'
 
 export function AppRoutes() {
+  const { mode, loading } = useAppMode()
+  if (loading) return <main className="access-gate"><p>Przygotowujemy bezpieczny dostęp…</p></main>
+  if (!mode) return <AccessGate />
   return (
     <Routes>
       <Route element={<AppShell />}>

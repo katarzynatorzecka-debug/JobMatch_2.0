@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useAppMode } from '../features/access/AppModeProvider'
 
 const navigationItems = [
   { to: '/', label: 'Start', end: true },
@@ -8,6 +9,7 @@ const navigationItems = [
 ]
 
 export function AppShell() {
+  const { mode, exitDemo, signOut } = useAppMode()
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -32,6 +34,7 @@ export function AppShell() {
               ))}
             </ul>
           </nav>
+          <button className="button button--secondary" onClick={() => mode === 'demo' ? exitDemo() : void signOut()}>{mode === 'demo' ? 'Wyjdź z demo' : 'Wyloguj'}</button>
         </div>
       </header>
       <main className="main-content">

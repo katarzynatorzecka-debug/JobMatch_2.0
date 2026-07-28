@@ -8,6 +8,8 @@ import { extractTextFromPdf } from '../features/profile/pdfTextExtractor'
 import { extractProfileDraft } from '../features/profile/profileExtractor'
 import { getProfileQuestions, type ProfileQuestion } from '../features/profile/profileQuestions'
 import { loadUserProfile, saveUserProfile } from '../features/profile/profileStorage'
+import { useAppMode } from '../features/access/AppModeProvider'
+import { supabaseProfileRepository } from '../features/supabase/repositories'
 import { validateUserProfile } from '../schemas/profileSchemas'
 
 type OnboardingStep = 'choice' | 'upload' | 'reading' | 'recognition' | 'questions' | 'review' | 'manual' | 'saved'
@@ -20,6 +22,7 @@ function toggle<T extends string>(values: T[], value: T, checked: boolean) { ret
 export function ProfilePage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
+  const { mode, session } = useAppMode()
   const [step, setStep] = useState<OnboardingStep>('choice')
   const [profile, setProfile] = useState<UserProfile>(defaultProfile)
   const [storedProfile, setStoredProfile] = useState<UserProfile | null>(null)
@@ -35,13 +38,25 @@ export function ProfilePage() {
   const [manualBack, setManualBack] = useState<OnboardingStep>('choice')
 
   useEffect(() => {
+    if (mode === 'authenticated' && session) return
     const loaded = loadUserProfile()
     if (loaded.profile) { setProfile(loaded.profile); setStoredProfile(loaded.profile) }
     if (params.get('mode') === 'manual') setStep('manual')
     else if (params.get('mode') === 'cv') setStep('upload')
     else if (loaded.profile) setStep('saved')
     if (loaded.warning) setNotice({ tone: 'warning', title: 'Zapis profilu pominięty', text: loaded.warning })
-  }, [params])
+  }, [mode, params, session])
+
+  useEffect(() => {
+    if (mode !== 'authenticated' || !session) return
+    let active = true
+    void supabaseProfileRepository(session.user).load().then((loaded) => {
+      if (!active) return
+      if (loaded.data) { setProfile(loaded.data); setStoredProfile(loaded.data); if (!params.get('mode')) setStep('saved') }
+      if (loaded.error) setNotice({ tone: 'warning', title: 'Blad odczytu profilu', text: loaded.error })
+    })
+    return () => { active = false }
+  }, [mode, params, session])
 
   const update = <K extends keyof UserProfile>(field: K, value: UserProfile[K]) => { setProfile((current) => ({ ...current, [field]: value })); setErrors((current) => ({ ...current, [field]: '' })) }
   const movePriority = (index: number, direction: -1 | 1) => {
@@ -68,11 +83,16 @@ export function ProfilePage() {
   const readFallback = () => {
     try { acceptRecognition(extractProfileDraft(fallbackText, 'pasted-text')) } catch (error) { setMessage(error instanceof Error ? error.message : 'Wklej więcej tekstu CV.') }
   }
-  const save = () => {
+  const save = async () => {
     const validation = validateUserProfile(profile)
     if (!validation.success) {
       const nextErrors: Record<string, string> = {}; validation.error.issues.forEach((issue) => { nextErrors[String(issue.path[0] ?? 'form')] = issue.message })
       setErrors(nextErrors); setNotice({ tone: 'warning', title: 'Profil wymaga uzupełnienia', text: 'Popraw oznaczone pola przed zapisem.' }); setManualBack('review'); setStep('manual'); return
+    }
+    if (mode === 'authenticated' && session) {
+      const saved = await supabaseProfileRepository(session.user).save(validation.data)
+      if (!saved.data) { setNotice({ tone: 'warning', title: 'Nie udalo sie zapisac profilu', text: saved.error ?? 'Sprobuj ponownie.' }); return }
+      setProfile(saved.data); setStoredProfile(saved.data); setRecognition(null); setNotice({ tone: 'success', title: 'Profil zapisany w chmurze', text: 'Mozesz teraz przejsc do importu ofert.' }); setStep('saved'); return
     }
     const saved = saveUserProfile(validation.data)
     if (!saved.success) { setNotice({ tone: 'warning', title: 'Nie udało się zapisać profilu', text: 'Sprawdź ustawienia pamięci lokalnej przeglądarki.' }); return }

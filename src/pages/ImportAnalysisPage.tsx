@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ImportedReport, ReportImportStatus } from '../contracts/import'
 import { Alert, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
@@ -10,11 +10,14 @@ import { canStartDemoAnalysis, restoreImportedOffers } from '../features/import/
 import { validateEmlFile } from '../features/import/importUtils'
 import { parseRocketJobsReport } from '../features/import/rocketJobsReportParser'
 import { loadUserProfile } from '../features/profile/profileStorage'
+import { useAppMode } from '../features/access/AppModeProvider'
+import { supabaseImportRepository, supabaseProfileRepository } from '../features/supabase/repositories'
 
 const processingLabels: Record<Extract<ReportImportStatus, 'validating' | 'reading' | 'parsing'>, string> = { validating: 'Sprawdzamy plik', reading: 'Odczytujemy wiadomość EML', parsing: 'Rozpoznajemy oferty RocketJobs' }
 
 export function ImportAnalysisPage() {
   const navigate = useNavigate()
+  const { mode, session } = useAppMode()
   const initial = loadImportedReport()
   const [status, setStatus] = useState<ReportImportStatus>(initial.report ? 'review' : 'idle')
   const [report, setReport] = useState<ImportedReport | null>(initial.report)
@@ -23,6 +26,17 @@ export function ImportAnalysisPage() {
   const [reviewError, setReviewError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const visibleOffers = report ? report.offers.filter((offer) => visibleOfferIds === null || visibleOfferIds.includes(offer.id)) : []
+
+  useEffect(() => {
+    if (mode !== 'authenticated' || !session) return
+    let active = true
+    void supabaseImportRepository(session.user).load().then((loaded) => {
+      if (!active) return
+      if (loaded.data) { setReport(loaded.data); setVisibleOfferIds(null); setStatus('review'); setMessage('') }
+      else if (loaded.error) { setMessage(loaded.error); setStatus('error') }
+    })
+    return () => { active = false }
+  }, [mode, session])
 
   async function handleFile(file: File | null) {
     const validation = validateEmlFile(file)
@@ -35,14 +49,20 @@ export function ImportAnalysisPage() {
     const parsed = parseRocketJobsReport(extraction.text)
     const nextReport: ImportedReport = { version: 1, source: 'rocketjobs-eml', fileName: file.name, importedAt: new Date().toISOString(), offers: parsed.offers, warnings: parsed.warnings }
     if (!nextReport.offers.length) { clearImportedReport(); setStatus('empty'); setMessage('Nie znaleźliśmy kompletnych ofert RocketJobs w tym raporcie.'); return }
+    if (mode === 'authenticated' && session) {
+      const saved = await supabaseImportRepository(session.user).save(nextReport)
+      if (!saved.data) { setStatus('error'); setMessage(saved.error ?? 'Nie udalo sie zapisac ofert w chmurze.'); return }
+      setReport(saved.data); setStatus('review'); return
+    }
     setReport(nextReport); saveImportedReport(nextReport); setStatus('review')
   }
 
   function chooseAnotherFile() { clearImportedReport(); clearHardFilterSession(); setReport(null); setVisibleOfferIds(null); setMessage(''); setReviewError(''); setStatus('idle'); if (inputRef.current) inputRef.current.value = '' }
   function deleteOffer(id: string) { setVisibleOfferIds((current) => (current ?? report?.offers.map((offer) => offer.id) ?? []).filter((offerId) => offerId !== id)) }
   function restoreOffers() { if (report) setVisibleOfferIds(restoreImportedOffers(report.offers).map((offer) => offer.id)) }
-  function startHardFilter() {
-    const profileResult = loadUserProfile()
+  async function startHardFilter() {
+    const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
+    const profileResult = cloudProfile ? { profile: cloudProfile.data, warning: cloudProfile.error } : loadUserProfile()
     if (!profileResult.profile) { setReviewError(profileResult.warning ?? 'Najpierw utwórz i zapisz profil, aby uruchomić Hard Filter.'); return }
     if (!canStartDemoAnalysis(visibleOffers)) { setReviewError('Lista ofert jest pusta. Przywróć oferty albo zaimportuj inny raport.'); return }
     const filteredOffers = evaluateOffers(profileResult.profile, visibleOffers)
