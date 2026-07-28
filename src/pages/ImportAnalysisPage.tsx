@@ -1,19 +1,26 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Alert, PageHeader, PrimaryButton, SecondaryButton, SectionCard, SourceBadge } from '../components/ui'
+import { demoOffers } from '../demo/offers'
+
+type ImportState = 'ready' | 'parsing' | 'summary' | 'analyzing' | 'complete'
+const stateLabels: Record<ImportState, string> = { ready: 'Gotowy do importu', parsing: 'Parsowanie', summary: 'Podsumowanie ofert', analyzing: 'Analiza w toku', complete: 'Analiza zakończona' }
 
 export function ImportAnalysisPage() {
-  return (
-    <section className="page">
-      <p className="eyebrow">Przyszły etap</p>
-      <h1>Import i analiza</h1>
-      <p className="page-intro">Import oraz analiza będą działać jako jeden ekran wielostanowy.</p>
-      <div className="placeholder-card">
-        <h2>Przestrzeń na rozpoznane oferty</h2>
-        <p>Analiza będzie uruchamiana ręcznie po podsumowaniu rozpoznanych ofert.</p>
-        <div className="action-row">
-          <Link className="button-link button-link--secondary" to="/profile">Wróć do profilu</Link>
-          <Link className="button-link" to="/offers">Zobacz oferty</Link>
-        </div>
-      </div>
-    </section>
-  )
+  const navigate = useNavigate()
+  const [state, setState] = useState<ImportState>('ready')
+  const [analysisStep, setAnalysisStep] = useState(2)
+  const progress = state === 'parsing' ? 52 : state === 'analyzing' ? Math.round((analysisStep / demoOffers.length) * 100) : state === 'complete' ? 100 : 0
+  const chooseFile = () => setState('parsing')
+  const advanceAnalysis = () => { if (analysisStep >= demoOffers.length) setState('complete'); else setAnalysisStep((step) => step + 1) }
+
+  return <section className="page">
+    <PageHeader eyebrow="Raport RocketJobs" title="Import i analiza" intro="Jeden ekran prowadzi od rozpoznania raportu .eml do wyników. To demonstracja interfejsu — plik nie jest odczytywany ani zapisywany." />
+    <div className="demo-mode"><label>Tryb demonstracyjny<select value={state} onChange={(event) => setState(event.target.value as ImportState)}>{(Object.keys(stateLabels) as ImportState[]).map((key) => <option value={key} key={key}>{stateLabels[key]}</option>)}</select></label><span>Kontrolka służy do review pięciu stanów.</span></div>
+    {state === 'ready' && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raport w formacie .eml</h2><p>Raport RocketJobs zawiera zestaw ofert. Najpierw rozpoznamy ich podstawowe informacje, a analizę uruchomisz później samodzielnie.</p><PrimaryButton onClick={chooseFile}>Wybierz plik</PrimaryButton><span className="field-hint">Obsługiwany format demonstracyjny: .eml</span></div></SectionCard>}
+    {state === 'parsing' && <SectionCard title="Rozpoznajemy raport"><p className="file-name">rocketjobs_1.0.eml <span>· plik demonstracyjny</span></p><div className="progress-track progress-track--large" aria-label="Postęp parsowania: 52%"><span style={{ width: '52%' }} /></div><ol className="process-steps"><li className="is-complete">Sprawdzamy plik</li><li className="is-complete">Odczytujemy raport</li><li className="is-active">Rozpoznajemy oferty</li></ol><div className="action-row"><SecondaryButton onClick={() => setState('ready')}>Wybierz inny plik</SecondaryButton><PrimaryButton onClick={() => setState('summary')}>Pokaż podsumowanie</PrimaryButton></div></SectionCard>}
+    {state === 'summary' && <SectionCard title="Rozpoznane oferty"><Alert title="Analiza nie uruchamia się automatycznie" tone="info">Sprawdź podsumowanie, a następnie zdecyduj, czy chcesz przejść do demonstracyjnej analizy.</Alert><p className="file-name">rocketjobs_1.0.eml <span>· {demoOffers.length} ofert</span></p><ul className="recognized-offers">{demoOffers.map((offer) => <li key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}</span></div><small>{offer.facts.missingInformation.length ? offer.facts.missingInformation[0] : 'Podstawowe dane rozpoznane'}</small></li>)}</ul><div className="action-row"><SecondaryButton onClick={() => setState('ready')}>Wybierz inny plik</SecondaryButton><PrimaryButton onClick={() => { setAnalysisStep(2); setState('analyzing') }}>Analizuj oferty</PrimaryButton></div></SectionCard>}
+    {state === 'analyzing' && <SectionCard title="Analiza demonstracyjna w toku"><p>Przeanalizowano <strong>{analysisStep}/{demoOffers.length}</strong> ofert. Pokazujemy statyczny postęp — nie jest to proces AI.</p><div className="progress-track progress-track--large" aria-label={`Postęp analizy: ${progress}%`}><span style={{ width: `${progress}%` }} /></div><ul className="analysis-list">{demoOffers.map((offer, index) => <li key={offer.id}><span>{offer.title}</span><span className={index < analysisStep ? 'analysis-state analysis-state--done' : index === analysisStep ? 'analysis-state analysis-state--current' : 'analysis-state'}>{index < analysisStep ? 'Zakończona' : index === analysisStep ? 'Analizowana' : 'Oczekuje'}</span></li>)}</ul><Alert title="Źródło danych" tone="warning">Tam, gdzie potrzebne są pełniejsze dane, makieta korzysta z danych zapasowych przygotowanych z materiałów ofert.</Alert><PrimaryButton onClick={advanceAnalysis}>{analysisStep >= demoOffers.length ? 'Zakończ analizę' : 'Kontynuuj demonstrację'}</PrimaryButton></SectionCard>}
+    {state === 'complete' && <SectionCard title="Analiza zakończona"><div className="result-summary"><div><strong>{demoOffers.length}</strong><span>ofert łącznie</span></div><div><strong>{demoOffers.length}</strong><span>przeanalizowano</span></div><div><strong>1</strong><span>odrzucono</span></div><div><strong>2</strong><span>wymagają sprawdzenia</span></div></div><Alert title="Gotowe do przeglądu" tone="success">Wyniki są statyczną warstwą demonstracyjną, nie rezultatem Hard Filter ani AI.</Alert><PrimaryButton onClick={() => navigate('/offers')}>Zobacz wyniki</PrimaryButton></SectionCard>}
+  </section>
 }
