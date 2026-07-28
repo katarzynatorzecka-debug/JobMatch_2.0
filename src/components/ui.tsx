@@ -6,6 +6,7 @@ export function PageHeader({ eyebrow = 'JobMatch', title, intro, actions }: { ey
 export function PrimaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--primary ${className}`} {...props}>{children}</button> }
 export function SecondaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--secondary ${className}`} {...props}>{children}</button> }
 export function PrimaryLink({ to, children }: { to: string; children: ReactNode }) { return <Link className="button button--primary" to={to}>{children}</Link> }
+export function SecondaryLink({ to, children }: { to: string; children: ReactNode }) { return <Link className="button button--secondary" to={to}>{children}</Link> }
 export function StatusBadge({ status }: { status: DemoStatus }) { const meta = statusMeta[status]; return <span className={`status-badge status-badge--${status}`}><span aria-hidden="true">{meta.symbol}</span>{meta.label}</span> }
 export function ScoreBadge({ score }: { score: number }) { return <span className="score-badge" aria-label={`Ocena dopasowania: ${score} na 100`}><strong>{score}</strong><span>/100</span></span> }
 export function SourceBadge({ state }: { state: DemoOffer['sourceState'] }) { return <span className="source-badge"><span aria-hidden="true">▣</span>{state === 'fallback' ? 'Użyto danych zapasowych' : 'Analiza na podstawie częściowych danych'}</span> }
