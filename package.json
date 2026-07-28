@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "pdfjs-dist": "^6.1.200",
+    "postal-mime": "^2.7.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.1",
