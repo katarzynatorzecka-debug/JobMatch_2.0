@@ -1,0 +1,8 @@
+import type { User } from '@supabase/supabase-js'
+import type { JobAnalysis } from '../../contracts/jobAnalysis'
+import { validateJobAnalysis } from '../../schemas/jobAnalysisSchemas'
+import { supabase } from '../supabase/client'
+export interface AnalysisRepository { load(): Promise<JobAnalysis[]>; save(analysis: JobAnalysis): Promise<void> }
+const KEY = 'jobmatch.job-analyses.v1'
+export const localAnalysisRepository: AnalysisRepository = { async load() { try { const raw = sessionStorage.getItem(KEY); const values = raw ? JSON.parse(raw) : []; return Array.isArray(values) ? values.map((item) => validateJobAnalysis(item)).filter((item) => item.success).map((item) => item.data) : [] } catch { return [] } }, async save(analysis) { const values = await this.load(); sessionStorage.setItem(KEY, JSON.stringify([...values.filter((item) => item.offerId !== analysis.offerId), analysis])) } }
+export function supabaseAnalysisRepository(user: User): AnalysisRepository { return { async load() { if (!supabase) return []; const { data } = await supabase.from('job_analyses').select('analysis_data').eq('user_id', user.id).order('updated_at', { ascending: false }); return (data ?? []).map((row) => validateJobAnalysis(row.analysis_data)).filter((item) => item.success).map((item) => item.data) }, async save(analysis) { if (!supabase) throw new Error('Supabase jest niedostępne.'); const { error } = await supabase.from('job_analyses').upsert({ user_id: user.id, job_offer_id: analysis.offerId, filter_status: analysis.hardFilterStatus, analysis_data: analysis }, { onConflict: 'user_id,job_offer_id' }); if (error) throw new Error('Nie udało się zapisać analizy w chmurze.') } } }

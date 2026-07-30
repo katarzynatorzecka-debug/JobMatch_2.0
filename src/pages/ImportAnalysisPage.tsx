@@ -12,6 +12,10 @@ import { parseRocketJobsReport } from '../features/import/rocketJobsReportParser
 import { loadUserProfile } from '../features/profile/profileStorage'
 import { useAppMode } from '../features/access/AppModeProvider'
 import { supabaseImportRepository, supabaseProfileRepository } from '../features/supabase/repositories'
+import { AnalysisOrchestrator, type AnalysisProgress } from '../features/analysis/analysisOrchestrator'
+import { AIAnalysisService } from '../features/analysis/analysisService'
+import { OfferContentProvider } from '../features/analysis/offerContentProvider'
+import { localAnalysisRepository, supabaseAnalysisRepository } from '../features/analysis/analysisRepository'
 
 const processingLabels: Record<Extract<ReportImportStatus, 'validating' | 'reading' | 'parsing'>, string> = { validating: 'Sprawdzamy plik', reading: 'Odczytujemy wiadomość EML', parsing: 'Rozpoznajemy oferty RocketJobs' }
 
@@ -24,6 +28,7 @@ export function ImportAnalysisPage() {
   const [visibleOfferIds, setVisibleOfferIds] = useState<string[] | null>(null)
   const [message, setMessage] = useState(initial.warning ?? '')
   const [reviewError, setReviewError] = useState('')
+  const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const visibleOffers = report ? report.offers.filter((offer) => visibleOfferIds === null || visibleOfferIds.includes(offer.id)) : []
 
@@ -67,12 +72,18 @@ export function ImportAnalysisPage() {
     if (!canStartDemoAnalysis(visibleOffers)) { setReviewError('Lista ofert jest pusta. Przywróć oferty albo zaimportuj inny raport.'); return }
     const filteredOffers = evaluateOffers(profileResult.profile, visibleOffers)
     if (!saveHardFilterSession({ version: 1, filteredOffers })) { setReviewError('Nie udało się bezpiecznie zapisać wyniku Hard Filter w tej sesji.'); return }
+    setAnalysisProgress(filteredOffers.map((item) => ({ offerId: item.offer.id, state: item.result.status === 'fail' ? 'rejected' : 'queued' })))
+    await Promise.resolve()
+    const repository = mode === 'authenticated' && session ? supabaseAnalysisRepository(session.user) : localAnalysisRepository
+    const orchestrator = new AnalysisOrchestrator(new OfferContentProvider(), new AIAnalysisService(), repository)
+    await orchestrator.analyzeAll(profileResult.profile, filteredOffers, (progress) => setAnalysisProgress((current) => [...current.filter((item) => item.offerId !== progress.offerId), progress]))
     navigate('/offers')
   }
 
   return <section className="page">
     <PageHeader eyebrow="Raport RocketJobs" title="Import i analiza" intro="Wczytaj lokalny raport .eml, sprawdź rozpoznane oferty, a następnie ręcznie uruchom deterministyczny Hard Filter." />
     <input ref={inputRef} className="sr-only" type="file" accept=".eml,message/rfc822" onChange={(event) => void handleFile(event.target.files?.[0] ?? null)} />
+    {analysisProgress.length > 0 && <SectionCard title="Postęp analizy AI"><ul className="analysis-list">{analysisProgress.map((item) => <li key={item.offerId}><span>{item.offerId}</span><span className={`analysis-state analysis-state--${item.state}`}>{item.state === 'queued' ? 'oczekuje' : item.state === 'analyzing' ? 'analizowana' : item.state === 'ready' ? 'gotowa' : item.state === 'rejected' ? 'odrzucona przez Hard Filter' : 'wymaga ponowienia'}{item.error ? `: ${item.error}` : ''}</span></li>)}</ul></SectionCard>}
     {status === 'idle' && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raport w formacie .eml</h2><p>Odczyt nastąpi wyłącznie w tej przeglądarce. Zapisujemy jedynie znormalizowane dane ofert na czas sesji — bez treści EML i nagłówków wiadomości.</p><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz plik</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB</span></div></SectionCard>}
     {(['validating', 'reading', 'parsing'] as const).includes(status as 'validating') && <SectionCard title="Rozpoznajemy raport"><p className="file-name">{inputRef.current?.files?.[0]?.name ?? 'Wybrany raport'} <span>· lokalne przetwarzanie</span></p><div className="progress-track progress-track--large" aria-label="Postęp importu"><span style={{ width: status === 'validating' ? '22%' : status === 'reading' ? '56%' : '82%' }} /></div><ol className="process-steps"><li className={status !== 'validating' ? 'is-complete' : 'is-active'}>Sprawdzamy plik</li><li className={status === 'parsing' ? 'is-complete' : status === 'reading' ? 'is-active' : ''}>Odczytujemy raport</li><li className={status === 'parsing' ? 'is-active' : ''}>Rozpoznajemy oferty</li></ol><p className="field-hint">{processingLabels[status as keyof typeof processingLabels]}</p></SectionCard>}
     {status === 'error' && <SectionCard title="Nie udało się zaimportować raportu"><Alert title="Import zatrzymany" tone="warning">{message}</Alert><div className="action-row"><SecondaryButton onClick={chooseAnotherFile}>Wróć</SecondaryButton><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz inny plik</PrimaryButton></div></SectionCard>}

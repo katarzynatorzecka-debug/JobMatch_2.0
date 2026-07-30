@@ -1,0 +1,11 @@
+import { describe, expect, it } from 'vitest'
+import type { FilteredJobOffer } from '../../contracts/hardFilter'
+import type { JobAnalysis } from '../../contracts/jobAnalysis'
+import { defaultProfile } from '../profile/profileDefaults'
+import { AnalysisOrchestrator } from './analysisOrchestrator'
+
+function item(id: string, status: 'pass' | 'weak' | 'fail' = 'pass'): FilteredJobOffer { return { offer: { id, title: 'Automation Specialist', company: 'Example', missingFields: [], warnings: [] }, result: { offerId: id, status, reasons: [], missingInformation: [], checkedCriteria: [] } } }
+function analysis(id: string, status: 'pass' | 'weak' = 'pass'): JobAnalysis { return { offerId: id, overallScore: 60, categoryScores: { experience: { score: 60, rationale: 'ok' }, skills: { score: 60, rationale: 'ok' }, preferences: { score: 60, rationale: 'ok' }, growth: { score: 60, rationale: 'ok' } }, recommendation: 'Wymaga sprawdzenia', summary: 'ok', strengths: [], risks: status === 'weak' ? ['Niepewność danych'] : [], missingInformation: [], hardFilterStatus: status, hardFilterReasons: [], sourceQuality: 'partial', modelInfo: { provider: 'openai', model: 'test', provisional: true }, createdAt: '2026-07-29T10:00:00.000Z', status: 'ready' } }
+describe('AnalysisOrchestrator', () => {
+  it('analyzes five offers without allowing one error to stop the queue', async () => { const saved: JobAnalysis[] = []; const service = { analyze: async (_profile: unknown, current: FilteredJobOffer) => { if (current.offer.id === '3') throw new Error('provider'); return analysis(current.offer.id, current.result.status as 'pass' | 'weak') } }; const repository = { load: async () => [], save: async (entry: JobAnalysis) => { saved.push(entry) } }; const provider = { find: () => ({ text: '', sourceQuality: 'partial' as const }) }; const progress: string[] = []; const orchestrator = new AnalysisOrchestrator(provider as never, service as never, repository); await orchestrator.analyzeAll(defaultProfile, [item('1'), item('2', 'weak'), item('3'), item('4'), item('5', 'fail')], (entry) => progress.push(`${entry.offerId}:${entry.state}`)); expect(saved).toHaveLength(3); expect(progress).toContain('3:retry'); expect(progress).toContain('5:rejected') })
+})
