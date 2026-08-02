@@ -26,7 +26,7 @@ export const importedReportSchema = z.object({
   version: z.literal(1),
   source: z.literal('rocketjobs-eml'),
   fileName: z.string().trim().min(1).max(260),
-  importedAt: z.string().datetime(),
+  importedAt: z.string().datetime({ offset: true }),
   offers: z.array(importedJobOfferSchema).max(100),
   warnings: z.array(importWarningSchema).max(100),
 })
