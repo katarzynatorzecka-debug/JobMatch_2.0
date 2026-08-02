@@ -23,25 +23,27 @@ export function AccessGate() {
 
   return <main className="access-gate">
     <section className="access-gate__hero">
-      <p className="eyebrow">JobMatch</p>
-      <h1>Nie każda oferta zasługuje na Twój czas.</h1>
-      <p>JobMatch analizuje raporty z ofertami, porównuje je z Twoim profilem i pomaga skupić się na tych, które naprawdę warto sprawdzić.</p>
-      <ul><li>Twój profil — CV i preferencje w jednym miejscu</li><li>Mniej ręcznej selekcji — raport zamienia się w uporządkowaną listę</li><li>Lepszy następny krok — status i powody w jednym miejscu</li></ul>
+      <img className="brand-logo brand-logo--access" src="/assets/jobmatch-logo.png" alt="JobMatch" width="251" height="45" />
+      <h1><span>Nie każda oferta</span><span>zasługuje na Twój</span><span>czas.</span></h1>
+      <p>JobMatch pomaga uporządkować oferty, sprawdzić ich dopasowanie do Twojego profilu i skupić się na tych, które naprawdę warto rozważyć.</p>
+      <ol className="access-gate__steps"><li>Dodaj CV i uzupełnij profil.</li><li>Zaimportuj raport ofert.</li><li>Sprawdź dopasowanie i wybierz najlepsze oferty.</li></ol>
     </section>
-    <section className="access-gate__panel">
-      <h2>{register ? 'Załóż konto' : 'Zaloguj się'}</h2>
-      {!configured && <p className="import-warning">Konfiguracja konta nie jest jeszcze dostępna. Możesz bezpiecznie użyć demo.</p>}
-      {configured && <form onSubmit={submit}>
-        <label>E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required /></label>
-        <label>Hasło<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={register ? 'new-password' : 'current-password'} required /></label>
-        {message && <p className="import-warning">{message}</p>}
-        <button className="button button--primary" type="submit" disabled={busy}>{busy ? 'Chwila…' : register ? 'Utwórz konto' : 'Zaloguj się'}</button>
-        <button className="text-action" type="button" onClick={() => setRegister(!register)}>{register ? 'Mam już konto' : 'Załóż konto'}</button>
-      </form>}
-      <hr />
-      <h3>Chcesz najpierw zobaczyć, jak to działa?</h3>
-      <p>Wersja demo nie wymaga rejestracji i zapisuje dane lokalnie.</p>
-      <button className="button button--secondary" type="button" onClick={enterDemo}>Wypróbuj JobMatch</button>
-    </section>
+      <div className="access-gate__right-column">
+        <section className="access-gate__panel">
+        <h2>{register ? 'Załóż konto' : 'Zaloguj się'}</h2>
+        {!configured && <p className="import-warning">Konfiguracja konta nie jest jeszcze dostępna. Możesz bezpiecznie użyć demo.</p>}
+        {configured && <form onSubmit={submit}>
+          <label>E-mail<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required /></label>
+          <label>Hasło<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={register ? 'new-password' : 'current-password'} required /></label>
+          {message && <p className="import-warning">{message}</p>}
+          <button className="button button--primary" type="submit" disabled={busy}>{busy ? 'Chwila…' : register ? 'Utwórz konto' : 'Zaloguj się'}</button>
+          <button className="text-action" type="button" onClick={() => setRegister(!register)}>{register ? 'Mam już konto' : 'Załóż konto'}</button>
+        </form>}
+        <hr />
+        <h3>Chcesz najpierw zobaczyć, jak to działa?</h3>
+        <p>Wersja demo nie wymaga rejestracji i zapisuje dane lokalnie.</p>
+          <button className="button button--secondary" type="button" onClick={enterDemo}>Wypróbuj JobMatch</button>
+        </section>
+      </div>
   </main>
 }

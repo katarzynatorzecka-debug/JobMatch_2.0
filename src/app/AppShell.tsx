@@ -15,7 +15,7 @@ export function AppShell() {
       <header className="site-header">
         <div className="header-content">
           <Link className="brand" to="/" aria-label="JobMatch — Start">
-            JobMatch
+        <img className="brand-logo brand-logo--header" src="/assets/jobmatch-logo.png" alt="JobMatch" width="251" height="45" />
           </Link>
           <nav aria-label="Główna nawigacja">
             <ul className="main-navigation">
