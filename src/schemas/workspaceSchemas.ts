@@ -21,6 +21,20 @@ const jsonArray = z.array(z.unknown())
 const nullableTimestamp = timestamp.nullable()
 
 export const importSessionStatusSchema = z.enum(importSessionStatuses)
+export const workspaceImportResultSchema = z.object({
+  importSessionId: uuid,
+  foundCount: z.number().int().nonnegative(),
+  newCount: z.number().int().nonnegative(),
+  duplicateCount: z.number().int().nonnegative(),
+  invalidCount: z.number().int().nonnegative(),
+  needsReviewCount: z.number().int().nonnegative(),
+  status: z.enum(['active', 'partial']),
+  createdOfferIds: z.array(uuid),
+  reusedOfferIds: z.array(uuid),
+  possibleDuplicateOfferIds: z.array(uuid),
+  invalidItems: z.array(z.object({ rawExternalId: z.string().trim().min(1).max(180), reason: z.string().trim().min(1).max(1000) }).strict()),
+  idempotent: z.boolean(),
+}).strict()
 export const importOfferLinkMatchTypeSchema = z.enum(importOfferLinkMatchTypes)
 export const offerLifecycleStatusSchema = z.enum(offerLifecycleStatuses)
 export const exclusionReasonSchema = z.enum(exclusionReasons)

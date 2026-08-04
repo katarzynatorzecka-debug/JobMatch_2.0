@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import migration from '../../supabase/migrations/20260804_workspace_foundation.sql?raw'
+import migration from '../../supabase/migrations/202608040000_workspace_foundation.sql?raw'
 
 describe('R1.1 workspace migration security contract', () => {
   it('declares composite tenant foreign keys for the workspace relation graph', () => {
