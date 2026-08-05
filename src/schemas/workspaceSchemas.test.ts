@@ -5,6 +5,7 @@ import {
   analysisVersionSchema,
   cvSourceSchema,
   exclusionReasonSchema,
+  hardFilterBatchResultSchema,
   importOfferLinkSchema,
   offerLifecycleStatusSchema,
   workspaceMigrationAuditSchema,
@@ -15,6 +16,12 @@ const otherId = '22222222-2222-4222-8222-222222222222'
 const createdAt = '2026-08-04T10:00:00.000Z'
 
 describe('workspace schemas', () => {
+  it('validates the strict hard filter batch RPC boundary', () => {
+    const value = { profileVersionId: id, hardFilterResultIds: [otherId] }
+    expect(hardFilterBatchResultSchema.safeParse(value).success).toBe(true)
+    expect(hardFilterBatchResultSchema.safeParse({ ...value, hardFilterResultIds: 'invalid' }).success).toBe(false)
+  })
+
   it('accepts a queue item with an active lease and valid attempts', () => {
     const result = analysisQueueItemSchema.safeParse({
       id,

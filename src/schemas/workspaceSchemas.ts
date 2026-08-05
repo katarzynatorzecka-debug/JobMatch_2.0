@@ -35,6 +35,7 @@ export const workspaceImportResultSchema = z.object({
   invalidItems: z.array(z.object({ rawExternalId: z.string().trim().min(1).max(180), reason: z.string().trim().min(1).max(1000) }).strict()),
   idempotent: z.boolean(),
 }).strict()
+export const hardFilterBatchResultSchema = z.object({ profileVersionId: uuid, hardFilterResultIds: z.array(uuid) }).strict()
 export const importOfferLinkMatchTypeSchema = z.enum(importOfferLinkMatchTypes)
 export const offerLifecycleStatusSchema = z.enum(offerLifecycleStatuses)
 export const exclusionReasonSchema = z.enum(exclusionReasons)

@@ -1,5 +1,7 @@
 import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
-import type { ImportOfferLink, OfferUserState, OfferVersion, WorkspaceImportSession, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
+import type { JobAnalysis } from '../../contracts/jobAnalysis'
+import type { UserProfile } from '../../contracts/profile'
+import type { HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceImportSession, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
 import { buildCanonicalFingerprint, normalizeSourceUrl } from './deduplication'
 
 export type WorkspaceImportItem = {
@@ -43,12 +45,18 @@ export type WorkspaceImportResult = {
 export type WorkspaceSnapshot = {
   profile: WorkspaceProfile | null
   importSessions: WorkspaceImportSession[]
+  offers: WorkspaceJobOffer[]
   activeOffers: WorkspaceJobOffer[]
+  profileVersions: ProfileVersion[]
   offerVersions: OfferVersion[]
   importOfferLinks: ImportOfferLink[]
   offerUserStates: OfferUserState[]
+  hardFilterResults: HardFilterResultRecord[]
+  analyses: JobAnalysis[]
   recentlyViewed: Array<{ userId: string; jobOfferId: string; viewedAt: string }>
 }
+
+export type WorkspaceOfferListItem = { offer: WorkspaceJobOffer; currentVersion: OfferVersion | null; userState: OfferUserState | null; hardFilter: HardFilterResultRecord | null; analysis: JobAnalysis | null; activeImportCount: number; importSessionIds: string[]; isActive: boolean }
 
 export type WorkspaceOfferDetails = {
   offer: WorkspaceJobOffer | null
@@ -58,6 +66,19 @@ export type WorkspaceOfferDetails = {
   importOccurrences: ImportOfferLink[]
   userState: OfferUserState | null
   analysisMetadata: unknown[]
+  listItem: WorkspaceOfferListItem | null
+}
+
+export type HardFilterBatchItem = { jobOfferId: string; offerVersionId: string; status: 'pass' | 'needs_review' | 'fail'; reasons: unknown[]; missingInformation: unknown[]; checkedCriteria: unknown[] }
+export type HardFilterBatchInput = { profile: UserProfile; profileHash: string; algorithmVersion: string; items: HardFilterBatchItem[] }
+export type HardFilterBatchResult = { profileVersionId: string; hardFilterResultIds: string[] }
+
+export function assertUniqueHardFilterItems(items: HardFilterBatchItem[]) {
+  const offerIds = new Set<string>()
+  for (const item of items) {
+    if (offerIds.has(item.jobOfferId)) throw new Error('WORKSPACE_DUPLICATE_HARD_FILTER_ITEM')
+    offerIds.add(item.jobOfferId)
+  }
 }
 
 export type RevertImportResult = { importSessionId: string; status: 'reverted' }
@@ -65,8 +86,15 @@ export type ReactivateImportResult = { importSessionId: string; status: 'active'
 
 export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceSnapshot>
+  loadOfferList(includeHistorical?: boolean): Promise<WorkspaceOfferListItem[]>
   loadOfferDetails(offerId: string): Promise<WorkspaceOfferDetails>
   importReport(input: WorkspaceImportInput): Promise<WorkspaceImportResult>
+  persistHardFilterBatch(input: HardFilterBatchInput): Promise<HardFilterBatchResult>
+  setFavorite(offerId: string, favorite: boolean): Promise<void>
+  setApplied(offerId: string, applied: boolean): Promise<void>
+  excludeOffer(offerId: string): Promise<void>
+  restoreOffer(offerId: string): Promise<void>
+  markViewed(offerId: string): Promise<void>
   listImportSessions(): Promise<WorkspaceImportSession[]>
   revertImport(importSessionId: string): Promise<RevertImportResult>
   reactivateImport(importSessionId: string): Promise<ReactivateImportResult>
