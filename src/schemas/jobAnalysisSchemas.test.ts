@@ -9,4 +9,5 @@ describe('JobAnalysis schema', () => {
   it('rejects missing category', () => expect(validateJobAnalysis({ ...valid, categoryScores: { ...valid.categoryScores, growth: undefined } }).success).toBe(false))
   it('rejects unsupported recommendation', () => expect(validateJobAnalysis({ ...valid, recommendation: 'Może' }).success).toBe(false))
   it('rejects incomplete model response', () => expect(validateJobAnalysis({ offerId: 'offer-1', overallScore: 40 }).success).toBe(false))
+  it('preserves UNKNOWN category data without coercing it to a zero score', () => expect(validateJobAnalysis({ ...valid, categoryScores: { ...valid.categoryScores, growth: { score: null, rationale: 'Brak danych.' } } }).success).toBe(true))
 })

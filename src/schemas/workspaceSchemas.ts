@@ -189,6 +189,7 @@ export const analysisQueueItemSchema = z.object({
   lockedAt: nullableTimestamp,
   leaseExpiresAt: nullableTimestamp,
   workerToken: z.string().trim().min(1).max(160).nullable(),
+  providerResponseId: z.string().trim().min(1).max(200).nullable(),
   lastError: z.string().trim().min(1).max(2000).nullable(),
   queuedAt: timestamp,
   startedAt: nullableTimestamp,
@@ -201,6 +202,11 @@ export const analysisQueueItemSchema = z.object({
     context.addIssue({ code: 'custom', message: 'processing queue items require a lease', path: ['status'] })
   }
 })
+
+export const analysisEnqueueResultSchema = z.object({
+  queueItem: analysisQueueItemSchema,
+  idempotent: z.boolean(),
+}).strict()
 
 export const workspaceJobAnalysisSchema = z.object({
   id: uuid,
@@ -230,6 +236,15 @@ export const analysisVersionSchema = z.object({
   sourceType: z.string().trim().min(1).max(80),
   sourceQuality: z.string().trim().min(1).max(80),
   createdAt: timestamp,
+}).strict()
+
+export const workspaceAnalysisStateSchema = z.object({
+  queueItem: analysisQueueItemSchema.nullable(),
+  latestVersion: analysisVersionSchema.nullable(),
+  freshness: analysisFreshnessStatusSchema,
+  lastAnalysisAt: timestamp.nullable(),
+  errorCode: z.string().trim().min(1).max(2000).nullable(),
+  isLegacyFallback: z.boolean(),
 }).strict()
 
 export const recentlyViewedSchema = z.object({ userId: uuid, jobOfferId: uuid, viewedAt: timestamp }).strict()

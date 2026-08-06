@@ -1,11 +1,12 @@
-import type { HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceImportSession, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
+import type { JobAnalysis } from '../../contracts/jobAnalysis'
+import type { AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceImportSession, WorkspaceJobAnalysis, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
 import { classifyDedupMatch } from './deduplication'
 import { projectWorkspaceOfferDetails, projectWorkspaceOfferList } from './workspaceReadModel'
 import { assertUniqueHardFilterItems, type HardFilterBatchInput, type HardFilterBatchResult, type ReactivateImportResult, type RevertImportResult, type WorkspaceImportInput, type WorkspaceImportResult, type WorkspaceOfferDetails, type WorkspaceRepository, type WorkspaceSnapshot } from './workspaceRepository'
 
 const KEY = 'jobmatch.demo.workspace.v1'
-type Store = { profile: WorkspaceProfile | null; profileVersions: ProfileVersion[]; sessions: WorkspaceImportSession[]; offers: WorkspaceJobOffer[]; versions: OfferVersion[]; links: ImportOfferLink[]; states: OfferUserState[]; hardFilters: HardFilterResultRecord[]; results: Record<string, WorkspaceImportResult>; viewed: Array<{ userId: string; jobOfferId: string; viewedAt: string }> }
-const empty = (): Store => ({ profile: null, profileVersions: [], sessions: [], offers: [], versions: [], links: [], states: [], hardFilters: [], results: {}, viewed: [] })
+type Store = { profile: WorkspaceProfile | null; profileVersions: ProfileVersion[]; sessions: WorkspaceImportSession[]; offers: WorkspaceJobOffer[]; versions: OfferVersion[]; links: ImportOfferLink[]; states: OfferUserState[]; hardFilters: HardFilterResultRecord[]; queue: AnalysisQueueItem[]; workspaceAnalyses: WorkspaceJobAnalysis[]; analysisVersions: AnalysisVersion[]; results: Record<string, WorkspaceImportResult>; viewed: Array<{ userId: string; jobOfferId: string; viewedAt: string }> }
+const empty = (): Store => ({ profile: null, profileVersions: [], sessions: [], offers: [], versions: [], links: [], states: [], hardFilters: [], queue: [], workspaceAnalyses: [], analysisVersions: [], results: {}, viewed: [] })
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const id = (prefix: string, seed: string) => `${prefix}-${seed.replace(/[^a-z0-9]/gi, '').slice(-18) || Date.now().toString(36)}`
 
@@ -15,7 +16,7 @@ export function localWorkspaceRepository(userId = 'demo-user', storage: Pick<Sto
   const snapshot = (store: Store): WorkspaceSnapshot => {
     const activeSessions = new Set(store.sessions.filter((session) => session.status !== 'reverted').map((session) => session.id))
     const activeOfferIds = new Set(store.links.filter((link) => activeSessions.has(link.importSessionId)).map((link) => link.jobOfferId))
-    return { profile: copy(store.profile), profileVersions: copy(store.profileVersions), importSessions: copy(store.sessions), offers: copy(store.offers), activeOffers: copy(store.offers.filter((offer) => activeOfferIds.has(offer.id))), offerVersions: copy(store.versions), importOfferLinks: copy(store.links), offerUserStates: copy(store.states), hardFilterResults: copy(store.hardFilters), analyses: [], recentlyViewed: copy(store.viewed) }
+    return { profile: copy(store.profile), profileVersions: copy(store.profileVersions), importSessions: copy(store.sessions), offers: copy(store.offers), activeOffers: copy(store.offers.filter((offer) => activeOfferIds.has(offer.id))), offerVersions: copy(store.versions), importOfferLinks: copy(store.links), offerUserStates: copy(store.states), hardFilterResults: copy(store.hardFilters), analyses: [], legacyAnalysisIssues: [], analysisQueue: copy(store.queue), workspaceAnalyses: copy(store.workspaceAnalyses), analysisVersions: copy(store.analysisVersions), recentlyViewed: copy(store.viewed) }
   }
   const offerState = (store: Store, offerId: string) => { const state = store.states.find((item) => item.jobOfferId === offerId); if (!state) throw new Error('WORKSPACE_OFFER_NOT_FOUND'); return state }
   const touch = (state: OfferUserState) => { state.updatedAt = new Date().toISOString() }
@@ -74,5 +75,39 @@ export function localWorkspaceRepository(userId = 'demo-user', storage: Pick<Sto
     async listImportSessions() { return copy(read().sessions) },
     async revertImport(importSessionId) { const store = read(); const session = store.sessions.find((item) => item.id === importSessionId); if (!session) throw new Error('WORKSPACE_IMPORT_NOT_FOUND'); if (session.status !== 'reverted') { session.status = 'reverted'; session.revertedAt = new Date().toISOString(); session.operationMetadata = { ...session.operationMetadata, revertedAt: session.revertedAt }; write(store) }; return { importSessionId, status: 'reverted' } satisfies RevertImportResult },
     async reactivateImport(importSessionId) { const store = read(); const session = store.sessions.find((item) => item.id === importSessionId); if (!session) throw new Error('WORKSPACE_IMPORT_NOT_FOUND'); if (session.status === 'reverted') { session.status = session.invalidCount > 0 ? 'partial' : 'active'; session.reactivatedAt = new Date().toISOString(); session.operationMetadata = { ...session.operationMetadata, reactivatedAt: session.reactivatedAt }; write(store) }; return { importSessionId, status: session.status === 'partial' ? 'partial' : 'active' } satisfies ReactivateImportResult },
+    async enqueueAnalysis(offerId, options) {
+      const store = read(); const offer = store.offers.find((item) => item.id === offerId); const state = offerState(store, offerId); const hardFilter = store.hardFilters.find((item) => item.jobOfferId === offerId && item.isCurrent)
+      if (!offer || !offer.currentVersionId || !store.profile?.currentVersionId || !hardFilter) throw new Error('WORKSPACE_ANALYSIS_CONTEXT_REQUIRED')
+      if (hardFilter.status === 'fail' && !options?.allowHardFilterFail) throw new Error('WORKSPACE_ANALYSIS_BLOCKED_BY_HARD_FILTER')
+      if (state.lifecycleStatus === 'excluded' && (state.exclusionReason !== 'hard_filter_fail' || !options?.allowHardFilterFail)) throw new Error('WORKSPACE_ANALYSIS_BLOCKED_BY_EXCLUSION')
+      const existing = store.queue.find((item) => item.jobOfferId === offerId && (item.status === 'queued' || item.status === 'processing'))
+      if (existing) return { queueItem: copy(existing), idempotent: true }
+      const now = new Date().toISOString(); const queueItem: AnalysisQueueItem = { id: id('analysis-queue', `${offerId}-${now}`), userId, jobOfferId: offerId, offerVersionId: offer.currentVersionId, profileVersionId: store.profile.currentVersionId, hardFilterResultId: hardFilter.id, status: 'queued', requestType: store.workspaceAnalyses.some((item) => item.jobOfferId === offerId && item.latestVersionId) ? 'reanalysis' : 'initial', requestedBy: 'user', attemptCount: 0, maxAttempts: 2, lockedAt: null, leaseExpiresAt: null, workerToken: null, providerResponseId: null, lastError: null, queuedAt: now, startedAt: null, completedAt: null, cancelledAt: null, updatedAt: now }
+      store.queue.push(queueItem); state.lifecycleStatus = 'selected_for_analysis'; touch(state); write(store)
+      return { queueItem: copy(queueItem), idempotent: false }
+    },
+    async cancelQueuedAnalysis(queueItemId) {
+      const store = read(); const item = store.queue.find((entry) => entry.id === queueItemId); if (!item) throw new Error('WORKSPACE_ANALYSIS_NOT_FOUND')
+      if (item.status === 'processing') throw new Error('WORKSPACE_ANALYSIS_PROCESSING_CANNOT_CANCEL')
+      if (item.status === 'queued') { const state = offerState(store, item.jobOfferId); const hardFilter = store.hardFilters.find((entry) => entry.jobOfferId === item.jobOfferId && entry.isCurrent); item.status = 'cancelled'; item.cancelledAt = new Date().toISOString(); item.updatedAt = item.cancelledAt; if (state.lifecycleStatus !== 'excluded') state.lifecycleStatus = hardFilter?.status === 'needs_review' ? 'needs_review' : 'new'; touch(state); write(store); return { queueItem: copy(item), idempotent: false } }
+      return { queueItem: copy(item), idempotent: true }
+    },
+    async completeLocalAnalysis(queueItemId: string, analysis: JobAnalysis) {
+      const store = read(); const queueItem = store.queue.find((item) => item.id === queueItemId)
+      if (!queueItem || queueItem.status === 'cancelled') throw new Error('WORKSPACE_ANALYSIS_NOT_FOUND')
+      if (queueItem.status === 'completed') return
+      const now = new Date().toISOString(); const state = offerState(store, queueItem.jobOfferId)
+      const workspaceAnalysis = store.workspaceAnalyses.find((item) => item.jobOfferId === queueItem.jobOfferId)
+        ?? { id: id('workspace-analysis', queueItem.jobOfferId), userId, jobOfferId: queueItem.jobOfferId, latestVersionId: null, createdAt: now, updatedAt: now }
+      if (!store.workspaceAnalyses.some((item) => item.id === workspaceAnalysis.id)) store.workspaceAnalyses.push(workspaceAnalysis)
+      const version: AnalysisVersion = {
+        id: id('analysis-version', `${queueItem.id}-${now}`), userId, jobAnalysisId: workspaceAnalysis.id, jobOfferId: queueItem.jobOfferId, offerVersionId: queueItem.offerVersionId, profileVersionId: queueItem.profileVersionId, queueItemId: queueItem.id,
+        analysisData: analysis as unknown as Record<string, unknown>, hardFilterStatus: queueItem.hardFilterResultId ? (store.hardFilters.find((item) => item.id === queueItem.hardFilterResultId)?.status ?? 'pass') : 'pass', modelProvider: 'demo-fixture', modelVersion: 'gpt-5.4-mini', promptVersion: 'jobmatch-job-match-v1', algorithmVersion: analysis.scoring?.algorithmVersion ?? 'jobmatch-deterministic-r1', confidence: analysis.criteria ? Math.round(Object.values(analysis.criteria).reduce((sum, criterion) => sum + criterion.confidence, 0) / 4) : null, coverage: analysis.scoring?.coverage ?? null, sourceType: 'demo-fixture', sourceQuality: 'fixture', createdAt: now,
+      }
+      store.analysisVersions.push(version); workspaceAnalysis.latestVersionId = version.id; workspaceAnalysis.updatedAt = now
+      queueItem.status = 'completed'; queueItem.completedAt = now; queueItem.updatedAt = now; queueItem.providerResponseId = 'demo-fixture'
+      if (state.lifecycleStatus !== 'excluded') { state.lifecycleStatus = 'analyzed'; touch(state) }
+      write(store)
+    },
   }
 }

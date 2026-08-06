@@ -1,7 +1,7 @@
 import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
 import type { JobAnalysis } from '../../contracts/jobAnalysis'
 import type { UserProfile } from '../../contracts/profile'
-import type { HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceImportSession, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
+import type { AnalysisEnqueueResult, AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceAnalysisState, WorkspaceImportSession, WorkspaceJobAnalysis, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
 import { buildCanonicalFingerprint, normalizeSourceUrl } from './deduplication'
 
 export type WorkspaceImportItem = {
@@ -42,6 +42,11 @@ export type WorkspaceImportResult = {
   idempotent: boolean
 }
 
+export type LegacyAnalysisIssue = {
+  jobOfferId: string
+  code: 'WORKSPACE_LEGACY_ANALYSIS_INVALID' | 'WORKSPACE_LEGACY_ANALYSIS_IDENTITY_MISMATCH'
+}
+
 export type WorkspaceSnapshot = {
   profile: WorkspaceProfile | null
   importSessions: WorkspaceImportSession[]
@@ -53,10 +58,14 @@ export type WorkspaceSnapshot = {
   offerUserStates: OfferUserState[]
   hardFilterResults: HardFilterResultRecord[]
   analyses: JobAnalysis[]
+  legacyAnalysisIssues: LegacyAnalysisIssue[]
+  analysisQueue: AnalysisQueueItem[]
+  workspaceAnalyses: WorkspaceJobAnalysis[]
+  analysisVersions: AnalysisVersion[]
   recentlyViewed: Array<{ userId: string; jobOfferId: string; viewedAt: string }>
 }
 
-export type WorkspaceOfferListItem = { offer: WorkspaceJobOffer; currentVersion: OfferVersion | null; userState: OfferUserState | null; hardFilter: HardFilterResultRecord | null; analysis: JobAnalysis | null; activeImportCount: number; importSessionIds: string[]; isActive: boolean }
+export type WorkspaceOfferListItem = { offer: WorkspaceJobOffer; currentVersion: OfferVersion | null; userState: OfferUserState | null; hardFilter: HardFilterResultRecord | null; analysis: JobAnalysis | null; analysisState: WorkspaceAnalysisState; activeImportCount: number; importSessionIds: string[]; isActive: boolean }
 
 export type WorkspaceOfferDetails = {
   offer: WorkspaceJobOffer | null
@@ -66,6 +75,8 @@ export type WorkspaceOfferDetails = {
   importOccurrences: ImportOfferLink[]
   userState: OfferUserState | null
   analysisMetadata: unknown[]
+  analysisHistory: AnalysisVersion[]
+  analysisState: WorkspaceAnalysisState
   listItem: WorkspaceOfferListItem | null
 }
 
@@ -98,6 +109,9 @@ export interface WorkspaceRepository {
   listImportSessions(): Promise<WorkspaceImportSession[]>
   revertImport(importSessionId: string): Promise<RevertImportResult>
   reactivateImport(importSessionId: string): Promise<ReactivateImportResult>
+  enqueueAnalysis(offerId: string, options?: { allowHardFilterFail?: boolean }): Promise<AnalysisEnqueueResult>
+  cancelQueuedAnalysis(queueItemId: string): Promise<AnalysisEnqueueResult>
+  completeLocalAnalysis?(queueItemId: string, analysis: JobAnalysis): Promise<void>
 }
 
 function stableHash(value: string) {

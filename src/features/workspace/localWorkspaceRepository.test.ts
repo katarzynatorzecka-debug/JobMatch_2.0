@@ -24,6 +24,34 @@ describe('local workspace repository', () => {
     expect(snapshot.offerVersions).toHaveLength(3)
   })
 
+  it('keeps one session, link and version when the same idempotency key is replayed five times', async () => {
+    const repository = localWorkspaceRepository('demo-user', new MemoryStorage())
+    const input = toWorkspaceImportInput('demo-user', report('replay.eml', [offer('replay-1', 'Data Analyst', 'https://jobs.example.com/replay')]))
+
+    for (let count = 0; count < 5; count += 1) await repository.importReport(input)
+
+    const snapshot = await repository.loadWorkspace()
+    expect(snapshot.importSessions).toHaveLength(1)
+    expect(snapshot.offers).toHaveLength(1)
+    expect(snapshot.importOfferLinks).toHaveLength(1)
+    expect(snapshot.offerVersions).toHaveLength(1)
+  })
+
+  it('keeps five import occurrences on one canonical offer for five distinct reports with the same exact URL', async () => {
+    const repository = localWorkspaceRepository('demo-user', new MemoryStorage())
+
+    for (let count = 1; count <= 5; count += 1) {
+      await repository.importReport(toWorkspaceImportInput('demo-user', report(`occurrence-${count}.eml`, [offer(`occurrence-${count}`, 'Data Analyst', 'https://jobs.example.com/shared')])) )
+    }
+
+    const snapshot = await repository.loadWorkspace()
+    expect(snapshot.importSessions).toHaveLength(5)
+    expect(snapshot.offers).toHaveLength(1)
+    expect(snapshot.importOfferLinks).toHaveLength(5)
+    expect(snapshot.offerVersions).toHaveLength(1)
+    expect(await repository.loadOfferList()).toHaveLength(1)
+  })
+
   it('is idempotent for the same report and creates a version only when content changes', async () => {
     const repository = localWorkspaceRepository('demo-user', new MemoryStorage())
     const original = report('a.eml', [offer('a-1', 'Data Analyst', 'https://jobs.example.com/a')])
@@ -162,5 +190,18 @@ describe('local workspace repository', () => {
     await repository.revertImport(second.importSessionId)
     expect((await repository.loadOfferList()).map((item) => item.offer.id)).not.toContain(historicalOfferId)
     expect(await repository.loadOfferDetails(historicalOfferId)).toMatchObject({ isActive: false, offer: { id: historicalOfferId } })
+  })
+
+  it('creates one explicit active queue item, blocks HF fail and permits a queued cancel', async () => {
+    const repository = localWorkspaceRepository('demo-user', new MemoryStorage())
+    const imported = await repository.importReport(toWorkspaceImportInput('demo-user', report('a.eml', [offer('a-1', 'Data Analyst', 'https://jobs.example.com/a')])));
+    const offerId = imported.createdOfferIds[0]; const versionId = (await repository.loadOfferDetails(offerId)).currentVersion!.id
+    await repository.persistHardFilterBatch({ profile, profileHash: 'profile-v1', algorithmVersion: 'hf-v1', items: [{ jobOfferId: offerId, offerVersionId: versionId, status: 'pass', reasons: [], missingInformation: [], checkedCriteria: [] }] })
+    const first = await repository.enqueueAnalysis(offerId); const repeated = await repository.enqueueAnalysis(offerId)
+    expect(repeated).toMatchObject({ idempotent: true, queueItem: { id: first.queueItem.id, status: 'queued' } })
+    await repository.cancelQueuedAnalysis(first.queueItem.id)
+    expect((await repository.loadOfferDetails(offerId)).analysisState.queueItem).toBeNull()
+    await repository.persistHardFilterBatch({ profile, profileHash: 'profile-v1', algorithmVersion: 'hf-v1', items: [{ jobOfferId: offerId, offerVersionId: versionId, status: 'fail', reasons: [], missingInformation: [], checkedCriteria: [] }] })
+    await expect(repository.enqueueAnalysis(offerId)).rejects.toThrow('WORKSPACE_ANALYSIS_BLOCKED_BY_HARD_FILTER')
   })
 })

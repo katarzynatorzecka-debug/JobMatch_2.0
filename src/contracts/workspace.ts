@@ -167,6 +167,7 @@ export interface AnalysisQueueItem {
   lockedAt: string | null
   leaseExpiresAt: string | null
   workerToken: string | null
+  providerResponseId: string | null
   lastError: string | null
   queuedAt: string
   startedAt: string | null
@@ -203,6 +204,20 @@ export interface AnalysisVersion {
   sourceType: string
   sourceQuality: string
   createdAt: string
+}
+
+export interface AnalysisEnqueueResult {
+  queueItem: AnalysisQueueItem
+  idempotent: boolean
+}
+
+export interface WorkspaceAnalysisState {
+  queueItem: AnalysisQueueItem | null
+  latestVersion: AnalysisVersion | null
+  freshness: AnalysisFreshnessStatus
+  lastAnalysisAt: string | null
+  errorCode: string | null
+  isLegacyFallback: boolean
 }
 
 export interface RecentlyViewed {

@@ -1,27 +1,48 @@
 import type { JobAnalysis } from '../../contracts/jobAnalysis'
-import type { HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, WorkspaceJobOffer } from '../../contracts/workspace'
+import { validateJobAnalysis } from '../../schemas/jobAnalysisSchemas'
+import type { AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, WorkspaceJobOffer } from '../../contracts/workspace'
 import type { WorkspaceOfferDetails, WorkspaceOfferListItem, WorkspaceSnapshot } from './workspaceRepository'
-import { resolveLifecycle } from './workspaceLifecycle'
+import { activeQueueForOffer, analysisFreshness, queueLifecycle } from './analysisQueue'
 
 function currentVersion(offer: WorkspaceJobOffer, versions: OfferVersion[]) { return offer.currentVersionId ? versions.find((version) => version.id === offer.currentVersionId) ?? null : null }
 function currentHardFilter(offerId: string, results: HardFilterResultRecord[]) { return results.find((result) => result.jobOfferId === offerId && result.isCurrent) ?? null }
 function linksFor(offerId: string, links: ImportOfferLink[]) { return links.filter((link) => link.jobOfferId === offerId) }
 function activeSessions(snapshot: WorkspaceSnapshot) { return new Set(snapshot.importSessions.filter((session) => session.status !== 'reverted').map((session) => session.id)) }
 function analysisFor(offerId: string, analyses: JobAnalysis[]) { return analyses.find((analysis) => analysis.offerId === offerId) ?? null }
+type VersionedAnalysisProjection = { latestVersion: AnalysisVersion | null; analysis: JobAnalysis | null; errorCode: string | null }
+
+function latestVersionFor(offerId: string, snapshot: WorkspaceSnapshot): VersionedAnalysisProjection {
+  const analyses = snapshot.workspaceAnalyses.filter((item) => item.jobOfferId === offerId)
+  if (analyses.length > 1) return { latestVersion: null, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_IDENTITY_CONFLICT' }
+  const workspaceAnalysis = analyses[0]
+  if (!workspaceAnalysis?.latestVersionId) return { latestVersion: null, analysis: null, errorCode: null }
+  const latestVersion = snapshot.analysisVersions.find((item) => item.id === workspaceAnalysis.latestVersionId) ?? null
+  if (!latestVersion) return { latestVersion: null, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_VERSION_NOT_FOUND' }
+  if (latestVersion.jobOfferId !== offerId) return { latestVersion, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_IDENTITY_MISMATCH' }
+  const parsed = validateJobAnalysis(latestVersion.analysisData)
+  if (!parsed.success || parsed.data.offerId !== offerId) return { latestVersion, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_INVALID_RESPONSE' }
+  return { latestVersion, analysis: parsed.data, errorCode: null }
+}
 
 export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: WorkspaceJobOffer): WorkspaceOfferListItem {
   const links = linksFor(offer.id, snapshot.importOfferLinks)
   const active = activeSessions(snapshot)
   const importSessionIds = [...new Set(links.map((link) => link.importSessionId))]
   const hardFilter = currentHardFilter(offer.id, snapshot.hardFilterResults)
-  const analysis = analysisFor(offer.id, snapshot.analyses)
+  const versionedAnalysis = latestVersionFor(offer.id, snapshot)
+  const { latestVersion } = versionedAnalysis
+  const legacyAnalysis = analysisFor(offer.id, snapshot.analyses)
+  const legacyIssue = snapshot.legacyAnalysisIssues.find((issue) => issue.jobOfferId === offer.id) ?? null
+  const analysis = latestVersion || versionedAnalysis.errorCode || legacyIssue ? versionedAnalysis.analysis : legacyAnalysis
+  const queueItem = activeQueueForOffer(snapshot.analysisQueue, offer.id)
   const storedState = snapshot.offerUserStates.find((state) => state.jobOfferId === offer.id) ?? null
   const userState = storedState ? {
     ...storedState,
-    lifecycleStatus: resolveLifecycle({
-      current: storedState,
-      hardFilter,
-      hasAnalysis: Boolean(analysis),
+      lifecycleStatus: queueLifecycle({
+        current: storedState,
+        hardFilter,
+        queueItem,
+        hasCurrentAnalysis: Boolean(versionedAnalysis.analysis ?? legacyAnalysis),
       possibleDuplicate: links.some((link) => link.needsReview || link.matchType === 'possible_duplicate'),
     }),
   } : null
@@ -31,6 +52,14 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
     userState,
     hardFilter,
     analysis,
+    analysisState: {
+      queueItem,
+      latestVersion,
+      freshness: analysisFreshness({ latestVersion, profile: snapshot.profile, offerVersionId: offer.currentVersionId, hardFilter }),
+      lastAnalysisAt: latestVersion?.createdAt ?? legacyAnalysis?.createdAt ?? null,
+      errorCode: versionedAnalysis.errorCode ?? legacyIssue?.code ?? queueItem?.lastError ?? snapshot.analysisQueue.find((item) => item.jobOfferId === offer.id && item.status === 'failed')?.lastError ?? null,
+      isLegacyFallback: Boolean(!latestVersion && !versionedAnalysis.errorCode && !legacyIssue && legacyAnalysis),
+    },
     activeImportCount: importSessionIds.filter((id) => active.has(id)).length,
     importSessionIds,
     isActive: importSessionIds.some((id) => active.has(id)),
@@ -38,14 +67,20 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
 }
 
 export function projectWorkspaceOfferList(snapshot: WorkspaceSnapshot, includeHistorical = false) {
-  return snapshot.offers
+  const canonicalOffers = snapshot.offers.filter((offer, index, offers) => offers.findIndex((candidate) => candidate.id === offer.id) === index)
+  return canonicalOffers
     .map((offer) => projectWorkspaceOffer(snapshot, offer))
     .filter((item) => includeHistorical || item.isActive)
+    .sort((left, right) => {
+      const rightSeenAt = right.offer.lastSeenAt ?? right.offer.createdAt
+      const leftSeenAt = left.offer.lastSeenAt ?? left.offer.createdAt
+      return rightSeenAt.localeCompare(leftSeenAt) || right.offer.id.localeCompare(left.offer.id)
+    })
 }
 
 export function projectWorkspaceOfferDetails(snapshot: WorkspaceSnapshot, offerId: string): WorkspaceOfferDetails {
   const offer = snapshot.offers.find((item) => item.id === offerId) ?? null
-  if (!offer) return { offer: null, isActive: false, currentVersion: null, versionHistory: [], importOccurrences: [], userState: null, analysisMetadata: [], listItem: null }
+  if (!offer) return { offer: null, isActive: false, currentVersion: null, versionHistory: [], importOccurrences: [], userState: null, analysisMetadata: [], analysisHistory: [], analysisState: { queueItem: null, latestVersion: null, freshness: 'missing', lastAnalysisAt: null, errorCode: null, isLegacyFallback: false }, listItem: null }
   const listItem = projectWorkspaceOffer(snapshot, offer)
   return {
     offer,
@@ -55,6 +90,8 @@ export function projectWorkspaceOfferDetails(snapshot: WorkspaceSnapshot, offerI
     importOccurrences: linksFor(offerId, snapshot.importOfferLinks),
     userState: listItem.userState,
     analysisMetadata: listItem.analysis ? [listItem.analysis] : [],
+    analysisHistory: snapshot.analysisVersions.filter((version) => version.jobOfferId === offerId).sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    analysisState: listItem.analysisState,
     listItem,
   }
 }

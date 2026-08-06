@@ -38,6 +38,7 @@ describe('workspace schemas', () => {
       lockedAt: createdAt,
       leaseExpiresAt: '2026-08-04T10:05:00.000Z',
       workerToken: 'lease-token',
+      providerResponseId: null,
       lastError: null,
       queuedAt: createdAt,
       startedAt: createdAt,
@@ -64,6 +65,7 @@ describe('workspace schemas', () => {
       lockedAt: null,
       leaseExpiresAt: null,
       workerToken: null,
+      providerResponseId: null,
       lastError: null,
       queuedAt: createdAt,
       startedAt: null,
@@ -78,7 +80,7 @@ describe('workspace schemas', () => {
     const value = {
       id, userId: otherId, jobOfferId: id, offerVersionId: id, profileVersionId: id, hardFilterResultId: null,
       status: 'processing', requestType: 'initial', requestedBy: 'user', attemptCount: 1, maxAttempts: 3,
-      lockedAt: createdAt, leaseExpiresAt: createdAt, workerToken: 'lease-token', lastError: null,
+      lockedAt: createdAt, leaseExpiresAt: createdAt, workerToken: 'lease-token', providerResponseId: null, lastError: null,
       queuedAt: createdAt, startedAt: createdAt, completedAt: null, cancelledAt: null, updatedAt: createdAt,
     }
     value[field] = null as never
