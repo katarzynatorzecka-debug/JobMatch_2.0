@@ -1,54 +1,156 @@
-import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import type { ImportedReport, ReportImportStatus } from '../contracts/import'
+import { useMemo, useRef, useState } from 'react'
+import type { ImportedReport, ImportWarning } from '../contracts/import'
 import { Alert, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
-import { useAppMode } from '../features/access/AppModeProvider'
-import { evaluateOffers } from '../features/hardFilter/hardFilter'
 import { extractEmlContent } from '../features/import/emlExtractor'
-import { clearImportedReport, loadImportedReport, saveImportedReport } from '../features/import/importSessionStorage'
-import { canStartDemoAnalysis, restoreImportedOffers } from '../features/import/importReviewState'
+import {
+  appendBatchEntries,
+  createImportBatchId,
+  createImportBatchState,
+  hasRemovedOffers,
+  markBatchReady,
+  removeBatchOffer,
+  removeBatchReport,
+  restoreBatchOffers,
+  summarizeBatch,
+  visibleOffers,
+  type ImportBatchEntry,
+} from '../features/import/importBatchState'
 import { validateEmlFile } from '../features/import/importUtils'
 import { parseRocketJobsReport } from '../features/import/rocketJobsReportParser'
-import { loadUserProfile } from '../features/profile/profileStorage'
-import { supabaseProfileRepository } from '../features/supabase/repositories'
-import { toWorkspaceImportInput, type HardFilterBatchItem } from '../features/workspace/workspaceRepository'
-import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
 
-const processingLabels: Record<Extract<ReportImportStatus, 'validating' | 'reading' | 'parsing'>, string> = { validating: 'Sprawdzamy plik', reading: 'Odczytujemy wiadomość EML', parsing: 'Rozpoznajemy oferty RocketJobs' }
-function stableHash(value: string) { let hash = 2166136261; for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619) }; return (hash >>> 0).toString(36) }
+const processingLabels = {
+  adding_files: 'Przygotowujemy wybrane pliki.',
+  reading: 'Odczytujemy wiadomości EML lokalnie w przeglądarce.',
+  parsing: 'Rozpoznajemy oferty RocketJobs i pola wymagające sprawdzenia.',
+} as const
+
+function parserWarnings(warnings: string[]): ImportWarning[] {
+  return warnings.map((message) => ({ code: 'partial-parse' as const, message }))
+}
 
 export function ImportAnalysisPage() {
-  const navigate = useNavigate(); const { mode, session } = useAppMode(); const initial = loadImportedReport()
-  const [status, setStatus] = useState<ReportImportStatus>(initial.report ? 'review' : 'idle'); const [report, setReport] = useState<ImportedReport | null>(initial.report); const [visibleOfferIds, setVisibleOfferIds] = useState<string[] | null>(null); const [message, setMessage] = useState(initial.warning ?? ''); const [reviewError, setReviewError] = useState(''); const [busy, setBusy] = useState(false); const inputRef = useRef<HTMLInputElement>(null)
-  const visibleOffers = report ? report.offers.filter((offer) => visibleOfferIds === null || visibleOfferIds.includes(offer.id)) : []
-  async function handleFile(file: File | null) {
-    const validation = validateEmlFile(file); if (!validation.valid || !file) { setStatus('error'); setMessage(validation.valid ? 'Wybierz plik raportu.' : validation.error); return }
-    setMessage(''); setReviewError(''); setReport(null); setVisibleOfferIds(null); setStatus('validating'); await Promise.resolve(); setStatus('reading')
-    const extraction = await extractEmlContent(file); if (!extraction.success) { setStatus('error'); setMessage(extraction.error ?? 'Nie udało się odczytać raportu.'); return }
-    setStatus('parsing'); await Promise.resolve(); const parsed = parseRocketJobsReport(extraction.text); const next: ImportedReport = { version: 1, source: 'rocketjobs-eml', fileName: file.name, importedAt: new Date().toISOString(), offers: parsed.offers, warnings: parsed.warnings }
-    if (!next.offers.length) { clearImportedReport(); setStatus('empty'); setMessage('Nie znaleźliśmy kompletnych ofert RocketJobs w tym raporcie.'); return }
-    setReport(next); saveImportedReport(next); setStatus('review')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const sequenceRef = useRef(0)
+  const [batch, setBatch] = useState(createImportBatchState)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [readyMessage, setReadyMessage] = useState('')
+  const summary = useMemo(() => summarizeBatch(batch), [batch])
+
+  function openFilePicker() {
+    inputRef.current?.click()
   }
-  function chooseAnotherFile() { clearImportedReport(); setReport(null); setVisibleOfferIds(null); setMessage(''); setReviewError(''); setStatus('idle'); if (inputRef.current) inputRef.current.value = '' }
-  async function startHardFilter() {
-    if (!report || !mode || busy) return; setReviewError('')
-    const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null; const profileResult = cloudProfile ? { profile: cloudProfile.data, warning: cloudProfile.error } : loadUserProfile()
-    if (!profileResult.profile) { setReviewError(profileResult.warning ?? 'Najpierw utwórz i zapisz profil, aby uruchomić Hard Filter.'); return }
-    if (!canStartDemoAnalysis(visibleOffers)) { setReviewError('Lista ofert jest pusta. Przywróć oferty albo zaimportuj inny raport.'); return }
-    setBusy(true)
-    try {
-      const userId = mode === 'authenticated' && session ? session.user.id : 'demo-user'; const repository = workspaceRepositoryFor(mode, session?.user)
-      const importResult = await repository.importReport(toWorkspaceImportInput(userId, { ...report, offers: visibleOffers })); const filtered = evaluateOffers(profileResult.profile, visibleOffers); const workspace = await repository.loadWorkspace()
-      const links = workspace.importOfferLinks.filter((link) => link.importSessionId === importResult.importSessionId)
-      const items: HardFilterBatchItem[] = filtered.map(({ offer, result }) => { const link = links.find((entry) => entry.rawExternalId === offer.id); if (!link?.offerVersionId) throw new Error('WORKSPACE_IMPORT_LINK_MISSING'); const hardFilterStatus: HardFilterBatchItem['status'] = result.status === 'weak' ? 'needs_review' : result.status; return { jobOfferId: link.jobOfferId, offerVersionId: link.offerVersionId, status: hardFilterStatus, reasons: result.reasons, missingInformation: result.missingInformation, checkedCriteria: result.checkedCriteria } })
-      await repository.persistHardFilterBatch({ profile: profileResult.profile, profileHash: stableHash(JSON.stringify(profileResult.profile)), algorithmVersion: 'hard-filter-v1', items }); clearImportedReport(); navigate('/offers')
-    } catch (error) { setReviewError(error instanceof Error ? error.message : 'Nie udało się zapisać wyników Hard Filter.') } finally { setBusy(false) }
+
+  async function handleFiles(files: FileList | null) {
+    const selectedFiles = files ? Array.from(files) : []
+    if (!selectedFiles.length || isProcessing) return
+    setReadyMessage('')
+    setIsProcessing(true)
+    setBatch((current) => ({ ...current, status: 'adding_files' }))
+    await Promise.resolve()
+    const entries: ImportBatchEntry[] = []
+
+    for (const file of selectedFiles) {
+      const id = createImportBatchId(file.name, sequenceRef.current++)
+      const validation = validateEmlFile(file)
+      if (!validation.valid) {
+        entries.push({ kind: 'file_error', id, fileName: file.name, message: validation.error })
+        continue
+      }
+
+      setBatch((current) => ({ ...current, status: 'reading' }))
+      const extraction = await extractEmlContent(file)
+      if (!extraction.success) {
+        entries.push({ kind: 'file_error', id, fileName: file.name, message: extraction.error ?? 'Nie udało się odczytać raportu.' })
+        continue
+      }
+
+      setBatch((current) => ({ ...current, status: 'parsing' }))
+      const parsed = parseRocketJobsReport(extraction.text)
+      if (!parsed.offers.length) {
+        entries.push({ kind: 'file_error', id, fileName: file.name, message: parsed.warnings[0]?.message ?? 'Nie znaleźliśmy kompletnych ofert RocketJobs w tym raporcie.' })
+        continue
+      }
+
+      const report: ImportedReport = {
+        version: 1,
+        source: 'rocketjobs-eml',
+        fileName: file.name,
+        importedAt: new Date().toISOString(),
+        offers: parsed.offers,
+        warnings: [...parsed.warnings, ...parserWarnings(extraction.warnings)],
+      }
+      entries.push({ kind: 'report', id, report, removedOfferIds: [] })
+    }
+
+    setBatch((current) => appendBatchEntries(current, entries))
+    setIsProcessing(false)
+    if (inputRef.current) inputRef.current.value = ''
   }
-  return <section className="page"><PageHeader eyebrow="Raport RocketJobs" title="Import i analiza" intro="Wczytaj raport .eml, a następnie ręcznie uruchom deterministyczny Hard Filter." /><input ref={inputRef} className="sr-only" type="file" accept=".eml,message/rfc822" onChange={(event) => void handleFile(event.target.files?.[0] ?? null)} />
-    {status === 'idle' && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raport w formacie .eml</h2><p>Odczyt nastąpi wyłącznie w tej przeglądarce. Do workspace zapisujemy tylko znormalizowane dane ofert — bez treści EML i nagłówków wiadomości.</p><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz plik</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB</span></div></SectionCard>}
-    {(['validating', 'reading', 'parsing'] as const).includes(status as 'validating') && <SectionCard title="Rozpoznajemy raport"><p className="field-hint">{processingLabels[status as keyof typeof processingLabels]}</p></SectionCard>}
-    {status === 'error' && <SectionCard title="Nie udało się zaimportować raportu"><Alert title="Import zatrzymany" tone="warning">{message}</Alert><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz inny plik</PrimaryButton></SectionCard>}
-    {status === 'empty' && <SectionCard title="Brak ofert do przeglądu"><Alert title="Nie znaleziono kompletnych ofert" tone="warning">{message}</Alert><SecondaryButton onClick={chooseAnotherFile}>Wróć</SecondaryButton></SectionCard>}
-    {status === 'review' && report && <SectionCard title="Rozpoznane oferty"><Alert title="Analiza nie uruchamia się automatycznie" tone="info">Po kliknięciu zapiszemy import oraz wynik Hard Filter w trwałym workspace. AI nie jest uruchamiane w R1.4.</Alert>{reviewError && <Alert title="Nie można ukończyć Hard Filter" tone="warning">{reviewError}</Alert>}<p className="file-name">{report.fileName} <span>· {visibleOffers.length} z {report.offers.length} ofert</span></p><ul className="recognized-offers">{visibleOffers.map((offer) => <li key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.location ? ` · ${offer.location}` : ''}</span></div><SecondaryButton onClick={() => setVisibleOfferIds((current) => (current ?? report.offers.map((item) => item.id)).filter((id) => id !== offer.id))}>Usuń</SecondaryButton></li>)}</ul><div className="action-row"><SecondaryButton onClick={() => setVisibleOfferIds(restoreImportedOffers(report.offers).map((offer) => offer.id))} disabled={busy}>Przywróć listę</SecondaryButton><SecondaryButton onClick={() => inputRef.current?.click()} disabled={busy}>Wybierz inny plik</SecondaryButton><PrimaryButton disabled={!canStartDemoAnalysis(visibleOffers) || busy} onClick={() => void startHardFilter()}>{busy ? 'Zapisujemy wyniki…' : 'Uruchom Hard Filter'}</PrimaryButton></div></SectionCard>}
+
+  function startOver() {
+    sequenceRef.current = 0
+    setBatch(createImportBatchState())
+    setReadyMessage('')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  function markReady() {
+    setBatch((current) => markBatchReady(current))
+    setReadyMessage('Paczka jest gotowa do analizy. W tej fazie nie uruchamiamy jeszcze Hard Filter, AI ani zapisu do workspace.')
+  }
+
+  const isReviewing = batch.entries.length > 0 && !isProcessing
+
+  return <section className="page">
+    <PageHeader eyebrow="Raport RocketJobs" title="Import i analiza" intro="Przygotuj paczkę raportów .eml. Odczyt i przegląd pozostają lokalnie w przeglądarce — bez uruchamiania analizy na tym etapie." />
+    <input ref={inputRef} className="sr-only" type="file" multiple accept=".eml,message/rfc822" onChange={(event) => void handleFiles(event.target.files)} />
+
+    {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title="Przygotowujemy paczkę"><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
+
+    {!isReviewing && !isProcessing && <SectionCard className="dropzone-card">
+      <div className="file-dropzone">
+        <span className="dropzone-icon" aria-hidden="true">⇧</span>
+        <h2>Dodaj raporty w formacie .eml</h2>
+        <p>Możesz wybrać kilka raportów naraz lub dodawać je później. Nie przechowujemy treści EML, nagłówków wiadomości ani CV w chmurze.</p>
+        <PrimaryButton onClick={openFilePicker}>Wybierz raporty</PrimaryButton>
+        <span className="field-hint">Format .eml · maksymalnie 10 MB na plik</span>
+      </div>
+    </SectionCard>}
+
+    {isReviewing && <>
+      <SectionCard title="Przegląd paczki przed analizą" className="import-review-card">
+        <Alert title="Etap przygotowania paczki" tone="info">Sprawdź rozpoznane oferty, warningi i braki danych. Statusy „new”, „exact reuse” oraz wynik importu do workspace pojawią się dopiero po persistencji w późniejszej fazie.</Alert>
+        {batch.status === 'partial_review' && <Alert title="Część plików wymaga uwagi" tone="warning">Poprawne raporty pozostały w paczce. Błędny plik nie usunął rozpoznanych ofert.</Alert>}
+        {batch.status === 'file_error' && <Alert title="Plik wymaga poprawy" tone="warning">Nie udało się rozpoznać żadnego poprawnego raportu. Możesz dodać kolejny plik albo zacząć od nowa.</Alert>}
+        {readyMessage && <Alert title="Paczka gotowa" tone="info">{readyMessage}</Alert>}
+
+        <div className="batch-summary" aria-label="Podsumowanie paczki">
+          <span><strong>{summary.reportCount}</strong> raporty</span>
+          <span><strong>{summary.visibleOfferCount}</strong> widoczne oferty</span>
+          <span><strong>{summary.warningCount}</strong> warningi</span>
+          <span><strong>{summary.missingFieldCount}</strong> braki pól</span>
+        </div>
+        {summary.localDuplicateCount > 0 && <Alert title="Możliwe powtórzenia w bieżącej paczce" tone="info">Wykryliśmy {summary.localDuplicateCount} lokalne powtórzenia według linku źródłowego lub pary firma/stanowisko. Nie łączymy ich ani nie zapisujemy decyzji na tym etapie.</Alert>}
+
+        <ul className="import-report-list" aria-label="Wybrane raporty">
+          {batch.entries.map((entry) => entry.kind === 'file_error'
+            ? <li key={entry.id} className="import-report-list__error"><div><strong>{entry.fileName}</strong><span>Nie udało się przygotować pliku</span></div><Alert title="Plik pominięty" tone="warning">{entry.message}</Alert></li>
+            : <li key={entry.id}>
+              <div className="import-report-list__heading"><div><strong>{entry.report.fileName}</strong><span>Rozpoznano {entry.report.offers.length} ofert · widoczne {visibleOffers(entry).length}</span></div><SecondaryButton onClick={() => setBatch((current) => removeBatchReport(current, entry.id))} disabled={isProcessing}>Usuń raport</SecondaryButton></div>
+              {entry.report.warnings.length > 0 && <ul className="import-warnings">{entry.report.warnings.map((warning, index) => <li key={`${warning.code}:${index}`}>{warning.message}</li>)}</ul>}
+              <ul className="recognized-offers">
+                {visibleOffers(entry).map((offer) => <li key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.sourceLabel ? ` · ${offer.sourceLabel}` : ''}{offer.location ? ` · ${offer.location}` : ''}</span>{offer.missingFields.length > 0 && <small>Brakuje: {offer.missingFields.join(', ')}.</small>}{offer.warnings.map((warning) => <small key={warning}>{warning}</small>)}</div><SecondaryButton onClick={() => setBatch((current) => removeBatchOffer(current, entry.id, offer.id))} disabled={isProcessing}>Usuń ofertę</SecondaryButton></li>)}
+              </ul>
+            </li>)}
+        </ul>
+
+        <div className="action-row action-row--spaced">
+          <SecondaryButton onClick={openFilePicker} disabled={isProcessing}>Dodaj kolejny raport</SecondaryButton>
+          <SecondaryButton onClick={() => setBatch((current) => restoreBatchOffers(current))} disabled={!hasRemovedOffers(batch) || isProcessing}>Przywróć listę</SecondaryButton>
+          <SecondaryButton onClick={startOver} disabled={isProcessing}>Zacznij od nowa</SecondaryButton>
+          <PrimaryButton disabled={summary.visibleOfferCount === 0 || isProcessing || batch.status === 'ready_to_analyze'} onClick={markReady}>{batch.status === 'ready_to_analyze' ? 'Paczka gotowa do analizy' : 'Przeprowadź analizę'}</PrimaryButton>
+        </div>
+      </SectionCard>
+    </>}
   </section>
 }

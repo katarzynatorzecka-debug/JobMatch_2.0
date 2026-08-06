@@ -262,6 +262,15 @@ legend { color: var(--jm-muted); }
 .priority-list button { border-color: #bdd4e4; color: var(--jm-blue-hover); }
 
 .file-name { color: var(--jm-navy); }
+.batch-summary { display: flex; flex-wrap: wrap; gap: .55rem; margin: 1.2rem 0; }
+.batch-summary span { padding: .45rem .7rem; border-radius: 999px; background: var(--jm-blue-soft); color: var(--jm-navy); font-size: .86rem; }
+.import-report-list { display: grid; gap: 1rem; padding: 0; margin: 1.15rem 0 0; list-style: none; }
+.import-report-list > li { padding: 1rem; border: 1px solid #e1eaf0; border-radius: var(--jm-radius-sm); background: #fffdf9; }
+.import-report-list__heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.import-report-list__heading strong, .import-report-list__error strong { display: block; color: var(--jm-navy); }
+.import-report-list__heading span, .import-report-list__error span { color: #74828b; font-size: .87rem; }
+.import-report-list__error { border-color: #efc99d !important; background: #fffaf4 !important; }
+.import-warnings { display: grid; gap: .35rem; margin: .85rem 0 0; padding-left: 1.2rem; color: #805d3a; font-size: .9rem; }
 .recognized-offers, .analysis-list { display: grid; gap: .65rem; }
 .recognized-offers li, .analysis-list li { align-items: center; padding: 1rem; border: 1px solid #e1eaf0; border-radius: var(--jm-radius-sm); background: #fffdf9; }
 .recognized-offers li:last-child, .analysis-list li:last-child { border-bottom: 1px solid #e1eaf0; }
