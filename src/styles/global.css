@@ -578,3 +578,14 @@ section.surface-card > p:has(+ .analysis-quality) { display: none; }
   justify-content: space-between;
   gap: .5rem;
 }
+
+.analysis-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+@media (max-width: 640px) {
+  .analysis-card-heading { flex-direction: column; }
+}
