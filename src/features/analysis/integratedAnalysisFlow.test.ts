@@ -82,7 +82,7 @@ describe('integrated analysis batch', () => {
     const completeLocalAnalysis = vi.fn(async () => undefined)
     const progress: string[] = []
     await retryIntegratedOffer({ repository: { enqueueAnalysis, completeLocalAnalysis } as never, mode: 'demo', profile: defaultProfile, offerId: 'offer-fail', offer: offer('fail', 'Rejected role'), hardFilterStatus: 'fail', allowHardFilterFail: true, onProgress: (entry) => progress.push(entry.state) })
-    expect(enqueueAnalysis).toHaveBeenCalledWith('offer-fail', { allowHardFilterFail: true })
+    expect(enqueueAnalysis).toHaveBeenCalledWith('offer-fail', { allowHardFilterFail: true, forceReanalysis: true })
     expect(completeLocalAnalysis).toHaveBeenCalledTimes(1)
     expect(progress).toEqual(['queued', 'processing', 'completed'])
   })

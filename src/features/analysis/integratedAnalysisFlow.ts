@@ -156,13 +156,13 @@ export async function retryIntegratedOffer(input: {
   await waitForVisibleTransition()
   if (input.mode === 'demo') {
     if (!input.repository.completeLocalAnalysis) throw new Error('DEMO_ANALYSIS_UNAVAILABLE')
-    const queued = await input.repository.enqueueAnalysis(input.offerId, { allowHardFilterFail: input.allowHardFilterFail })
+    const queued = await input.repository.enqueueAnalysis(input.offerId, { allowHardFilterFail: input.allowHardFilterFail, forceReanalysis: true })
     const analysis = demoAnalysis(input.profile, input.offer, input.hardFilterStatus); analysis.offerId = input.offerId
     await input.repository.completeLocalAnalysis(queued.queueItem.id, analysis)
     input.onProgress({ offer: input.offer, state: 'completed', hardFilterStatus: input.hardFilterStatus, workspaceOfferId: input.offerId, analysis })
     return analysis
   }
-  await enqueueAndProcessAnalysis(input.repository, input.offerId, { allowHardFilterFail: input.allowHardFilterFail })
+  await enqueueAndProcessAnalysis(input.repository, input.offerId, { allowHardFilterFail: input.allowHardFilterFail, forceReanalysis: true })
   const analysis = await waitForIntegratedAnalysisCompletion(input.repository, input.offerId)
   input.onProgress({ offer: input.offer, state: 'completed', hardFilterStatus: input.hardFilterStatus, workspaceOfferId: input.offerId, analysis })
   return analysis
