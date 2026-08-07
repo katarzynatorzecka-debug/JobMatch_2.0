@@ -5,32 +5,32 @@ import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
 const promptVersion = 'jobmatch-job-match-v1'
-const algorithmVersion = 'jobmatch-deterministic-r2'
+const algorithmVersion = 'jobmatch-deterministic-r3'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
-const outcomePercent: Record<string, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
+const outcomePercent: Record<string, number> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: 50 }
 function validPriorities(value: unknown): value is string[] {
   const allowed = ['experience', 'skills', 'preferences', 'growth']
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
 }
 function deterministicScore(profile: Record<string, unknown>, criteria: Record<string, Array<{ outcome: string; confidence: number }>>) {
-  const priority = profile.priorities as string[]
-  const weightsByRank = [35, 30, 20, 15]
+  const priority = categories
+  const weightsByRank = [35, 30, 25, 10]
   const weights = Object.fromEntries(priority.map((category, index) => [category, weightsByRank[index]]))
-  const entries = priority.flatMap((category) => (criteria[category] ?? []).map((criterion) => ({ category, criterion, weight: Number(weights[category] ?? 0) / Math.max(1, criteria[category]?.length ?? 1) })))
-  const known = entries.filter(({ criterion }) => outcomePercent[criterion.outcome] !== null)
+  const entries = categories.flatMap((category) => (criteria[category] ?? []).map((criterion) => ({ category, criterion, weight: Number(weights[category] ?? 0) / Math.max(1, criteria[category]?.length ?? 1) })))
+  const known = entries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
   const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
   const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
-  const score = totalWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / totalWeight) : 0
+  const score = totalWeight ? Math.round(entries.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome]), 0) / totalWeight) : 0
   const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / scoredWeight) : null
-  const reliability = scoredWeight < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
+  const reliability = scoredWeight < 85 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
   const categoryScores = Object.fromEntries(categories.map((category) => {
-    const categoryKnown = (criteria[category] ?? []).filter((criterion) => outcomePercent[criterion.outcome] !== null)
-    return [category, categoryKnown.length ? Math.round(categoryKnown.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / categoryKnown.length) : null]
+    const categoryKnown = criteria[category] ?? []
+    return [category, categoryKnown.length ? Math.round(categoryKnown.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome]), 0) / categoryKnown.length) : null]
   }))
-  return { score, weights, coverage: scoredWeight, criterionConfidence, reliability, scoredCategories: priority.filter((category) => (criteria[category] ?? []).some((criterion) => outcomePercent[criterion.outcome] !== null)), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length }
+  return { score, weights, coverage: scoredWeight, criterionConfidence, reliability, scoredCategories: categories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length }
 }
 
 async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
@@ -116,7 +116,7 @@ Deno.serve(async (request) => {
     offerId: queueItem.job_offer_id,
     overallScore: scoring.score,
     categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: parsed.value.criteria[category].map((criterion) => criterion.rationale).join(' ') }])),
-    recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.score >= 75 && scoring.coverage >= 75 && scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.score >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
+    recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.score >= 75 && scoring.coverage >= 85 && scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.score >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
     hardFilterStatus: analysisHardFilterStatus,
     hardFilterReasons: Array.isArray(hardFilter.reasons) ? hardFilter.reasons.map((reason) => typeof reason === 'object' && reason ? (reason as Record<string, unknown>).label : '').filter((label): label is string => typeof label === 'string') : [],
     sourceQuality: source.sourceQuality,
