@@ -552,3 +552,29 @@ section.surface-card > p:has(+ .analysis-quality) { display: none; }
 .import-skeleton div {
   animation-delay: .14s;
 }
+
+.analysis-history-list {
+  display: grid;
+  gap: .8rem;
+}
+
+.analysis-history-entry {
+  display: grid;
+  gap: .35rem;
+  padding: .85rem 1rem;
+  border: 1px solid rgba(82, 105, 125, .18);
+  border-radius: .8rem;
+  background: rgba(255, 255, 255, .45);
+}
+
+.analysis-history-entry--current {
+  border-color: rgba(190, 124, 48, .55);
+  background: rgba(255, 248, 233, .8);
+}
+
+.analysis-history-entry__heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .5rem;
+}

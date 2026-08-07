@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analysisDateLabel, analysisStateLabel, hardFilterReasonLabels, sourceQualityLabel } from './presentationLabels'
+import { analysisDateLabel, analysisStateLabel, criterionOutcomeLabel, hardFilterReasonLabels, sourceQualityLabel } from './presentationLabels'
 
 describe('presentation labels', () => {
   it('maps a structured Hard Filter reason to its product label', () => {
@@ -12,6 +12,15 @@ describe('presentation labels', () => {
     expect(label).not.toContain('work-mode')
   })
 
+
+  it('maps all criterion outcomes to product labels', () => {
+    expect(['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].map(criterionOutcomeLabel)).toEqual([
+      'Spełnione',
+      'Częściowo spełnione',
+      'Niespełnione',
+      'Brak wystarczających danych',
+    ])
+  })
   it('uses the same source-quality vocabulary for all views', () => {
     expect(sourceQualityLabel('full')).toBe('Pelne dane oferty')
     expect(sourceQualityLabel('partial')).toBe('Czesciowe dane oferty')

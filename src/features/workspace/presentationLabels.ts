@@ -29,6 +29,16 @@ export function hardFilterReasonLabels(reasons: unknown[]): string[] {
   return reasons.map(hardFilterReasonLabel).filter((label): label is string => Boolean(label))
 }
 
+export function criterionOutcomeLabel(value: string): string {
+  switch (value) {
+    case 'MATCH': return 'Spełnione'
+    case 'PARTIAL': return 'Częściowo spełnione'
+    case 'NO_MATCH': return 'Niespełnione'
+    case 'UNKNOWN': return 'Brak wystarczających danych'
+    default: return 'Status kryterium niedostępny'
+  }
+}
+
 export function sourceQualityLabel(value: SourceQuality | string | null | undefined): string {
   switch (value) {
     case 'full': return 'Pelne dane oferty'
