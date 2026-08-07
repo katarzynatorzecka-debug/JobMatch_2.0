@@ -1,17 +1,21 @@
 import type { User } from '@supabase/supabase-js'
 import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
 import type { UserProfile } from '../../contracts/profile'
+import { emptyProfilePresentation } from '../../contracts/profilePresentation'
+import type { ProfilePresentationMetadata } from '../../contracts/profilePresentation'
 import { validateImportedReport } from '../../schemas/importSchemas'
 import { validateUserProfile } from '../../schemas/profileSchemas'
 import { loadImportedReport, saveImportedReport } from '../import/importSessionStorage'
 import { loadUserProfile, saveUserProfile } from '../profile/profileStorage'
+import { clearProfilePresentation, loadProfilePresentation, normalizeProfilePresentation, saveProfilePresentation } from '../profile/profilePresentationStorage'
 import { supabase } from './client'
 
 export type RepoResult<T> = { data: T | null; error?: string }
 
 export interface ProfileRepository {
-  load(): Promise<RepoResult<UserProfile>>
-  save(profile: UserProfile): Promise<RepoResult<UserProfile>>
+  load(): Promise<RepoResult<UserProfile> & { presentation: ProfilePresentationMetadata }>
+  save(profile: UserProfile, presentation: ProfilePresentationMetadata): Promise<RepoResult<UserProfile> & { presentation: ProfilePresentationMetadata }>
+  clearPresentation(): Promise<void>
 }
 
 export interface ImportSessionRepository {
@@ -35,28 +39,42 @@ const unavailableError = 'Konfiguracja Supabase jest niedostepna.'
 export const localProfileRepository: ProfileRepository = {
   async load() {
     const result = loadUserProfile()
-    return { data: result.profile, error: result.warning }
+    const presentation = loadProfilePresentation()
+    return { data: result.profile, error: result.warning ?? presentation.warning, presentation: presentation.presentation }
   },
-  async save(profile) {
+  async save(profile, presentationValue) {
     const result = saveUserProfile(profile)
-    return result.success ? { data: result.data } : { data: null, error: 'Nie udalo sie zapisac profilu lokalnie.' }
+    if (!result.success) return { data: null, error: 'Nie udalo sie zapisac profilu lokalnie.', presentation: emptyProfilePresentation }
+    const presentation = saveProfilePresentation(presentationValue)
+    return presentation.success ? { data: result.data, presentation: presentation.data } : { data: null, error: presentation.error, presentation: emptyProfilePresentation }
   },
+  async clearPresentation() { clearProfilePresentation() },
 }
 
 export function supabaseProfileRepository(user: User): ProfileRepository {
   return {
     async load() {
-      if (!supabase) return { data: null, error: unavailableError }
+      if (!supabase) return { data: null, error: unavailableError, presentation: emptyProfilePresentation }
       const { data, error } = await supabase.from('profiles').select('profile_data').eq('user_id', user.id).maybeSingle()
-      if (error) return { data: null, error: cloudError }
-      if (!data) return { data: null }
+      if (error) return { data: null, error: cloudError, presentation: emptyProfilePresentation }
+      if (!data) return { data: null, presentation: emptyProfilePresentation }
       const valid = validateUserProfile(data.profile_data)
-      return valid.success ? { data: valid.data } : { data: null, error: 'Zapisany profil ma nieprawidlowy format.' }
+      if (!valid.success) return { data: null, error: 'Zapisany profil ma nieprawidlowy format.', presentation: emptyProfilePresentation }
+      const presentationResult = await supabase.from('profiles').select('presentation_data').eq('user_id', user.id).maybeSingle()
+      return { data: valid.data, presentation: presentationResult.error ? emptyProfilePresentation : normalizeProfilePresentation(presentationResult.data?.presentation_data as Partial<ProfilePresentationMetadata> | null) }
     },
-    async save(profile) {
-      if (!supabase) return { data: null, error: unavailableError }
+    async save(profile, presentationValue) {
+      if (!supabase) return { data: null, error: unavailableError, presentation: emptyProfilePresentation }
+      const presentation = normalizeProfilePresentation(presentationValue)
       const { error } = await supabase.from('profiles').upsert({ user_id: user.id, profile_data: profile }, { onConflict: 'user_id' })
-      return error ? { data: null, error: cloudError } : { data: profile }
+      if (error) return { data: null, error: cloudError, presentation: emptyProfilePresentation }
+      const presentationResult = await supabase.from('profiles').update({ presentation_data: presentation }).eq('user_id', user.id)
+      return presentationResult.error ? { data: profile, presentation: emptyProfilePresentation } : { data: profile, presentation }
+    },
+    async clearPresentation() {
+      if (!supabase) throw new Error(unavailableError)
+      const { error } = await supabase.from('profiles').update({ presentation_data: emptyProfilePresentation }).eq('user_id', user.id)
+      if (error && !/column|schema cache|does not exist/i.test(error.message ?? '')) throw new Error(cloudError)
     },
   }
 }
