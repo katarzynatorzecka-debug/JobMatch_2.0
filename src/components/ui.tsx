@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { statusMeta, type DemoOffer, type DemoStatus } from '../demo/offers'
 import type { HardFilterStatus } from '../contracts/hardFilter'
 import type { AnalysisCategory, AnalysisCriterion, JobAnalysis } from '../contracts/jobAnalysis'
+import type { WorkspaceAnalysisState } from '../contracts/workspace'
+import { analysisDateLabel, analysisStateLabel, hardFilterReasonLabels, sourceQualityLabel } from '../features/workspace/presentationLabels'
 
 export function PageHeader({ eyebrow = 'JobMatch', title, intro, actions }: { eyebrow?: string; title: string; intro: string; actions?: ReactNode }) { return <header className="page-header"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-intro">{intro}</p>{actions}</header> }
 export function PrimaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--primary ${className}`} {...props}>{children}</button> }
@@ -17,6 +19,15 @@ export function SourceBadge({ state }: { state: DemoOffer['sourceState'] }) { re
 export function CategoryScore({ label, score }: { label: string; score: number | null }) { if (score === null) return <div className="category-score"><div><span>{label}</span><strong>Brak danych</strong></div></div>; return <div className="category-score"><div><span>{label}</span><strong>{score}/100</strong></div><div className="progress-track" aria-label={`${label}: ${score} na 100`}><span style={{ width: `${score}%` }} /></div></div> }
 const categoryLabels: Record<AnalysisCategory, string> = { experience: 'Doświadczenie', skills: 'Umiejętności', preferences: 'Preferencje', growth: 'Rozwój' }
 export function formatPercentage(value: number) { return `${Math.round(value)}%` }
+export function HardFilterReason({ reasons }: { reasons: unknown[] }) {
+  const labels = hardFilterReasonLabels(reasons)
+  if (!labels.length) return <p>Brak potwierdzonych konfliktów.</p>
+  return <div className="hard-filter-reasons"><strong>Powód:</strong><ul>{labels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul></div>
+}
+export function SourceQualityLabel({ value }: { value: JobAnalysis['sourceQuality'] }) { return <span className="analysis-meta__source">Zródlo: {sourceQualityLabel(value)}</span> }
+export function AnalysisMetadata({ analysis, state }: { analysis: JobAnalysis; state: WorkspaceAnalysisState }) {
+  return <div className="analysis-meta"><span>Stan: {analysisStateLabel({ queueStatus: state.queueItem?.status, errorCode: state.errorCode, freshness: state.freshness })}</span><span>{analysisDateLabel(state.lastAnalysisAt ?? analysis.createdAt)}</span><SourceQualityLabel value={analysis.sourceQuality} /></div>
+}
 function criterionList(analysis: JobAnalysis, category: AnalysisCategory): AnalysisCriterion[] {
   const value = analysis.criteria?.[category]
   return Array.isArray(value) ? value : []

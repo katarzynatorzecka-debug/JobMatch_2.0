@@ -451,3 +451,8 @@ section.surface-card > p:has(+ .analysis-quality) { display: none; }
     background-position: center top;
   }
 }
+
+.hard-filter-reasons { display: grid; gap: .45rem; }
+.hard-filter-reasons ul { display: grid; gap: .35rem; padding-left: 1.2rem; margin: 0; }
+.analysis-meta { display: flex; flex-wrap: wrap; gap: .4rem .8rem; margin-top: .7rem; color: #52697d; font-size: .82rem; }
+.analysis-meta span { padding: .24rem .52rem; border-radius: 999px; background: #f0f5f8; }

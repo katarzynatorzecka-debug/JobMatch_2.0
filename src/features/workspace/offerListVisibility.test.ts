@@ -26,7 +26,7 @@ function offerItem(id: string, importedAt: string, score: number | null, overrid
     analysis: score === null ? null : { overallScore: score },
     hardFilter: { status: 'pass' },
     userState: { lifecycleStatus: score === null ? 'new' : 'analyzed', exclusionReason: null },
-    importSessionIds: ['session-a'],
+    importSessionIds: ['session-a'], latestImportSessionAt: importedAt,
     ...overrides,
   } as never
 }

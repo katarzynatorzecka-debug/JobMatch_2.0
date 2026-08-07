@@ -1,6 +1,6 @@
 import type { JobAnalysis } from '../../contracts/jobAnalysis'
 import { validateJobAnalysis } from '../../schemas/jobAnalysisSchemas'
-import type { AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, WorkspaceJobOffer } from '../../contracts/workspace'
+import type { AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, WorkspaceImportSession, WorkspaceJobOffer } from '../../contracts/workspace'
 import type { WorkspaceOfferDetails, WorkspaceOfferListItem, WorkspaceSnapshot } from './workspaceRepository'
 import { activeQueueForOffer, analysisFreshness, queueLifecycle } from './analysisQueue'
 
@@ -8,6 +8,14 @@ function currentVersion(offer: WorkspaceJobOffer, versions: OfferVersion[]) { re
 function currentHardFilter(offerId: string, results: HardFilterResultRecord[]) { return results.find((result) => result.jobOfferId === offerId && result.isCurrent) ?? null }
 function linksFor(offerId: string, links: ImportOfferLink[]) { return links.filter((link) => link.jobOfferId === offerId) }
 function activeSessions(snapshot: WorkspaceSnapshot) { return new Set(snapshot.importSessions.filter((session) => session.status !== 'reverted').map((session) => session.id)) }
+function latestActiveImportSessionAt(offerId: string, snapshot: WorkspaceSnapshot): string | null {
+  const active = activeSessions(snapshot)
+  const sessions = linksFor(offerId, snapshot.importOfferLinks)
+    .map((link) => snapshot.importSessions.find((session) => session.id === link.importSessionId))
+    .filter((session): session is WorkspaceImportSession => Boolean(session && active.has(session.id) && Number.isFinite(Date.parse(session.createdAt))))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.id.localeCompare(left.id))
+  return sessions[0]?.createdAt ?? null
+}
 function analysisFor(offerId: string, analyses: JobAnalysis[]) { return analyses.find((analysis) => analysis.offerId === offerId) ?? null }
 type VersionedAnalysisProjection = { latestVersion: AnalysisVersion | null; analysis: JobAnalysis | null; errorCode: string | null }
 
@@ -28,6 +36,7 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
   const links = linksFor(offer.id, snapshot.importOfferLinks)
   const active = activeSessions(snapshot)
   const importSessionIds = [...new Set(links.map((link) => link.importSessionId))]
+  const latestImportSessionAt = latestActiveImportSessionAt(offer.id, snapshot)
   const hardFilter = currentHardFilter(offer.id, snapshot.hardFilterResults)
   const versionedAnalysis = latestVersionFor(offer.id, snapshot)
   const { latestVersion } = versionedAnalysis
@@ -62,6 +71,7 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
     },
     activeImportCount: importSessionIds.filter((id) => active.has(id)).length,
     importSessionIds,
+    latestImportSessionAt,
     isActive: importSessionIds.some((id) => active.has(id)),
   }
 }
@@ -72,9 +82,11 @@ export function projectWorkspaceOfferList(snapshot: WorkspaceSnapshot, includeHi
     .map((offer) => projectWorkspaceOffer(snapshot, offer))
     .filter((item) => includeHistorical || item.isActive)
     .sort((left, right) => {
-      const rightSeenAt = right.offer.lastSeenAt ?? right.offer.createdAt
-      const leftSeenAt = left.offer.lastSeenAt ?? left.offer.createdAt
-      return rightSeenAt.localeCompare(leftSeenAt) || right.offer.id.localeCompare(left.offer.id)
+      const rightReportAt = right.latestImportSessionAt
+      const leftReportAt = left.latestImportSessionAt
+      if (rightReportAt && leftReportAt && rightReportAt !== leftReportAt) return rightReportAt.localeCompare(leftReportAt)
+      if (rightReportAt !== leftReportAt) return rightReportAt ? -1 : 1
+      return right.offer.id.localeCompare(left.offer.id)
     })
 }
 

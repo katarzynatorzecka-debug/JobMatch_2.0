@@ -66,7 +66,7 @@ export type WorkspaceSnapshot = {
   recentlyViewed: Array<{ userId: string; jobOfferId: string; viewedAt: string }>
 }
 
-export type WorkspaceOfferListItem = { offer: WorkspaceJobOffer; currentVersion: OfferVersion | null; userState: OfferUserState | null; hardFilter: HardFilterResultRecord | null; analysis: JobAnalysis | null; analysisState: WorkspaceAnalysisState; activeImportCount: number; importSessionIds: string[]; isActive: boolean }
+export type WorkspaceOfferListItem = { offer: WorkspaceJobOffer; currentVersion: OfferVersion | null; userState: OfferUserState | null; hardFilter: HardFilterResultRecord | null; analysis: JobAnalysis | null; analysisState: WorkspaceAnalysisState; activeImportCount: number; importSessionIds: string[]; latestImportSessionAt: string | null; isActive: boolean }
 
 export type WorkspaceOfferDetails = {
   offer: WorkspaceJobOffer | null

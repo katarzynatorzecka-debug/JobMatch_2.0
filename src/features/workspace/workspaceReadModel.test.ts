@@ -56,9 +56,13 @@ describe('workspace read model', () => {
     const items = projectWorkspaceOfferList(snapshot({
       offers: [older, newer],
       activeOffers: [older, newer],
+      importSessions: [
+        { id: 'import-old', status: 'active', createdAt: '2026-08-01T10:00:00.000Z' } as never,
+        { id: 'import-new', status: 'active', createdAt: '2026-08-06T10:00:00.000Z' } as never,
+      ],
       importOfferLinks: [
-        { jobOfferId: 'offer-old', importSessionId: 'import-1', matchType: 'new', needsReview: false } as never,
-        { jobOfferId: 'offer-new', importSessionId: 'import-1', matchType: 'new', needsReview: false } as never,
+        { jobOfferId: 'offer-old', importSessionId: 'import-old', matchType: 'new', needsReview: false } as never,
+        { jobOfferId: 'offer-new', importSessionId: 'import-new', matchType: 'new', needsReview: false } as never,
       ],
       offerUserStates: [
         { jobOfferId: 'offer-old', lifecycleStatus: 'new' } as never,
@@ -98,5 +102,41 @@ describe('workspace read model', () => {
 
     expect(item.analysisState.queueItem).toBeNull()
     expect(item.analysisState.errorCode).toBe('PROVIDER_TIMEOUT')
+  })
+})
+
+describe('historical canonical projection', () => {
+  it('does not duplicate a canonical offer in the historical list', () => {
+    const historical = { id: 'offer-history', currentVersionId: null, createdAt: '2026-08-01T10:00:00.000Z', lastSeenAt: '2026-08-01T10:00:00.000Z' } as never
+    const items = projectWorkspaceOfferList(snapshot({
+      importSessions: [{ id: 'import-1', status: 'reverted' } as never],
+      offers: [historical, historical],
+      activeOffers: [],
+      importOfferLinks: [{ jobOfferId: 'offer-history', importSessionId: 'import-1', matchType: 'new', needsReview: false } as never],
+      offerUserStates: [{ jobOfferId: 'offer-history', lifecycleStatus: 'new' } as never],
+    }), true)
+
+    expect(items).toHaveLength(1)
+    expect(items[0].offer.id).toBe('offer-history')
+    expect(items[0].isActive).toBe(false)
+  })
+})
+
+describe('canonical report date projection', () => {
+  it('uses the newest active import session occurrence and ignores reverted sessions', () => {
+    const item = projectWorkspaceOffer(snapshot({
+      importSessions: [
+        { id: 'import-old', status: 'active', createdAt: '2026-08-01T10:00:00.000Z' } as never,
+        { id: 'import-new', status: 'active', createdAt: '2026-08-06T10:00:00.000Z' } as never,
+        { id: 'import-reverted', status: 'reverted', createdAt: '2026-08-08T10:00:00.000Z' } as never,
+      ],
+      importOfferLinks: [
+        { jobOfferId: 'offer-1', importSessionId: 'import-old', matchType: 'new', needsReview: false } as never,
+        { jobOfferId: 'offer-1', importSessionId: 'import-new', matchType: 'duplicate', needsReview: false } as never,
+        { jobOfferId: 'offer-1', importSessionId: 'import-reverted', matchType: 'duplicate', needsReview: false } as never,
+      ],
+    }), offer)
+
+    expect(item.latestImportSessionAt).toBe('2026-08-06T10:00:00.000Z')
   })
 })
