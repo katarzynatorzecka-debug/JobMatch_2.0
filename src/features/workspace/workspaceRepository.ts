@@ -48,6 +48,7 @@ export type LegacyAnalysisIssue = {
 }
 
 export type WorkspaceSnapshot = {
+  activeImportSessionId?: string | null
   profile: WorkspaceProfile | null
   importSessions: WorkspaceImportSession[]
   offers: WorkspaceJobOffer[]
@@ -99,6 +100,7 @@ export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceSnapshot>
   loadOfferList(includeHistorical?: boolean): Promise<WorkspaceOfferListItem[]>
   loadOfferDetails(offerId: string): Promise<WorkspaceOfferDetails>
+  setActiveImportSession(importSessionId: string | null): Promise<void>
   importReport(input: WorkspaceImportInput): Promise<WorkspaceImportResult>
   persistHardFilterBatch(input: HardFilterBatchInput): Promise<HardFilterBatchResult>
   setFavorite(offerId: string, favorite: boolean): Promise<void>
@@ -109,7 +111,7 @@ export interface WorkspaceRepository {
   listImportSessions(): Promise<WorkspaceImportSession[]>
   revertImport(importSessionId: string): Promise<RevertImportResult>
   reactivateImport(importSessionId: string): Promise<ReactivateImportResult>
-  enqueueAnalysis(offerId: string, options?: { allowHardFilterFail?: boolean }): Promise<AnalysisEnqueueResult>
+  enqueueAnalysis(offerId: string, options?: { allowHardFilterFail?: boolean; forceReanalysis?: boolean }): Promise<AnalysisEnqueueResult>
   cancelQueuedAnalysis(queueItemId: string): Promise<AnalysisEnqueueResult>
   completeLocalAnalysis?(queueItemId: string, analysis: JobAnalysis): Promise<void>
 }

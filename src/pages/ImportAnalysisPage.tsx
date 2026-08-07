@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ImportedReport, ImportWarning } from '../contracts/import'
 import type { JobAnalysis } from '../contracts/jobAnalysis'
-import { Alert, HardFilterStatusBadge, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
+import { Alert, AnalysisQuality, HardFilterStatusBadge, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
 import { useAppMode } from '../features/access/AppModeProvider'
 import { type IntegratedBatchCounts, type IntegratedOfferProgress, retryIntegratedOffer, runIntegratedAnalysisBatch } from '../features/analysis/integratedAnalysisFlow'
 import { clearIntegratedAnalysisSession, loadIntegratedAnalysisSession, saveIntegratedAnalysisSession } from '../features/analysis/integratedAnalysisSession'
+import { restoreActiveWorkspaceImport, shouldResetTerminalBatchForNewFiles, shouldRestoreWorkspaceImport } from '../features/analysis/restoredWorkspaceImport'
 import { scoreBand } from '../features/analysis/deterministicScoring'
 import { extractEmlContent } from '../features/import/emlExtractor'
 import { appendBatchEntries, createImportBatchId, createImportBatchState, hasRemovedOffers, removeBatchOffer, removeBatchReport, restoreBatchOffers, summarizeBatch, visibleOffers, type ImportBatchEntry } from '../features/import/importBatchState'
@@ -30,18 +31,32 @@ function statusLabel(progress?: IntegratedOfferProgress) {
 export function ImportAnalysisPage() {
   const { mode, session } = useAppMode(); const navigate = useNavigate()
   const sessionScope = mode === 'authenticated' && session ? `authenticated-${session.user.id}` : 'demo'
-  const inputRef = useRef<HTMLInputElement>(null); const sequenceRef = useRef(0); const analysisRunRef = useRef(false); const initialSession = useRef(loadIntegratedAnalysisSession(undefined, sessionScope))
+  const inputRef = useRef<HTMLInputElement>(null); const sequenceRef = useRef(0); const analysisRunRef = useRef(false); const freshBatchStartedRef = useRef(false); const initialSession = useRef(loadIntegratedAnalysisSession(undefined, sessionScope))
   const [batch, setBatch] = useState(() => initialSession.current?.batch ?? createImportBatchState()); const [isProcessingFiles, setIsProcessingFiles] = useState(false)
   const [pipeline, setPipeline] = useState<PipelineState>(() => initialSession.current?.pipeline ?? 'idle'); const [pipelineError, setPipelineError] = useState(() => initialSession.current?.pipeline === 'partial_complete' ? 'Odświeżenie przerwało lokalne oczekiwanie na analizę. Możesz ponowić tylko nieukończoną ofertę.' : '')
-  const [progress, setProgress] = useState<Record<string, IntegratedOfferProgress>>(() => initialSession.current?.progress ?? {}); const [counts, setCounts] = useState<IntegratedBatchCounts>(() => initialSession.current?.counts ?? emptyCounts)
+  const [progress, setProgress] = useState<Record<string, IntegratedOfferProgress>>(() => initialSession.current?.progress ?? {}); const [counts, setCounts] = useState<IntegratedBatchCounts>(() => initialSession.current?.counts ?? emptyCounts); const [restoredWorkspaceBatch, setRestoredWorkspaceBatch] = useState(false)
   const summary = useMemo(() => summarizeBatch(batch), [batch]); const isReviewing = batch.entries.length > 0 && !isProcessingFiles
 
   useEffect(() => { saveIntegratedAnalysisSession({ batch, pipeline, progress, counts }, undefined, sessionScope) }, [batch, pipeline, progress, counts, sessionScope])
+  useEffect(() => {
+    if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current })) return
+    let cancelled = false
+    void workspaceRepositoryFor('authenticated', session.user).loadWorkspace().then((snapshot) => {
+      if (cancelled || freshBatchStartedRef.current) return
+      const restored = restoreActiveWorkspaceImport(snapshot)
+      if (!restored) return
+      setBatch(restored.batch); setPipeline(restored.pipeline); setProgress(restored.progress); setCounts(restored.counts)
+    }).catch(() => { if (!cancelled) setPipelineError('Nie udało się odtworzyć zapisanego wyniku analizy.') }).finally(() => { if (!cancelled) setRestoredWorkspaceBatch(true) })
+    return () => { cancelled = true }
+  }, [batch.entries.length, mode, pipeline, restoredWorkspaceBatch, session])
 
   function openFilePicker() { inputRef.current?.click() }
   async function handleFiles(files: FileList | null) {
     const selectedFiles = files ? Array.from(files) : []; if (!selectedFiles.length || isProcessingFiles || pipeline === 'running') return
-    setIsProcessingFiles(true); setPipelineError(''); setBatch((current) => ({ ...current, status: 'adding_files' })); await Promise.resolve()
+    const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline)
+    freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true)
+    if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }
+    setIsProcessingFiles(true); setPipelineError(''); setBatch((current) => startsFreshPacket ? { ...createImportBatchState(), status: 'adding_files' } : { ...current, status: 'adding_files' }); await Promise.resolve()
     const entries: ImportBatchEntry[] = []
     for (const file of selectedFiles) {
       const id = createImportBatchId(file.name, sequenceRef.current++); const validation = validateEmlFile(file)
@@ -56,7 +71,7 @@ export function ImportAnalysisPage() {
     setBatch((current) => appendBatchEntries(current, entries)); setIsProcessingFiles(false); if (inputRef.current) inputRef.current.value = ''
   }
 
-  function startOver() { sequenceRef.current = 0; setBatch(createImportBatchState()); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(''); clearIntegratedAnalysisSession(undefined, sessionScope); if (inputRef.current) inputRef.current.value = '' }
+  function startOver() { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); sequenceRef.current = 0; setBatch(createImportBatchState()); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(''); clearIntegratedAnalysisSession(undefined, sessionScope); if (mode) void workspaceRepositoryFor(mode, session?.user).setActiveImportSession(null).catch((cause) => setPipelineError(cause instanceof Error ? cause.message : 'ACTIVE_IMPORT_SESSION_CLEAR_FAILED')); if (inputRef.current) inputRef.current.value = '' }
   async function startAnalysis() {
     if (!mode || pipeline === 'running' || analysisRunRef.current) return
     const reports = batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry) })).filter((entry) => entry.offers.length > 0)
@@ -114,7 +129,7 @@ export function ImportAnalysisPage() {
           {batch.entries.map((entry) => entry.kind === 'file_error' ? <li key={entry.id} className="import-report-list__error"><div><strong>{entry.fileName}</strong><span>Nie udało się przygotować pliku</span></div><Alert title="Plik pominięty" tone="warning">{entry.message}</Alert></li> : <li key={entry.id}>
             <div className="import-report-list__heading"><div><strong>{entry.report.fileName}</strong><span>Rozpoznano {entry.report.offers.length} ofert · widoczne {visibleOffers(entry).length}</span></div><SecondaryButton onClick={() => setBatch((current) => removeBatchReport(current, entry.id))} disabled={pipeline === 'running'}>Usuń raport</SecondaryButton></div>
             {entry.report.warnings.length > 0 && <ul className="import-warnings">{entry.report.warnings.map((warning, index) => <li key={`${warning.code}:${index}`}>{warning.message}</li>)}</ul>}
-            <ul className="recognized-offers">{visibleOffers(entry).map((offer) => { const item = progress[progressKey(entry.id, offer.id)]; return <li className={`analysis-tile analysis-tile--${item?.state ?? 'waiting'}`} key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.sourceLabel ? ` · ${offer.sourceLabel}` : ''}{offer.location ? ` · ${offer.location}` : ''}</span>{offer.missingFields.length > 0 && <small className="offer-missing">Brakuje: {offer.missingFields.join(', ')}.</small>}{offer.warnings.length > 0 && <small className="offer-warning">Brak danych: {offer.warnings.map((warning) => warning.replace(/^Brak danych:\s*/i, '')).join(' ')}</small>}<span className="analysis-tile__state">{statusLabel(item)}</span>{item?.state === 'processing' && <small>Sprawdzamy dopasowanie doświadczenia, umiejętności, preferencji i kierunku rozwoju.</small>}{item?.state === 'failed' && <><small className="analysis-tile__error">{item.error ?? 'Wystąpił błąd analizy.'}</small><SecondaryButton onClick={() => void retryOffer(item)}>Spróbuj ponownie</SecondaryButton></>}{item?.state === 'completed' && <AnalysisPreview analysis={item.analysis} hardFilter={item.hardFilterStatus} />}{item?.state === 'rejected' && <><AnalysisPreview hardFilter="fail" /><SecondaryButton onClick={() => void retryOffer(item, true)}>Analizuj mimo odrzucenia</SecondaryButton></>}</div>{pipeline !== 'running' && !isFinished && <SecondaryButton onClick={() => setBatch((current) => removeBatchOffer(current, entry.id, offer.id))}>Usuń ofertę</SecondaryButton>}</li> })}</ul>
+            <ul className="recognized-offers">{visibleOffers(entry).map((offer) => { const item = progress[progressKey(entry.id, offer.id)]; return <li className={`analysis-tile analysis-tile--${item?.state ?? 'waiting'}`} key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.sourceLabel ? ` · ${offer.sourceLabel}` : ''}{offer.location ? ` · ${offer.location}` : ''}</span>{offer.missingFields.length > 0 && <small className="offer-missing">Brakuje: {offer.missingFields.join(', ')}.</small>}{offer.warnings.length > 0 && <small className="offer-warning">Brak danych: {offer.warnings.map((warning) => warning.replace(/^Brak danych:\s*/i, '')).join(' ')}</small>}<span className="analysis-tile__state">{statusLabel(item)}</span>{item?.state === 'processing' && <small>Sprawdzamy dopasowanie doświadczenia, umiejętności, preferencji i kierunku rozwoju.</small>}{item?.state === 'failed' && <><small className="analysis-tile__error">{item.error ?? 'Wystąpił błąd analizy.'}</small><SecondaryButton onClick={() => void retryOffer(item)}>Spróbuj ponownie</SecondaryButton></>}{item?.state === 'completed' && <AnalysisPreview analysis={item.analysis} hardFilter={item.hardFilterStatus} freshness={item.freshness} analysisVersionId={item.analysisVersionId} />}{item?.state === 'rejected' && <><AnalysisPreview hardFilter="fail" /><SecondaryButton onClick={() => void retryOffer(item, true)}>Analizuj mimo odrzucenia</SecondaryButton></>}</div>{pipeline !== 'running' && !isFinished && <SecondaryButton onClick={() => setBatch((current) => removeBatchOffer(current, entry.id, offer.id))}>Usuń ofertę</SecondaryButton>}</li> })}</ul>
           </li>)}
         </ul>
         <div className="action-row action-row--spaced"><SecondaryButton onClick={openFilePicker} disabled={pipeline === 'running'}>Dodaj kolejny raport</SecondaryButton><SecondaryButton onClick={() => setBatch((current) => restoreBatchOffers(current))} disabled={!hasRemovedOffers(batch) || pipeline === 'running'}>Przywróć listę</SecondaryButton><SecondaryButton onClick={startOver} disabled={pipeline === 'running'}>Zacznij od nowa</SecondaryButton></div>
@@ -130,8 +145,8 @@ export function ImportAnalysisPage() {
   </section>
 }
 
-function AnalysisPreview({ analysis, hardFilter }: { analysis?: JobAnalysis; hardFilter?: 'pass' | 'weak' | 'fail' }) {
+function AnalysisPreview({ analysis, hardFilter, freshness, analysisVersionId }: { analysis?: JobAnalysis; hardFilter?: 'pass' | 'weak' | 'fail'; freshness?: IntegratedOfferProgress['freshness']; analysisVersionId?: string | null }) {
   if (hardFilter === 'fail') return <div className="analysis-preview"><strong>Odrzucona przez Hard Filter</strong><span>AI pominięte — nie zużyto tokenów.</span></div>
   if (!analysis) return null
-  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><strong>{analysis.overallScore}/100 — {scoreBand(analysis.overallScore)}</strong><span>{analysis.summary}</span>{analysis.risks[0] && <small>Ryzyko: {analysis.risks[0]}</small>}{analysis.scoring?.reliability === 'limited' && <small>Wynik oparty na ograniczonej liczbie danych.</small>}</div>
+  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><strong>{analysis.overallScore}/100 - {scoreBand(analysis.overallScore)}</strong><span>Rekomendacja: {analysis.recommendation}</span><span>{analysis.summary}</span><AnalysisQuality analysis={analysis} />{freshness && <small>Freshness: {freshness}</small>}{analysisVersionId && <small>analysis_version_id: {analysisVersionId}</small>}{analysis.risks[0] && <small>Ryzyko: {analysis.risks[0]}</small>}{analysis.scoring?.reliability === 'limited' && <small>Wynik oparty na ograniczonej liczbie danych.</small>}</div>
 }

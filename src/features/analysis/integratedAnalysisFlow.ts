@@ -2,13 +2,13 @@ import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
 import type { AnalysisCategory, AnalysisCriterion, CriterionOutcome, JobAnalysis } from '../../contracts/jobAnalysis'
 import type { UserProfile } from '../../contracts/profile'
 import { evaluateOffer } from '../hardFilter/hardFilter'
-import { calculateDeterministicScore } from './deterministicScoring'
+import { calculateCriterionLevelScore } from './deterministicScoring'
 import { enqueueAndProcessAnalysis } from './analysisQueueService'
 import type { WorkspaceOfferListItem, WorkspaceRepository } from '../workspace/workspaceRepository'
 import { toWorkspaceImportInput } from '../workspace/workspaceRepository'
 
 export type IntegratedOfferState = 'waiting' | 'hard_filtering' | 'queued' | 'processing' | 'completed' | 'rejected' | 'failed'
-export type IntegratedOfferProgress = { key: string; offer: ImportedJobOffer; state: IntegratedOfferState; hardFilterStatus?: 'pass' | 'weak' | 'fail'; workspaceOfferId?: string; analysis?: JobAnalysis; error?: string }
+export type IntegratedOfferProgress = { key: string; offer: ImportedJobOffer; state: IntegratedOfferState; hardFilterStatus?: 'pass' | 'weak' | 'fail'; workspaceOfferId?: string; analysis?: JobAnalysis; error?: string; analysisVersionId?: string | null; freshness?: 'current' | 'stale_profile' | 'stale_offer' | 'stale_algorithm' | 'stale_prompt' | 'stale_model' | 'missing' }
 export type IntegratedBatchCounts = { total: number; hardFilterRejected: number; queued: number; processing: number; completed: number; failed: number }
 export type BatchReport = { key: string; report: ImportedReport; offers: ImportedJobOffer[] }
 export type IntegratedBatchResult = { items: WorkspaceOfferListItem[]; counts: IntegratedBatchCounts; partial: boolean }
@@ -33,11 +33,11 @@ function demoAnalysis(profile: UserProfile, offer: ImportedJobOffer, hardFilter:
   const criteria = Object.fromEntries(categories.map((category) => {
     const outcome = outcomes[category]
     const rationale = outcome === 'UNKNOWN' ? 'Brak wystarczających danych w rozpoznanej ofercie.' : outcome === 'MATCH' ? 'Dane oferty są zgodne z priorytetem profilu.' : 'Dopasowanie wymaga dalszego sprawdzenia.'
-    return [category, { outcome, rationale, evidence: offer.missingFields.length && category === 'preferences' ? [] : ['Znormalizowane dane oferty.'], confidence: outcome === 'UNKNOWN' ? 35 : outcome === 'MATCH' ? 78 : 58 } satisfies AnalysisCriterion]
-  })) as Record<AnalysisCategory, AnalysisCriterion>
-  const deterministic = calculateDeterministicScore(profile, outcomes, Object.fromEntries(categories.map((category) => [category, criteria[category].confidence])) as Record<AnalysisCategory, number>)
+    return [category, [{ id: `demo-${category}`, requirement: `Ocena kategorii ${category}.`, outcome, rationale, profileEvidence: outcome === 'UNKNOWN' ? [] : ['Dane profilu demonstracyjnego.'], offerEvidence: offer.missingFields.length && category === 'preferences' ? [] : ['Znormalizowane dane oferty.'], confidence: outcome === 'UNKNOWN' ? 35 : outcome === 'MATCH' ? 78 : 58 } satisfies AnalysisCriterion]]
+  })) as Record<AnalysisCategory, AnalysisCriterion[]>
+  const deterministic = calculateCriterionLevelScore(profile, criteria)
   const recommendation = hardFilter === 'fail' ? 'Nie rekomenduję' : deterministic.recommendation
-  return { offerId: '', overallScore: deterministic.overallScore, categoryScores: Object.fromEntries(categories.map((category) => [category, { score: deterministic.categoryScores[category], rationale: criteria[category].rationale }])) as JobAnalysis['categoryScores'], recommendation, summary: deterministic.scoring.reliability === 'limited' ? 'Wynik oparty na ograniczonej liczbie danych.' : 'Wstępne dopasowanie według priorytetów profilu.', strengths: categories.filter((category) => outcomes[category] === 'MATCH').map((category) => `Potwierdzone: ${category}.`), risks: offer.missingFields.length ? [`Brakuje: ${offer.missingFields.join(', ')}.`] : [], missingInformation: offer.missingFields, hardFilterStatus: hardFilter, hardFilterReasons: [], sourceQuality: 'fixture', modelInfo: { provider: 'openai', model: 'demo-fixture', provisional: true }, createdAt: new Date().toISOString(), status: 'ready', criteria, scoring: deterministic.scoring }
+  return { offerId: '', overallScore: deterministic.overallScore, categoryScores: Object.fromEntries(categories.map((category) => [category, { score: deterministic.categoryScores[category], rationale: criteria[category][0].rationale }])) as JobAnalysis['categoryScores'], recommendation, summary: deterministic.scoring.reliability === 'limited' ? 'Wynik oparty na ograniczonej liczbie danych.' : 'Wstępne dopasowanie według priorytetów profilu.', strengths: categories.filter((category) => outcomes[category] === 'MATCH').map((category) => `Potwierdzone: ${category}.`), risks: offer.missingFields.length ? [`Brakuje: ${offer.missingFields.join(', ')}.`] : [], missingInformation: offer.missingFields, hardFilterStatus: hardFilter, hardFilterReasons: [], sourceQuality: 'fixture', modelInfo: { provider: 'openai', model: 'demo-fixture', provisional: true }, createdAt: new Date().toISOString(), status: 'ready', criteria, scoring: deterministic.scoring }
 }
 
 /**
@@ -85,6 +85,7 @@ export async function runIntegratedAnalysisBatch(input: {
   const imported = [] as Array<{ report: BatchReport; sessionId: string }>
   for (const report of input.reports) {
     const result = await input.repository.importReport(toWorkspaceImportInput(input.userId, { ...report.report, offers: report.offers }))
+    await input.repository.setActiveImportSession(result.importSessionId)
     imported.push({ report, sessionId: result.importSessionId })
   }
   const workspace = await input.repository.loadWorkspace()

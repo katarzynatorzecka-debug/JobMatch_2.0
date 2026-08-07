@@ -204,4 +204,36 @@ describe('local workspace repository', () => {
     await repository.persistHardFilterBatch({ profile, profileHash: 'profile-v1', algorithmVersion: 'hf-v1', items: [{ jobOfferId: offerId, offerVersionId: versionId, status: 'fail', reasons: [], missingInformation: [], checkedCriteria: [] }] })
     await expect(repository.enqueueAnalysis(offerId)).rejects.toThrow('WORKSPACE_ANALYSIS_BLOCKED_BY_HARD_FILTER')
   })
+
+  it('reuses a completed current identity and creates a new queue only for explicit reanalysis', async () => {
+    const repository = localWorkspaceRepository('demo-user', new MemoryStorage())
+    const imported = await repository.importReport(toWorkspaceImportInput('demo-user', report('identity.eml', [offer('identity-1', 'Data Analyst', 'https://jobs.example.com/identity')])));
+    const offerId = imported.createdOfferIds[0]; const versionId = (await repository.loadOfferDetails(offerId)).currentVersion!.id
+    await repository.persistHardFilterBatch({ profile, profileHash: 'profile-v1', algorithmVersion: 'hf-v1', items: [{ jobOfferId: offerId, offerVersionId: versionId, status: 'pass', reasons: [], missingInformation: [], checkedCriteria: [] }] })
+    const first = await repository.enqueueAnalysis(offerId)
+    await repository.completeLocalAnalysis!(first.queueItem.id, { offerId, scoring: { algorithmVersion: 'jobmatch-deterministic-r1', coverage: 100 }, criteria: {} } as never)
+    const replay = await repository.enqueueAnalysis(offerId)
+    const manual = await repository.enqueueAnalysis(offerId, { forceReanalysis: true })
+    expect(replay).toMatchObject({ idempotent: true, reused: true, queueItem: { id: first.queueItem.id, providerResponseId: 'demo-fixture' } })
+    expect(manual).toMatchObject({ idempotent: false, reused: false, queueItem: { requestType: 'reanalysis' } })
+    expect((await repository.loadWorkspace()).analysisVersions).toHaveLength(1)
+  })
+
+  it('keeps five completed synthetic offers stable across ordinary replay', async () => {
+    const repository = localWorkspaceRepository('demo-user', new MemoryStorage())
+    const offers = Array.from({ length: 5 }, (_, index) => offer(`stable-${index}`, `Analyst ${index}`, `https://jobs.example.com/stable-${index}`))
+    const imported = await repository.importReport(toWorkspaceImportInput('demo-user', report('stable.eml', offers)))
+    const details = await Promise.all(imported.createdOfferIds.map((offerId) => repository.loadOfferDetails(offerId)))
+    await repository.persistHardFilterBatch({ profile, profileHash: 'profile-v1', algorithmVersion: 'hf-v1', items: details.map((item) => ({ jobOfferId: item.offer!.id, offerVersionId: item.currentVersion!.id, status: 'pass', reasons: [], missingInformation: [], checkedCriteria: [] })) })
+    const firstQueues = []
+    for (const offerId of imported.createdOfferIds) firstQueues.push(await repository.enqueueAnalysis(offerId))
+    for (const [index, queue] of firstQueues.entries()) await repository.completeLocalAnalysis!(queue.queueItem.id, { offerId: imported.createdOfferIds[index], overallScore: 60 + index, scoring: { algorithmVersion: 'jobmatch-deterministic-r1', coverage: 100 }, criteria: {} } as never)
+    const before = await repository.loadWorkspace()
+    const replay = []
+    for (const offerId of imported.createdOfferIds) replay.push(await repository.enqueueAnalysis(offerId))
+    const after = await repository.loadWorkspace()
+    expect(replay.every((entry) => entry.reused && entry.idempotent)).toBe(true)
+    expect(after.analysisVersions.map((item) => item.id)).toEqual(before.analysisVersions.map((item) => item.id))
+    expect(after.analysisQueue.filter((item) => item.status === 'completed').map((item) => item.providerResponseId)).toEqual(before.analysisQueue.filter((item) => item.status === 'completed').map((item) => item.providerResponseId))
+  })
 })

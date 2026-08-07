@@ -168,6 +168,7 @@ export interface AnalysisQueueItem {
   leaseExpiresAt: string | null
   workerToken: string | null
   providerResponseId: string | null
+  analysisIdentity: string | null
   lastError: string | null
   queuedAt: string
   startedAt: string | null
@@ -203,12 +204,14 @@ export interface AnalysisVersion {
   coverage: number | null
   sourceType: string
   sourceQuality: string
+  analysisIdentity: string | null
   createdAt: string
 }
 
 export interface AnalysisEnqueueResult {
   queueItem: AnalysisQueueItem
   idempotent: boolean
+  reused?: boolean
 }
 
 export interface WorkspaceAnalysisState {

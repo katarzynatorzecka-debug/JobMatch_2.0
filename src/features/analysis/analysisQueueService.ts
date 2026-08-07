@@ -15,8 +15,9 @@ async function durableQueueStatus(repository: WorkspaceRepository, offerId: stri
   return null
 }
 
-export async function enqueueAndProcessAnalysis(repository: WorkspaceRepository, offerId: string, options?: { allowHardFilterFail?: boolean }): Promise<AnalysisStartResult> {
+export async function enqueueAndProcessAnalysis(repository: WorkspaceRepository, offerId: string, options?: { allowHardFilterFail?: boolean; forceReanalysis?: boolean }): Promise<AnalysisStartResult> {
   const result = options ? await repository.enqueueAnalysis(offerId, options) : await repository.enqueueAnalysis(offerId)
+  if (result.reused) return { ...result, status: 'completed' }
   if (!supabase) throw new AnalysisQueueError('ANALYSIS_AUTH_REQUIRED', 'Analiza AI jest dostępna po zalogowaniu.')
   const { data, error } = await supabase.functions.invoke('analyze-job-match', { body: { queueItemId: result.queueItem.id } })
   if (error || (data && typeof data === 'object' && 'code' in data)) {

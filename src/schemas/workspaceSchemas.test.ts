@@ -39,6 +39,7 @@ describe('workspace schemas', () => {
       leaseExpiresAt: '2026-08-04T10:05:00.000Z',
       workerToken: 'lease-token',
       providerResponseId: null,
+      analysisIdentity: null,
       lastError: null,
       queuedAt: createdAt,
       startedAt: createdAt,
@@ -66,6 +67,7 @@ describe('workspace schemas', () => {
       leaseExpiresAt: null,
       workerToken: null,
       providerResponseId: null,
+      analysisIdentity: null,
       lastError: null,
       queuedAt: createdAt,
       startedAt: null,
@@ -80,7 +82,7 @@ describe('workspace schemas', () => {
     const value = {
       id, userId: otherId, jobOfferId: id, offerVersionId: id, profileVersionId: id, hardFilterResultId: null,
       status: 'processing', requestType: 'initial', requestedBy: 'user', attemptCount: 1, maxAttempts: 3,
-      lockedAt: createdAt, leaseExpiresAt: createdAt, workerToken: 'lease-token', providerResponseId: null, lastError: null,
+      lockedAt: createdAt, leaseExpiresAt: createdAt, workerToken: 'lease-token', providerResponseId: null, analysisIdentity: null, lastError: null,
       queuedAt: createdAt, startedAt: createdAt, completedAt: null, cancelledAt: null, updatedAt: createdAt,
     }
     value[field] = null as never
@@ -120,7 +122,7 @@ describe('workspace schemas', () => {
     const base = {
       id, userId: otherId, jobAnalysisId: id, jobOfferId: id, offerVersionId: id, profileVersionId: id, queueItemId: null,
       analysisData: {}, hardFilterStatus: 'pass', modelProvider: 'openai', modelVersion: 'model', promptVersion: null,
-      algorithmVersion: 'r1', confidence: 100, coverage: 0, sourceType: 'rocketjobs', sourceQuality: 'full', createdAt,
+      algorithmVersion: 'r1', confidence: 100, coverage: 0, sourceType: 'rocketjobs', sourceQuality: 'full', analysisIdentity: null, createdAt,
     }
     expect(analysisVersionSchema.safeParse({ ...base, confidence: 101 }).success).toBe(false)
     expect(analysisVersionSchema.safeParse({ ...base, coverage: -1 }).success).toBe(false)

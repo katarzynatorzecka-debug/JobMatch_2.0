@@ -190,6 +190,7 @@ export const analysisQueueItemSchema = z.object({
   leaseExpiresAt: nullableTimestamp,
   workerToken: z.string().trim().min(1).max(160).nullable(),
   providerResponseId: z.string().trim().min(1).max(200).nullable(),
+  analysisIdentity: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
   lastError: z.string().trim().min(1).max(2000).nullable(),
   queuedAt: timestamp,
   startedAt: nullableTimestamp,
@@ -206,6 +207,7 @@ export const analysisQueueItemSchema = z.object({
 export const analysisEnqueueResultSchema = z.object({
   queueItem: analysisQueueItemSchema,
   idempotent: z.boolean(),
+  reused: z.boolean().optional(),
 }).strict()
 
 export const workspaceJobAnalysisSchema = z.object({
@@ -235,6 +237,7 @@ export const analysisVersionSchema = z.object({
   coverage: z.number().min(0).max(100).nullable(),
   sourceType: z.string().trim().min(1).max(80),
   sourceQuality: z.string().trim().min(1).max(80),
+  analysisIdentity: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
   createdAt: timestamp,
 }).strict()
 

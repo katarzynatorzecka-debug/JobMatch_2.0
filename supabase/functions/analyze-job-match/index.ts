@@ -5,7 +5,7 @@ import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
 const promptVersion = 'jobmatch-job-match-v1'
-const algorithmVersion = 'jobmatch-deterministic-r1'
+const algorithmVersion = 'jobmatch-deterministic-r2'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -14,17 +14,39 @@ function validPriorities(value: unknown): value is string[] {
   const allowed = ['experience', 'skills', 'preferences', 'growth']
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
 }
-function deterministicScore(profile: Record<string, unknown>, criteria: Record<string, { outcome: string; rationale: string; confidence: number }>) {
+function deterministicScore(profile: Record<string, unknown>, criteria: Record<string, Array<{ outcome: string; confidence: number }>>) {
   const priority = profile.priorities as string[]
   const weightsByRank = [35, 30, 20, 15]
   const weights = Object.fromEntries(priority.map((category, index) => [category, weightsByRank[index]]))
-  const scored = priority.filter((category) => outcomePercent[criteria[category]?.outcome] !== null)
-  const scoredWeight = scored.reduce((total, category) => total + Number(weights[category] ?? 0), 0)
-  const score = scoredWeight ? Math.round(scored.reduce((total, category) => total + Number(weights[category] ?? 0) * Number(outcomePercent[criteria[category].outcome] ?? 0), 0) / scoredWeight) : 0
-  const confidenceValues = scored.map((category) => criteria[category].confidence).filter((value) => Number.isInteger(value) && value >= 0 && value <= 100)
-  const criterionConfidence = confidenceValues.length === scored.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, value) => total + value, 0) / confidenceValues.length) : null
+  const entries = priority.flatMap((category) => (criteria[category] ?? []).map((criterion) => ({ category, criterion, weight: Number(weights[category] ?? 0) / Math.max(1, criteria[category]?.length ?? 1) })))
+  const known = entries.filter(({ criterion }) => outcomePercent[criterion.outcome] !== null)
+  const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
+  const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
+  const score = totalWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / totalWeight) : 0
+  const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
+  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / scoredWeight) : null
   const reliability = scoredWeight < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
-  return { score, weights, coverage: scoredWeight, criterionConfidence, reliability, scoredCategories: scored }
+  const categoryScores = Object.fromEntries(categories.map((category) => {
+    const categoryKnown = (criteria[category] ?? []).filter((criterion) => outcomePercent[criterion.outcome] !== null)
+    return [category, categoryKnown.length ? Math.round(categoryKnown.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / categoryKnown.length) : null]
+  }))
+  return { score, weights, coverage: scoredWeight, criterionConfidence, reliability, scoredCategories: priority.filter((category) => (criteria[category] ?? []).some((criterion) => outcomePercent[criterion.outcome] !== null)), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length }
+}
+
+async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
+  const sourceUrl = typeof offer.sourceUrl === 'string' ? offer.sourceUrl : ''
+  if (!sourceUrl) return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] }
+  try {
+    const source = await fetch(`${supabaseUrl}/functions/v1/fetch-offer-page`, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' }, body: JSON.stringify({ offerId: typeof offer.id === 'string' ? offer.id : 'workspace-offer', sourceUrl, offer }) })
+    if (!source.ok) return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] }
+    const data = await source.json() as Record<string, unknown>
+    const description = typeof data.description === 'string' ? data.description : ''
+    const requirements = Array.isArray(data.requirements) ? data.requirements.filter((item): item is string => typeof item === 'string') : []
+    const responsibilities = Array.isArray(data.responsibilities) ? data.responsibilities.filter((item): item is string => typeof item === 'string') : []
+    const benefits = Array.isArray(data.benefits) ? data.benefits.filter((item): item is string => typeof item === 'string') : []
+    const text = [description, requirements.length ? `Wymagania: ${requirements.join('; ')}` : '', responsibilities.length ? `Zakres obowiązków: ${responsibilities.join('; ')}` : '', benefits.length ? `Benefity: ${benefits.join('; ')}` : ''].filter(Boolean).join('\n').slice(0, 18_000)
+    return { sourceQuality: data.sourceQuality === 'full' && text ? 'full' : 'partial', text, missingInformation: Array.isArray(data.missingInformation) ? data.missingInformation.filter((item): item is string => typeof item === 'string') : [] }
+  } catch { return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] } }
 }
 
 Deno.serve(async (request) => {
@@ -45,8 +67,9 @@ Deno.serve(async (request) => {
   try { body = await request.json() } catch { return failure('REQUEST_INVALID', 400) }
   const queueItemId = typeof body.queueItemId === 'string' ? body.queueItemId : ''
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(queueItemId)) return failure('QUEUE_ITEM_REQUIRED', 400)
-  const { data: ownedItem, error: ownershipError } = await userClient.from('analysis_queue').select('id,user_id').eq('id', queueItemId).maybeSingle()
+  const { data: ownedItem, error: ownershipError } = await userClient.from('analysis_queue').select('id,user_id,status,provider_response_id').eq('id', queueItemId).maybeSingle()
   if (ownershipError || !ownedItem || ownedItem.user_id !== auth.user.id) return failure('QUEUE_ITEM_NOT_FOUND', 404)
+  if (ownedItem.status === 'completed') return response({ status: 'completed', queueItemId, reused: true })
   const worker = createClient(url, serviceKey, { global: { headers: { Authorization: `Bearer ${serviceKey}` } } })
   const { data: claim, error: claimError } = await worker.rpc('workspace_claim_analysis', { queue_item_id: queueItemId })
   if (claimError) {
@@ -64,8 +87,8 @@ Deno.serve(async (request) => {
   if (!queueItem || !profile || !offer || !hardFilter || !workerToken) return failure('WORKSPACE_ANALYSIS_CONTEXT_INVALID', 409)
   const failQueue = async (code: string) => { await worker.rpc('workspace_fail_analysis', { queue_item_id: queueItemId, worker_token: workerToken, error_code: code }); return failure(code, 502) }
   if (!validPriorities(profile.priorities)) return await failQueue('WORKSPACE_PROFILE_PRIORITIES_INVALID')
-  const sourceQuality = 'partial'
-  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. Zwróć niezależny werdykt MATCH, PARTIAL, NO_MATCH albo UNKNOWN dla każdego z czterech kryteriów oraz krótkie dowody i pewność. UNKNOWN oznacza brak danych i nie jest porażką. Nie licz końcowego score ani nie wydawaj rekomendacji. Uwzględnij braki w missingInformation. Hard Filter jest niezależny i wiążący.\nProfil: ${JSON.stringify(profile)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nHard Filter: ${JSON.stringify(hardFilter)}`
+  const source = await loadPublicOfferSource(url, authorization, offer)
+  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. Dla każdej kategorii zwróć listę kryteriów podrzędnych: requirement, profileEvidence, offerEvidence, MATCH/PARTIAL/NO_MATCH/UNKNOWN, confidence i rationale. MATCH wymaga co najmniej jednego konkretnego dowodu zarówno z profilu, jak i z oferty. Gdy dowodu brakuje, użyj UNKNOWN; UNKNOWN nie jest porażką. Nie licz końcowego score ani nie wydawaj rekomendacji. Nie traktuj must-have ani blacklisty jako części score lub coverage. Hard Filter jest niezależny i wiążący.\nProfil: ${JSON.stringify(profile)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nPełna publiczna treść oferty (może być częściowa): ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
   let openAiResponse: Response
   try {
@@ -85,23 +108,25 @@ Deno.serve(async (request) => {
   const parsed = readOpenAiStructuredOutput(payload)
   if (!parsed.ok) { console.info(JSON.stringify({ diagnostic: parsed.code, ...parsed.diagnostics })); return await failQueue(parsed.code) }
   if (!isAnalysisOutput(parsed.value)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
+  if (categories.some((category) => parsed.value.criteria[category].some((criterion) => criterion.outcome === 'MATCH' && (!criterion.profileEvidence.length || !criterion.offerEvidence.length)))) return await failQueue('OPENAI_EVIDENCE_MISSING')
   const scoring = deterministicScore(profile, parsed.value.criteria)
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {
     ...parsed.value,
     offerId: queueItem.job_offer_id,
     overallScore: scoring.score,
-    categoryScores: Object.fromEntries(categories.map((category) => [category, { score: outcomePercent[parsed.value.criteria[category].outcome], rationale: parsed.value.criteria[category].rationale }])),
+    categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: parsed.value.criteria[category].map((criterion) => criterion.rationale).join(' ') }])),
     recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.score >= 75 && scoring.coverage >= 75 && scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.score >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
     hardFilterStatus: analysisHardFilterStatus,
     hardFilterReasons: Array.isArray(hardFilter.reasons) ? hardFilter.reasons.map((reason) => typeof reason === 'object' && reason ? (reason as Record<string, unknown>).label : '').filter((label): label is string => typeof label === 'string') : [],
-    sourceQuality,
+    sourceQuality: source.sourceQuality,
     modelInfo: { provider: 'openai', model, provisional: true },
     createdAt: new Date().toISOString(),
     status: 'ready',
-    scoring: { algorithmVersion, weights: scoring.weights, coverage: scoring.coverage, criterionConfidence: scoring.criterionConfidence, reliability: scoring.reliability, scoredCategories: scoring.scoredCategories },
+    missingInformation: [...new Set([...parsed.value.missingInformation, ...source.missingInformation])],
+    scoring: { algorithmVersion, weights: scoring.weights, coverage: scoring.coverage, criterionConfidence: scoring.criterionConfidence, reliability: scoring.reliability, scoredCategories: scoring.scoredCategories, criterionCount: scoring.criterionCount, knownCriterionCount: scoring.knownCriterionCount, unknownCriterionCount: scoring.unknownCriterionCount },
   }
-  const { data: completed, error: completeError } = await worker.rpc('workspace_complete_analysis', { queue_item_id: queueItemId, worker_token: workerToken, analysis_data: finalAnalysis, model_version: model, prompt_version: promptVersion, algorithm_version: algorithmVersion, source_quality: sourceQuality, provider_request_id: providerResponseId })
+  const { data: completed, error: completeError } = await worker.rpc('workspace_complete_analysis', { queue_item_id: queueItemId, worker_token: workerToken, analysis_data: finalAnalysis, model_version: model, prompt_version: promptVersion, algorithm_version: algorithmVersion, source_quality: source.sourceQuality, provider_request_id: providerResponseId })
   if (completeError || !completed) return failure('ANALYSIS_SAVE_FAILED', 502)
   console.info(JSON.stringify({ diagnostic: 'OPENAI_SUCCESS', queueItemId, requestId: openAiResponse.headers.get('x-request-id'), responseId: providerResponseId, outputTypes: parsed.diagnostics.outputTypes, contentTypes: parsed.diagnostics.contentTypes, validation: 'passed' }))
   return response({ status: 'completed', queueItemId })

@@ -24,6 +24,14 @@ describe('analysis queue service', () => {
     expect(invoke).toHaveBeenCalledTimes(1)
   })
 
+  it('reuses a completed current result without invoking the Edge Function', async () => {
+    const repository = {
+      enqueueAnalysis: vi.fn(async () => ({ queueItem: { id: 'queue-completed' }, idempotent: true, reused: true })),
+    }
+    await expect(enqueueAndProcessAnalysis(repository as never, 'offer-1')).resolves.toMatchObject({ status: 'completed', reused: true })
+    expect(repository.enqueueAnalysis).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps a completed durable result successful when the invocation response arrives as an error', async () => {
     state.client = { functions: { invoke: vi.fn(async () => ({ data: { code: 'QUEUE_NOT_CLAIMABLE' }, error: null })) } }
     const repository = {
