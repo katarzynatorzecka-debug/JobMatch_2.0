@@ -15,7 +15,7 @@ export function OfferDetailsPage() {
   useEffect(() => { void load(true) }, [load])
   useEffect(() => { if (!details?.analysisState.queueItem) return; const timer = window.setTimeout(() => void load(), 1500); return () => window.clearTimeout(timer) }, [details?.analysisState.queueItem, load])
   const mutate = async (action: (repository: ReturnType<typeof workspaceRepositoryFor>) => Promise<void>) => { if (!mode) return; try { await action(workspaceRepositoryFor(mode, session?.user)); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Nie udało się zapisać zmiany.') } }
-  if (loading) return <section className="page page--wide"><PageHeader eyebrow="Szczegóły oferty" title="Wczytujemy ofertę" intro="Odtwarzamy trwały stan workspace." /></section>
+  if (loading) return <section className="page page--wide" aria-busy="true"><PageHeader eyebrow="Szczegóły oferty" title="Szczegóły oferty" intro="Odtwarzamy trwały stan workspace." /><div className="details-skeleton" role="status" aria-label="Ładowanie szczegółów oferty"><div /><div /><div /></div></section>
   if (error) return <section className="page page--wide"><Alert title="Błąd" tone="warning">{error}</Alert><button className="button button--primary" onClick={() => void load()}>Ponów</button></section>
   if (!details?.offer || !details.listItem) return <Navigate to="/offers" replace />
   const { offer, listItem } = details; const analysis = listItem.analysis; const reasons = listItem.hardFilter?.reasons ?? []

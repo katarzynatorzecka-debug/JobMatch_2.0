@@ -40,8 +40,10 @@ export function ProfilePage() {
   const [notice, setNotice] = useState<{ tone: 'success' | 'warning'; title: string; text: string } | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [manualBack, setManualBack] = useState<OnboardingStep>('choice')
+  const [profileLoading, setProfileLoading] = useState(true)
 
   useEffect(() => {
+    if (mode === null) return
     if (mode === 'authenticated' && session) return
     const loaded = loadUserProfile()
     if (loaded.profile) { setProfile(loaded.profile); setStoredProfile(loaded.profile) }
@@ -50,16 +52,18 @@ export function ProfilePage() {
     else if (params.get('mode') === 'cv') setStep('upload')
     else if (loaded.profile) setStep('saved')
     if (loaded.warning) setNotice({ tone: 'warning', title: 'Zapis profilu pominięty', text: loaded.warning })
+    setProfileLoading(false)
   }, [mode, params, session])
 
   useEffect(() => {
     if (mode !== 'authenticated' || !session) return
     let active = true
+    setProfileLoading(true)
     void supabaseProfileRepository(session.user).load().then((loaded) => {
       if (!active) return
       if (loaded.data) { const localPresentation = loadProfilePresentation().presentation; setProfile(loaded.data); setStoredProfile(loaded.data); setPresentation(loaded.presentation.fullName ? loaded.presentation : localPresentation); if (!params.get('mode')) setStep('saved') }
       if (loaded.error) setNotice({ tone: 'warning', title: 'Blad odczytu profilu', text: loaded.error })
-    })
+    }).finally(() => { if (active) setProfileLoading(false) })
     return () => { active = false }
   }, [mode, params, session])
 
@@ -117,6 +121,8 @@ export function ProfilePage() {
   }
   const openManual = (back: OnboardingStep) => { setManualBack(back); setStep('manual') }
   const currentQuestion = questions[questionIndex]
+
+  if (profileLoading) return <section className="page page--profile-onboarding" aria-busy="true"><PageHeader eyebrow="Profil zawodowy" title="Twój zapisany profil" intro="Odtwarzamy trwały stan profilu." /><div className="profile-skeleton" role="status" aria-label="Ładowanie profilu"><div className="profile-skeleton__heading" /><div className="profile-skeleton__summary"><div /><div /><div /><div /><div /></div><div className="profile-skeleton__actions" /></div></section>
 
   return <section className="page page--profile-onboarding">
     <PageHeader eyebrow="Profil zawodowy" title={step === 'saved' ? 'Twój zapisany profil' : 'Utwórz profil zawodowy'} intro={step === 'manual' ? 'Uzupełnij profil ręcznie. Wszystkie dane zapiszą się wyłącznie po Twoim kliknięciu.' : 'Dodaj CV, a przygotujemy większość profilu lokalnie w przeglądarce. Zawsze możesz poprawić wynik przed zapisem.'} />

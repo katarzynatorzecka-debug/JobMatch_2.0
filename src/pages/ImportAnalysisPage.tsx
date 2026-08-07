@@ -35,18 +35,20 @@ export function ImportAnalysisPage() {
   const [batch, setBatch] = useState(() => initialSession.current?.batch ?? createImportBatchState()); const [isProcessingFiles, setIsProcessingFiles] = useState(false)
   const [pipeline, setPipeline] = useState<PipelineState>(() => initialSession.current?.pipeline ?? 'idle'); const [pipelineError, setPipelineError] = useState(() => initialSession.current?.pipeline === 'partial_complete' ? 'Odświeżenie przerwało lokalne oczekiwanie na analizę. Możesz ponowić tylko nieukończoną ofertę.' : '')
   const [progress, setProgress] = useState<Record<string, IntegratedOfferProgress>>(() => initialSession.current?.progress ?? {}); const [counts, setCounts] = useState<IntegratedBatchCounts>(() => initialSession.current?.counts ?? emptyCounts); const [restoredWorkspaceBatch, setRestoredWorkspaceBatch] = useState(false)
+  const [restoringWorkspace, setRestoringWorkspace] = useState(false)
   const summary = useMemo(() => summarizeBatch(batch), [batch]); const isReviewing = batch.entries.length > 0 && !isProcessingFiles
 
   useEffect(() => { saveIntegratedAnalysisSession({ batch, pipeline, progress, counts }, undefined, sessionScope) }, [batch, pipeline, progress, counts, sessionScope])
   useEffect(() => {
     if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current })) return
     let cancelled = false
+    setRestoringWorkspace(true)
     void workspaceRepositoryFor('authenticated', session.user).loadWorkspace().then((snapshot) => {
       if (cancelled || freshBatchStartedRef.current) return
       const restored = restoreActiveWorkspaceImport(snapshot)
       if (!restored) return
       setBatch(restored.batch); setPipeline(restored.pipeline); setProgress(restored.progress); setCounts(restored.counts)
-    }).catch(() => { if (!cancelled) setPipelineError('Nie udało się odtworzyć zapisanego wyniku analizy.') }).finally(() => { if (!cancelled) setRestoredWorkspaceBatch(true) })
+    }).catch(() => { if (!cancelled) setPipelineError('Nie udało się odtworzyć zapisanego wyniku analizy.') }).finally(() => { if (!cancelled) setRestoredWorkspaceBatch(true); setRestoringWorkspace(false) })
     return () => { cancelled = true }
   }, [batch.entries.length, mode, pipeline, restoredWorkspaceBatch, session])
 
@@ -111,6 +113,8 @@ export function ImportAnalysisPage() {
   }
   const canStart = pipeline === 'idle' && summary.visibleOfferCount > 0 && !isProcessingFiles
   const isFinished = pipeline === 'complete' || pipeline === 'partial_complete'
+
+  if (restoringWorkspace) return <section className="page page--wide" aria-busy="true"><PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Odtwarzamy zapisany stan raportu." /><div className="import-skeleton" role="status" aria-label="Ładowanie raportu"><div className="import-skeleton__upload" /><div className="import-skeleton__analysis"><div /><div /><div /></div></div></section>
 
   return <section className="page page--wide">
     <PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Dodaj raporty, sprawdź rozpoznane dane i uruchom jedną analizę całej paczki." />
