@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAppMode } from '../features/access/AppModeProvider'
 
 const navigationItems = [
@@ -10,8 +10,17 @@ const navigationItems = [
 
 export function AppShell() {
   const { mode, exitDemo, signOut } = useAppMode()
+  const { pathname } = useLocation()
+  const pageBackground = pathname.startsWith('/offers')
+    ? 'app-shell--offers'
+    : pathname.startsWith('/profile')
+      ? 'app-shell--profile'
+      : pathname.startsWith('/import')
+        ? 'app-shell--import'
+        : 'app-shell--start'
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${pageBackground}`}>
       <header className="site-header">
         <div className="header-content">
           <Link className="brand" to="/" aria-label="JobMatch — Start">

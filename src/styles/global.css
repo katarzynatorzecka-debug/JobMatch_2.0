@@ -420,3 +420,34 @@ section.surface-card > p:has(+ .analysis-quality) { display: none; }
 @media (max-width: 1180px) { .access-gate { grid-template-columns: minmax(0, 1fr) minmax(420px, .98fr); gap: 2.25rem; padding: clamp(2rem, 4.5vw, 4rem); }.access-gate__hero h1 { font-size: clamp(2.65rem, 4.5vw, 3.8rem); }.brand-logo--access { width: min(285px, 62vw); margin-bottom: 2.5rem; }.access-gate__panel { width: 100%; }.access-gate__right-column { padding-top: clamp(3rem, 5vw, 5rem); } }
 @media (max-width: 768px) { .access-gate { grid-template-columns: 1fr; gap: 2.25rem; min-height: auto; padding: 2rem 1.25rem 3rem; background-image: linear-gradient(122deg, #fffdf8 0%, #fff7e8 100%); }.access-gate__hero h1 { margin-bottom: 1.35rem; font-size: clamp(2.55rem, 9.7vw, 3.85rem); }.access-gate__right-column { display: block; padding-top: 0; }.access-gate__panel { width: 100%; } }
 @media (max-width: 390px) { .access-gate { padding: 1.5rem 1rem 2.5rem; }.brand-logo--access { width: 220px; margin-bottom: 2rem; }.access-gate__hero h1 { font-size: clamp(2.35rem, 11.2vw, 2.85rem); }.access-gate__hero h1 span { display: inline; }.access-gate__hero h1 span:not(:last-child)::after { content: ' '; }.access-gate__panel { padding: 1.35rem; } }
+
+/* Reference watercolor backgrounds by workspace tab. Content surfaces remain
+   opaque, so the artwork only frames the page and does not affect readability. */
+.app-shell {
+  min-height: 100vh;
+  background-color: #fffaf1;
+  background-repeat: no-repeat;
+  background-attachment: scroll;
+  background-position: center top;
+  background-size: 100% auto;
+}
+.app-shell--start {
+  background-image: url('/assets/jobmatch-background-start.png');
+}
+.app-shell--offers {
+  background-image: url('/assets/jobmatch-background-oferty.png');
+  background-position: right top;
+}
+.app-shell--import {
+  background-image: url('/assets/jobmatch-background-import-raportu.png');
+}
+.app-shell--profile {
+  background-image: url('/assets/jobmatch-background-profil.png');
+  background-position: left top;
+}
+@media (max-width: 768px) {
+  .app-shell {
+    background-attachment: scroll;
+    background-position: center top;
+  }
+}
