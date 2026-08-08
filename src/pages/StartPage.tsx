@@ -1,8 +1,15 @@
-import { PrimaryLink, SecondaryLink, SectionCard } from '../components/ui'
+import { useEffect, useState } from 'react'
+import { Alert, PageHeader, PrimaryLink, SecondaryLink, SectionCard } from '../components/ui'
+import { useAppMode } from '../features/access/AppModeProvider'
+import { profileSourceForStart, resolveStartState, type StartState } from '../features/start/startStateResolver'
+import { selectDashboardViewModel, type DashboardViewModel } from '../features/dashboard/dashboardSelectors'
+import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
+import { DashboardPage } from './DashboardPage'
+import { loadProfilePresentation } from '../features/profile/profilePresentationStorage'
 
 const flow = ['Profil', 'Raport .eml', 'Analiza', 'Wyniki', 'Wiadomość']
 
-export function StartPage() {
+export function OnboardingStart() {
   return (
     <section className="page page--start">
       <div className="hero-grid">
@@ -14,8 +21,8 @@ export function StartPage() {
         </div>
         <SectionCard className="hero-result">
           <p className="card-kicker">Po przejściu przez flow</p>
-          <h2>Otrzymasz czytelną listę ofert</h2>
-          <p>Najpierw powstanie profil do sprawdzenia, a potem czytelna lista ofert z pomocniczą oceną i ryzykiem.</p>
+          <h2 className="hero-result__lead">Otrzymasz spersonalizowany PULPIT użytkownika, a wraz z nim czytelną listę wartościowych ofert.</h2>
+          <p className="hero-result__detail">Najpierw powstanie profil do sprawdzenia, a potem czytelna lista ofert z pomocniczą oceną i określonymi ryzykami.</p>
         </SectionCard>
       </div>
       <SectionCard title="Prosty proces, decyzja zawsze po Twojej stronie" className="flow-card">
@@ -24,4 +31,35 @@ export function StartPage() {
       </SectionCard>
     </section>
   )
+}
+
+export function StartPage() {
+  const { mode, session } = useAppMode()
+  const [state, setState] = useState<StartState | 'loading' | 'error'>('loading')
+  const [dashboard, setDashboard] = useState<DashboardViewModel | null>(null)
+
+  useEffect(() => {
+    if (!mode) return
+    let active = true
+    setState('loading')
+    setDashboard(null)
+    const profileSource = profileSourceForStart(mode, session?.user)
+    void resolveStartState(profileSource).then(async (nextState) => {
+      if (!active) return
+      if (nextState === 'onboarding') { setState(nextState); return }
+      const [profileResult, snapshot] = await Promise.all([profileSource.load(), workspaceRepositoryFor(mode, session?.user).loadWorkspace()])
+      if (!active) return
+      const localPresentation = loadProfilePresentation().presentation
+      const presentation = profileResult.presentation.fullName ? profileResult.presentation : localPresentation
+      setDashboard(selectDashboardViewModel({ snapshot, profile: profileResult.data, profilePresentation: presentation }))
+      setState(nextState)
+    }).catch(() => {
+      if (active) setState('error')
+    })
+    return () => { active = false }
+  }, [mode, session])
+
+  if (state === 'loading') return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie zawartości strony</span></section>
+  if (state === 'error') return <section className="page page--start"><Alert title="Nie udało się odczytać stanu profilu" tone="warning">Odśwież stronę i spróbuj ponownie.</Alert></section>
+  return state === 'dashboard' && dashboard ? <DashboardPage viewModel={dashboard} /> : <OnboardingStart />
 }

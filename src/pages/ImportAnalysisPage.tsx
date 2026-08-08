@@ -1,117 +1,179 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { ImportedReport, ReportImportStatus } from '../contracts/import'
-import { Alert, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
-import { evaluateOffers } from '../features/hardFilter/hardFilter'
-import { clearHardFilterSession, saveHardFilterSession } from '../features/hardFilter/hardFilterSessionStorage'
+import type { ImportedReport, ImportWarning } from '../contracts/import'
+import type { JobAnalysis } from '../contracts/jobAnalysis'
+import { Alert, AnalysisQuality, HardFilterStatusBadge, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
+import { useAppMode } from '../features/access/AppModeProvider'
+import { type BatchReport, type IntegratedBatchCounts, type IntegratedOfferProgress, retryIntegratedOffer, runIntegratedAnalysisBatch } from '../features/analysis/integratedAnalysisFlow'
+import { clearIntegratedAnalysisSession, loadIntegratedAnalysisSession, saveIntegratedAnalysisSession } from '../features/analysis/integratedAnalysisSession'
+import { restoreActiveWorkspaceImport, shouldResetTerminalBatchForNewFiles, shouldRestoreWorkspaceImport } from '../features/analysis/restoredWorkspaceImport'
+import { scoreBand } from '../features/analysis/deterministicScoring'
 import { extractEmlContent } from '../features/import/emlExtractor'
-import { clearImportedReport, loadImportedReport, saveImportedReport } from '../features/import/importSessionStorage'
-import { canStartDemoAnalysis, restoreImportedOffers } from '../features/import/importReviewState'
+import { appendBatchEntries, createImportBatchId, createImportBatchState, hasRemovedOffers, removeBatchOffer, removeBatchReport, restoreBatchOffers, summarizeBatch, visibleOffers, type ImportBatchEntry } from '../features/import/importBatchState'
 import { validateEmlFile } from '../features/import/importUtils'
 import { parseRocketJobsReport } from '../features/import/rocketJobsReportParser'
+import { createUrlOfferSeed, importedReportFromUrlSource, normalizeOfferUrl } from '../features/import/urlOfferImport'
+import { OfferContentFetcher, OfferSourceError } from '../features/offers/offerContentFetcher'
 import { loadUserProfile } from '../features/profile/profileStorage'
-import { useAppMode } from '../features/access/AppModeProvider'
-import { supabaseImportRepository, supabaseProfileRepository } from '../features/supabase/repositories'
-import { AnalysisOrchestrator, type AnalysisProgress } from '../features/analysis/analysisOrchestrator'
-import { AIAnalysisService } from '../features/analysis/analysisService'
-import { OfferContentProvider } from '../features/analysis/offerContentProvider'
-import { localAnalysisRepository, supabaseAnalysisRepository } from '../features/analysis/analysisRepository'
-import { getAnalysisAccess } from '../features/analysis/analysisAccess'
-import { OfferContentFetcher } from '../features/offers/offerContentFetcher'
-import { localOfferSourceRepository, supabaseOfferSourceRepository } from '../features/offers/offerSourceRepository'
+import { supabaseProfileRepository } from '../features/supabase/repositories'
+import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
 
-const processingLabels: Record<Extract<ReportImportStatus, 'validating' | 'reading' | 'parsing'>, string> = { validating: 'Sprawdzamy plik', reading: 'Odczytujemy wiadomość EML', parsing: 'Rozpoznajemy oferty RocketJobs' }
+const processingLabels = { adding_files: 'Przygotowujemy wybrane pliki.', reading: 'Odczytujemy wiadomości EML lokalnie w przeglądarce.', parsing: 'Rozpoznajemy oferty RocketJobs i pola wymagające sprawdzenia.' } as const
+const emptyCounts: IntegratedBatchCounts = { total: 0, hardFilterRejected: 0, queued: 0, processing: 0, completed: 0, failed: 0 }
+type PipelineState = 'idle' | 'running' | 'complete' | 'partial_complete'
+
+function parserWarnings(warnings: string[]): ImportWarning[] { return warnings.map((message) => ({ code: 'partial-parse' as const, message })) }
+function progressKey(reportId: string, offerId: string) { return `${reportId}:${offerId}` }
+function hardFilterLabel(status?: 'pass' | 'weak' | 'fail') { return status === 'pass' ? 'Przechodzi' : status === 'weak' ? 'Wymaga sprawdzenia' : status === 'fail' ? 'Odrzucona przez Hard Filter' : null }
+function statusLabel(progress?: IntegratedOfferProgress) {
+  if (!progress) return 'Oczekuje'
+  return ({ waiting: 'Oczekuje', hard_filtering: 'Sprawdzanie warunków podstawowych', queued: 'W kolejce AI', processing: 'Analiza w toku', completed: 'Analiza zakończona', rejected: 'Odrzucona przez Hard Filter', failed: 'Analiza nie powiodła się' } as const)[progress.state]
+}
 
 export function ImportAnalysisPage() {
-  const navigate = useNavigate()
-  const { mode, session } = useAppMode()
-  const initial = loadImportedReport()
-  const [status, setStatus] = useState<ReportImportStatus>(initial.report ? 'review' : 'idle')
-  const [report, setReport] = useState<ImportedReport | null>(initial.report)
-  const [visibleOfferIds, setVisibleOfferIds] = useState<string[] | null>(null)
-  const [message, setMessage] = useState(initial.warning ?? '')
-  const [reviewError, setReviewError] = useState('')
-  const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress[]>([])
-  const [analysisBusy, setAnalysisBusy] = useState(false)
-  const [analysisCompleted, setAnalysisCompleted] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const visibleOffers = report ? report.offers.filter((offer) => visibleOfferIds === null || visibleOfferIds.includes(offer.id)) : []
+  const { mode, session } = useAppMode(); const navigate = useNavigate()
+  const sessionScope = mode === 'authenticated' && session ? `authenticated-${session.user.id}` : 'demo'
+  const inputRef = useRef<HTMLInputElement>(null); const sequenceRef = useRef(0); const analysisRunRef = useRef(false); const freshBatchStartedRef = useRef(false); const initialSession = useRef(loadIntegratedAnalysisSession(undefined, sessionScope))
+  const [batch, setBatch] = useState(() => initialSession.current?.batch ?? createImportBatchState()); const [isProcessingFiles, setIsProcessingFiles] = useState(false); const [isProcessingUrl, setIsProcessingUrl] = useState(false); const [urlInput, setUrlInput] = useState('')
+  const [pipeline, setPipeline] = useState<PipelineState>(() => initialSession.current?.pipeline ?? 'idle'); const [pipelineError, setPipelineError] = useState(() => initialSession.current?.pipeline === 'partial_complete' ? 'Odświeżenie przerwało lokalne oczekiwanie na analizę. Możesz ponowić tylko nieukończoną ofertę.' : '')
+  const [progress, setProgress] = useState<Record<string, IntegratedOfferProgress>>(() => initialSession.current?.progress ?? {}); const [counts, setCounts] = useState<IntegratedBatchCounts>(() => initialSession.current?.counts ?? emptyCounts); const [restoredWorkspaceBatch, setRestoredWorkspaceBatch] = useState(false)
+  const [restoringWorkspace, setRestoringWorkspace] = useState(false)
+  const summary = useMemo(() => summarizeBatch(batch), [batch]); const isReviewing = batch.entries.length > 0 && !isProcessingFiles && !isProcessingUrl
 
+  useEffect(() => { saveIntegratedAnalysisSession({ batch, pipeline, progress, counts }, undefined, sessionScope) }, [batch, pipeline, progress, counts, sessionScope])
   useEffect(() => {
-    if (mode !== 'authenticated' || !session) return
-    let active = true
-    void supabaseImportRepository(session.user).load().then((loaded) => {
-      if (!active) return
-      if (loaded.data) { setReport(loaded.data); setVisibleOfferIds(null); setStatus('review'); setMessage('') }
-      else if (loaded.error) { setMessage(loaded.error); setStatus('error') }
-    })
-    return () => { active = false }
-  }, [mode, session])
+    if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current, hasExplicitEmptyBatch: initialSession.current?.pipeline === 'idle' && initialSession.current.batch.entries.length === 0 })) return
+    let cancelled = false
+    setRestoringWorkspace(true)
+    void workspaceRepositoryFor('authenticated', session.user).loadWorkspace().then((snapshot) => {
+      if (cancelled || freshBatchStartedRef.current) return
+      const restored = restoreActiveWorkspaceImport(snapshot)
+      if (!restored) return
+      setBatch(restored.batch); setPipeline(restored.pipeline); setProgress(restored.progress); setCounts(restored.counts)
+    }).catch(() => { if (!cancelled) setPipelineError('Nie udało się odtworzyć zapisanego wyniku analizy.') }).finally(() => { if (!cancelled) setRestoredWorkspaceBatch(true); setRestoringWorkspace(false) })
+    return () => { cancelled = true }
+  }, [batch.entries.length, mode, pipeline, restoredWorkspaceBatch, session])
 
-  async function handleFile(file: File | null) {
-    const validation = validateEmlFile(file)
-    if (!validation.valid || !file) { setStatus('error'); setMessage(validation.valid ? 'Wybierz plik raportu.' : validation.error); return }
-    setMessage(''); setReviewError(''); setReport(null); setVisibleOfferIds(null); clearHardFilterSession(); setStatus('validating')
-    await Promise.resolve(); setStatus('reading')
-    const extraction = await extractEmlContent(file)
-    if (!extraction.success) { setStatus('error'); setMessage(extraction.error ?? 'Nie udało się odczytać raportu.'); return }
-    setStatus('parsing'); await Promise.resolve()
-    const parsed = parseRocketJobsReport(extraction.text)
-    const nextReport: ImportedReport = { version: 1, source: 'rocketjobs-eml', fileName: file.name, importedAt: new Date().toISOString(), offers: parsed.offers, warnings: parsed.warnings }
-    if (!nextReport.offers.length) { clearImportedReport(); setStatus('empty'); setMessage('Nie znaleźliśmy kompletnych ofert RocketJobs w tym raporcie.'); return }
-    if (mode === 'authenticated' && session) {
-      const saved = await supabaseImportRepository(session.user).save(nextReport)
-      if (!saved.data) { setStatus('error'); setMessage(saved.error ?? 'Nie udalo sie zapisac ofert w chmurze.'); return }
-      setReport(saved.data); setStatus('review'); return
+  function openFilePicker() { inputRef.current?.click() }
+  async function handleFiles(files: FileList | null) {
+    const selectedFiles = files ? Array.from(files) : []; if (!selectedFiles.length || isProcessingFiles || pipeline === 'running') return
+    const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline)
+    freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true)
+    if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }
+    setIsProcessingFiles(true); setPipelineError(''); setBatch((current) => startsFreshPacket ? { ...createImportBatchState(), status: 'adding_files' } : { ...current, status: 'adding_files' }); await Promise.resolve()
+    const entries: ImportBatchEntry[] = []
+    for (const file of selectedFiles) {
+      const id = createImportBatchId(file.name, sequenceRef.current++); const validation = validateEmlFile(file)
+      if (!validation.valid) { entries.push({ kind: 'file_error', id, fileName: file.name, message: validation.error }); continue }
+      setBatch((current) => ({ ...current, status: 'reading' })); const extraction = await extractEmlContent(file)
+      if (!extraction.success) { entries.push({ kind: 'file_error', id, fileName: file.name, message: extraction.error ?? 'Nie udało się odczytać raportu.' }); continue }
+      setBatch((current) => ({ ...current, status: 'parsing' })); const parsed = parseRocketJobsReport(extraction.text)
+      if (!parsed.offers.length) { entries.push({ kind: 'file_error', id, fileName: file.name, message: parsed.warnings[0]?.message ?? 'Nie znaleźliśmy kompletnych ofert RocketJobs w tym raporcie.' }); continue }
+      const report: ImportedReport = { version: 1, source: 'rocketjobs-eml', fileName: file.name, importedAt: new Date().toISOString(), offers: parsed.offers, warnings: [...parsed.warnings, ...parserWarnings(extraction.warnings)] }
+      entries.push({ kind: 'report', id, report, removedOfferIds: [] })
     }
-    setReport(nextReport); saveImportedReport(nextReport); setStatus('review')
+    setBatch((current) => appendBatchEntries(current, entries)); setIsProcessingFiles(false); if (inputRef.current) inputRef.current.value = ''
   }
 
-  function chooseAnotherFile() { clearImportedReport(); clearHardFilterSession(); setReport(null); setVisibleOfferIds(null); setMessage(''); setReviewError(''); setStatus('idle'); if (inputRef.current) inputRef.current.value = '' }
-  function deleteOffer(id: string) { setVisibleOfferIds((current) => (current ?? report?.offers.map((offer) => offer.id) ?? []).filter((offerId) => offerId !== id)) }
-  function restoreOffers() { if (report) setVisibleOfferIds(restoreImportedOffers(report.offers).map((offer) => offer.id)) }
-  async function startHardFilter(retryOfferId?: string) {
-    if (analysisBusy) return
-    setReviewError('')
-    setAnalysisCompleted(false)
-    const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
-    const profileResult = cloudProfile ? { profile: cloudProfile.data, warning: cloudProfile.error } : loadUserProfile()
-    if (!profileResult.profile) { setReviewError(profileResult.warning ?? 'Najpierw utwórz i zapisz profil, aby uruchomić Hard Filter.'); return }
-    if (!canStartDemoAnalysis(visibleOffers)) { setReviewError('Lista ofert jest pusta. Przywróć oferty albo zaimportuj inny raport.'); return }
-    const filteredOffers = evaluateOffers(profileResult.profile, visibleOffers)
-    if (!saveHardFilterSession({ version: 1, filteredOffers })) { setReviewError('Nie udało się bezpiecznie zapisać wyniku Hard Filter w tej sesji.'); return }
-    const access = getAnalysisAccess(mode, Boolean(session))
-    if (!access.allowed) {
-      setAnalysisProgress(filteredOffers.map((item) => ({ offerId: item.offer.id, state: item.result.status === 'fail' ? 'rejected' : 'retry', error: access.code })))
-      setReviewError(`${access.message} Kod diagnostyczny: ${access.code}.`)
-      return
-    }
-    const itemsToAnalyze = retryOfferId ? filteredOffers.filter((item) => item.offer.id === retryOfferId) : filteredOffers
-    if (retryOfferId && !itemsToAnalyze.length) { setReviewError('Nie znaleziono oferty do ponowienia. Kod diagnostyczny: ANALYSIS_NOT_STARTED.'); return }
-    setAnalysisProgress((current) => retryOfferId
-      ? current.map((item) => item.offerId === retryOfferId ? { offerId: retryOfferId, state: 'queued' } : item)
-      : filteredOffers.map((item) => ({ offerId: item.offer.id, state: item.result.status === 'fail' ? 'rejected' : 'queued' })))
-    setAnalysisBusy(true)
-    const repository = mode === 'authenticated' && session ? supabaseAnalysisRepository(session.user) : localAnalysisRepository
-    const sourceRepository = mode === 'authenticated' && session ? supabaseOfferSourceRepository(session.user) : localOfferSourceRepository
-    const orchestrator = new AnalysisOrchestrator(new OfferContentProvider(new OfferContentFetcher(), sourceRepository), new AIAnalysisService(), repository)
+  async function handleUrl() {
+    if (!mode || isProcessingFiles || isProcessingUrl || pipeline === 'running') return
+    const normalizedUrl = normalizeOfferUrl(urlInput)
+    if (!normalizedUrl) { setPipelineError('Wklej poprawny adres HTTPS do oferty.'); return }
+    const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline); freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setIsProcessingUrl(true); setPipelineError(''); if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }; setBatch((current) => startsFreshPacket ? { ...createImportBatchState(), status: 'reading' } : { ...current, status: 'reading' })
     try {
-      const analyses = await orchestrator.analyzeAll(profileResult.profile, itemsToAnalyze, (progress) => setAnalysisProgress((current) => [...current.filter((item) => item.offerId !== progress.offerId), progress]))
-      const eligibleCount = itemsToAnalyze.filter((item) => item.result.status !== 'fail').length
-      if (!analyses.length && eligibleCount > 0) { setReviewError('Nie udało się zapisać żadnej analizy. Sprawdź kod przy ofercie i użyj „Ponów”.') }
-      else if (analyses.length < eligibleCount) { setReviewError(`Zapisano ${analyses.length} z ${eligibleCount} analiz. Oferty z błędem możesz ponowić.`) }
-      setAnalysisCompleted(analyses.length > 0)
-    } finally { setAnalysisBusy(false) }
+      const seed = createUrlOfferSeed(normalizedUrl)
+      const source = await new OfferContentFetcher().fetch(seed)
+      if (source.status === 'unavailable' || !source.title) throw new Error(source.errorCode ?? 'Nie udało się odczytać treści oferty z tego adresu.')
+      const report = importedReportFromUrlSource(source, normalizedUrl)
+      const key = createImportBatchId('url-' + normalizedUrl, sequenceRef.current++)
+      setBatch((current) => appendBatchEntries(current, [{ kind: 'report', id: key, report, removedOfferIds: [] }]))
+      setUrlInput('')
+    } catch (cause) {
+      const code = cause instanceof OfferSourceError ? cause.code : cause instanceof Error ? cause.message : 'SOURCE_FETCH_FAILED'
+      setPipelineError(code === 'UNSUPPORTED_SOURCE_DOMAIN' ? 'Ten adres nie jest jeszcze obsługiwany. Użyj linku HTTPS z RocketJobs.' : 'Nie udało się odczytać treści oferty z tego adresu.')
+      setBatch((current) => ({ ...current, status: 'idle' }))
+    } finally { setIsProcessingUrl(false) }
   }
+  function removeReport(reportId: string) { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(''); setBatch((current) => removeBatchReport(current, reportId)); clearIntegratedAnalysisSession(undefined, sessionScope); }
+  function startOver() { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); sequenceRef.current = 0; setBatch(createImportBatchState()); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(''); clearIntegratedAnalysisSession(undefined, sessionScope); if (mode) void workspaceRepositoryFor(mode, session?.user).setActiveImportSession(null).catch((cause) => setPipelineError(cause instanceof Error ? cause.message : 'ACTIVE_IMPORT_SESSION_CLEAR_FAILED')); if (inputRef.current) inputRef.current.value = '' }
+  async function startAnalysis(reportsOverride?: BatchReport[]) {
+    if (!mode || pipeline === 'running' || analysisRunRef.current) return
+    const reports = reportsOverride ?? batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry) })).filter((entry) => entry.offers.length > 0)
+    if (!reports.length) { setPipelineError('Przywróć co najmniej jedną ofertę, aby rozpocząć analizę.'); return }
+    analysisRunRef.current = true
+    const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
+    const localProfile = cloudProfile ? null : loadUserProfile()
+    const profile = cloudProfile?.data ?? localProfile?.profile ?? null
+    const profileError = cloudProfile?.error ?? localProfile?.warning
+    if (!profile) { analysisRunRef.current = false; setPipelineError(profileError ?? 'Najpierw utwórz i zapisz profil, aby przeprowadzić analizę.'); return }
+    const userId = mode === 'authenticated' && session ? session.user.id : 'demo-user'; const repository = workspaceRepositoryFor(mode, session?.user)
+    setPipeline('running'); setPipelineError(''); setProgress(Object.fromEntries(reports.flatMap((report) => report.offers.map((offer) => [progressKey(report.key, offer.id), { key: progressKey(report.key, offer.id), offer, state: 'waiting' as const }])))); setCounts({ ...emptyCounts, total: reports.reduce((total, report) => total + report.offers.length, 0) })
+    try {
+      const result = await runIntegratedAnalysisBatch({ repository, mode, userId, profile, reports, onCounts: setCounts, onOfferProgress: (entry) => setProgress((current) => ({ ...current, [entry.key]: entry })) })
+      setPipeline(result.partial ? 'partial_complete' : 'complete')
+    } catch (cause) { setPipeline('idle'); setPipelineError(cause instanceof Error ? cause.message : 'Nie udało się rozpocząć analizy paczki.') } finally { analysisRunRef.current = false }
+  }
+  async function retryOffer(item: IntegratedOfferProgress, force = false) {
+    if (!mode || !item.workspaceOfferId || pipeline === 'running') return
+    if (force && !window.confirm('Analiza mimo odrzucenia uruchomi osobne, potencjalnie płatne wywołanie AI. Czy chcesz kontynuować?')) return
+    const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
+    const localProfile = cloudProfile ? null : loadUserProfile(); const profile = cloudProfile?.data ?? localProfile?.profile ?? null
+    if (!profile) { setPipelineError(cloudProfile?.error ?? localProfile?.warning ?? 'Najpierw zapisz profil.'); return }
+    setPipeline('running'); setPipelineError('')
+    try {
+      setCounts((current) => ({ ...current, failed: Math.max(0, current.failed - 1), queued: current.queued + 1 }))
+      await retryIntegratedOffer({ repository: workspaceRepositoryFor(mode, session?.user), mode, profile, offerId: item.workspaceOfferId, offer: item.offer, hardFilterStatus: item.hardFilterStatus ?? 'pass', allowHardFilterFail: force, onProgress: (next) => {
+        setProgress((current) => Object.fromEntries(Object.entries(current).map(([entryKey, entry]) => entry.workspaceOfferId === item.workspaceOfferId || entryKey === item.key ? [entryKey, { ...next, key: entryKey }] : [entryKey, entry])))
+        if (next.state === 'processing') setCounts((current) => ({ ...current, queued: Math.max(0, current.queued - 1), processing: current.processing + 1 }))
+        if (next.state === 'completed') setCounts((current) => ({ ...current, processing: Math.max(0, current.processing - 1), completed: current.completed + 1 }))
+      } })
+      setPipeline((current) => Object.values(progress).some((entry) => entry.key !== item.key && entry.state === 'failed') ? 'partial_complete' : 'complete')
+    } catch (cause) {
+      setCounts((current) => ({ ...current, queued: Math.max(0, current.queued - 1), processing: Math.max(0, current.processing - 1), failed: current.failed + 1 }))
+      setProgress((current) => ({ ...current, [item.key]: { ...item, state: 'failed', error: cause instanceof Error ? cause.message : 'ANALYSIS_REQUEST_FAILED' } })); setPipeline('partial_complete')
+    }
+  }
+  const canStart = pipeline === 'idle' && summary.visibleOfferCount > 0 && !isProcessingFiles
+  const isFinished = pipeline === 'complete' || pipeline === 'partial_complete'
 
-  return <section className="page">
-    <PageHeader eyebrow="Raport RocketJobs" title="Import i analiza" intro="Wczytaj lokalny raport .eml, sprawdź rozpoznane oferty, a następnie ręcznie uruchom deterministyczny Hard Filter." />
-    <input ref={inputRef} className="sr-only" type="file" accept=".eml,message/rfc822" onChange={(event) => void handleFile(event.target.files?.[0] ?? null)} />
-    {analysisProgress.length > 0 && <SectionCard title="Postęp analizy AI"><ul className="analysis-list">{analysisProgress.map((item) => <li key={item.offerId}><span>{item.offerId}</span><span className={`analysis-state analysis-state--${item.state}`}>{item.state === 'queued' ? 'oczekuje' : item.state === 'fetching' ? 'pobieramy źródło' : item.state === 'analyzing' ? 'analizowana' : item.state === 'ready' ? 'gotowa' : item.state === 'rejected' ? 'odrzucona przez Hard Filter' : 'wymaga ponowienia'}{item.sourceQuality ? ` · ${item.sourceQuality === 'full' ? 'Źródło pełne' : item.sourceQuality === 'partial' ? 'Źródło częściowe' : 'Źródło niedostępne'}` : ''}{item.sourceErrorCode ? ` · ${item.sourceErrorCode}` : ''}{item.error ? ` · ${item.error}` : ''}</span>{item.state === 'retry' && mode === 'authenticated' && <SecondaryButton disabled={analysisBusy} onClick={() => void startHardFilter(item.offerId)}>Ponów</SecondaryButton>}</li>)}</ul>{analysisCompleted && <div className="action-row"><PrimaryButton onClick={() => navigate('/offers')}>Zobacz wyniki</PrimaryButton></div>}</SectionCard>}
-    {status === 'idle' && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raport w formacie .eml</h2><p>Odczyt nastąpi wyłącznie w tej przeglądarce. Zapisujemy jedynie znormalizowane dane ofert na czas sesji — bez treści EML i nagłówków wiadomości.</p><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz plik</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB</span></div></SectionCard>}
-    {(['validating', 'reading', 'parsing'] as const).includes(status as 'validating') && <SectionCard title="Rozpoznajemy raport"><p className="file-name">{inputRef.current?.files?.[0]?.name ?? 'Wybrany raport'} <span>· lokalne przetwarzanie</span></p><div className="progress-track progress-track--large" aria-label="Postęp importu"><span style={{ width: status === 'validating' ? '22%' : status === 'reading' ? '56%' : '82%' }} /></div><ol className="process-steps"><li className={status !== 'validating' ? 'is-complete' : 'is-active'}>Sprawdzamy plik</li><li className={status === 'parsing' ? 'is-complete' : status === 'reading' ? 'is-active' : ''}>Odczytujemy raport</li><li className={status === 'parsing' ? 'is-active' : ''}>Rozpoznajemy oferty</li></ol><p className="field-hint">{processingLabels[status as keyof typeof processingLabels]}</p></SectionCard>}
-    {status === 'error' && <SectionCard title="Nie udało się zaimportować raportu"><Alert title="Import zatrzymany" tone="warning">{message}</Alert><div className="action-row"><SecondaryButton onClick={chooseAnotherFile}>Wróć</SecondaryButton><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz inny plik</PrimaryButton></div></SectionCard>}
-    {status === 'empty' && <SectionCard title="Brak ofert do przeglądu"><Alert title="Nie znaleziono kompletnych ofert" tone="warning">{message}</Alert><p>Raport nie został użyty do analizy. Możesz wybrać inny plik lub wrócić później.</p><div className="action-row"><SecondaryButton onClick={chooseAnotherFile}>Wróć</SecondaryButton><PrimaryButton onClick={() => inputRef.current?.click()}>Wybierz inny plik</PrimaryButton></div></SectionCard>}
-    {status === 'review' && report && <SectionCard title="Rozpoznane oferty"><Alert title="Analiza nie uruchamia się automatycznie" tone="info">Potwierdź listę ofert. Po kliknięciu wykonamy Hard Filter, a po zalogowaniu przygotujemy kolejkę AI z oceną 0–100.</Alert>{reviewError && <Alert title="Nie można ukończyć analizy" tone="warning">{reviewError} <a className="text-link" href="/profile">Przejdź do profilu</a></Alert>}<p className="file-name">{report.fileName} <span>· {visibleOffers.length} z {report.offers.length} ofert</span></p>{report.warnings.map((warning, index) => <p className="import-warning" key={`${warning.code}-${index}`}>{warning.message}</p>)}<ul className="recognized-offers">{visibleOffers.map((offer) => <li key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.location ? ` · ${offer.location}` : ''}</span>{offer.missingFields.length > 0 && <small>Brak: {offer.missingFields.join(', ')}</small>}</div><SecondaryButton onClick={() => deleteOffer(offer.id)}>Usuń</SecondaryButton></li>)}</ul>{visibleOffers.length === 0 && <Alert title="Lista jest pusta" tone="warning">Przywróć oferty albo zaimportuj inny raport.</Alert>}<div className="action-row"><SecondaryButton onClick={restoreOffers} disabled={visibleOffers.length === report.offers.length || analysisBusy}>Przywróć listę</SecondaryButton><SecondaryButton onClick={() => inputRef.current?.click()} disabled={analysisBusy}>Wybierz inny plik</SecondaryButton><PrimaryButton disabled={!canStartDemoAnalysis(visibleOffers) || analysisBusy} onClick={() => void startHardFilter()}>{analysisBusy ? 'Analizujemy oferty…' : mode === 'demo' ? 'Uruchom Hard Filter' : 'Analizuj oferty'}</PrimaryButton></div></SectionCard>}
+  if (restoringWorkspace) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie raportu</span></section>
+
+  return <section className="page page--wide">
+    <PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Dodaj raporty, sprawdź rozpoznane dane i uruchom jedną analizę całej paczki." />
+    <input ref={inputRef} className="sr-only" type="file" multiple accept=".eml,message/rfc822" onChange={(event) => void handleFiles(event.target.files)} />
+    {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title="Przygotowujemy paczkę"><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
+    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raporty w formacie .eml</h2><p>Możesz wybrać kilka raportów naraz lub dodawać je później. Nie przechowujemy treści EML, nagłówków wiadomości ani CV w chmurze.</p><PrimaryButton onClick={openFilePicker}>Wybierz raporty</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB na plik</span><div className="url-import"><label htmlFor="offer-url">Albo wklej link do oferty</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>Analizuj z linku</PrimaryButton></div><span className="field-hint">Obsługiwane są bezpieczne linki HTTPS z RocketJobs.</span></div></div></SectionCard>}
+{isProcessingUrl && <SectionCard title="Przygotowujemy ofertę z linku"><p className="field-hint">Pobieramy i normalizujemy treść oferty, a następnie uruchomimy analizę.</p></SectionCard>}
+    {isReviewing && <>
+      <SectionCard title="Przygotowanie paczki do analizy" className="import-review-card">
+        <p className="section-intro">Wybierz interesujące Cię raporty. Sprawdź rozpoznane oferty, warningi i braki danych. Kliknij „Przeprowadź analizę”.</p>
+        {batch.status === 'partial_review' && <Alert title="Część plików wymaga uwagi" tone="warning">Poprawne raporty pozostały w paczce. Błędny plik nie usuwa rozpoznanych ofert.</Alert>}
+        {batch.status === 'file_error' && <Alert title="Plik wymaga poprawy" tone="warning">Nie udało się rozpoznać żadnego poprawnego raportu. Możesz dodać kolejny plik albo zacząć od nowa.</Alert>}
+        {pipelineError && <Alert title="Nie można ukończyć analizy" tone="warning">{pipelineError}</Alert>}
+        <div className="batch-summary" aria-label="Podsumowanie paczki"><span><strong>{summary.reportCount}</strong> raporty</span><span><strong>{summary.visibleOfferCount}</strong> widoczne oferty</span><span><strong>{summary.warningCount}</strong> warningi</span><span><strong>{summary.missingFieldCount}</strong> braki pól</span></div>
+        {summary.localDuplicateCount > 0 && <Alert title="Możliwe powtórzenia w bieżącej paczce" tone="info">Rozpoznaliśmy lokalne powtórzenia według linku źródłowego lub pary firma/stanowisko. Nie łączymy ich na tym ekranie.</Alert>}
+        <ul className="import-report-list" aria-label="Wybrane raporty">
+          {batch.entries.map((entry) => entry.kind === 'file_error' ? <li key={entry.id} className="import-report-list__error"><div><strong>{entry.fileName}</strong><span>Nie udało się przygotować pliku</span></div><Alert title="Plik pominięty" tone="warning">{entry.message}</Alert></li> : <li key={entry.id}>
+            <div className="import-report-list__heading"><div><strong>{entry.report.fileName}</strong><span>Rozpoznano {entry.report.offers.length} ofert · widoczne {visibleOffers(entry).length}</span></div><SecondaryButton onClick={() => removeReport(entry.id)} disabled={pipeline === 'running'}>Usuń raport</SecondaryButton></div>
+            {entry.report.warnings.length > 0 && <ul className="import-warnings">{entry.report.warnings.map((warning, index) => <li key={`${warning.code}:${index}`}>{warning.message}</li>)}</ul>}
+            <ul className="recognized-offers">{visibleOffers(entry).map((offer) => { const item = progress[progressKey(entry.id, offer.id)]; return <li className={`analysis-tile analysis-tile--${item?.state ?? 'waiting'}`} key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.sourceLabel ? ` · ${offer.sourceLabel}` : ''}{offer.location ? ` · ${offer.location}` : ''}</span>{offer.missingFields.length > 0 && <small className="offer-missing">Brakuje: {offer.missingFields.join(', ')}.</small>}{offer.warnings.length > 0 && <small className="offer-warning">Brak danych: {offer.warnings.map((warning) => warning.replace(/^Brak danych:\s*/i, '')).join(' ')}</small>}<span className="analysis-tile__state">{statusLabel(item)}</span>{item?.state === 'processing' && <small>Sprawdzamy dopasowanie doświadczenia, umiejętności, preferencji i kierunku rozwoju.</small>}{item?.state === 'failed' && <><small className="analysis-tile__error">{item.error ?? 'Wystąpił błąd analizy.'}</small><SecondaryButton onClick={() => void retryOffer(item)}>Spróbuj ponownie</SecondaryButton></>}{item?.state === 'completed' && <AnalysisPreview analysis={item.analysis} hardFilter={item.hardFilterStatus} freshness={item.freshness} analysisVersionId={item.analysisVersionId} />}{item?.state === 'rejected' && <><AnalysisPreview hardFilter="fail" /><SecondaryButton onClick={() => void retryOffer(item, true)}>Analizuj mimo odrzucenia</SecondaryButton></>}</div>{pipeline !== 'running' && !isFinished && <SecondaryButton onClick={() => setBatch((current) => removeBatchOffer(current, entry.id, offer.id))}>Usuń ofertę</SecondaryButton>}</li> })}</ul>
+          </li>)}
+        </ul>
+        <div className="action-row action-row--spaced"><SecondaryButton onClick={openFilePicker} disabled={pipeline === 'running'}>Dodaj kolejny raport</SecondaryButton><SecondaryButton onClick={() => setBatch((current) => restoreBatchOffers(current))} disabled={!hasRemovedOffers(batch) || pipeline === 'running'}>Przywróć listę</SecondaryButton><SecondaryButton onClick={startOver} disabled={pipeline === 'running'}>Zacznij od nowa</SecondaryButton></div>
+      </SectionCard>
+      <SectionCard title="Analiza i wyniki" className="analysis-control-card">
+        {pipeline === 'idle' && <p className="section-intro">Po uruchomieniu analizy zobaczysz postęp dla każdej oferty. Po zakończeniu możesz przejść do pełnej listy wyników.</p>}
+        {pipeline === 'running' && <><Alert title="Analiza w toku" tone="info">Przetwarzamy paczkę kolejno, aktualny status analizy jest widoczny przy poszczególnych ofertach.</Alert><div className="analysis-counts"><span>wszystkie: {counts.total}</span><span>odrzucone przez HF: {counts.hardFilterRejected}</span><span>w kolejce: {counts.queued}</span><span>analizowane: {counts.processing}</span><span>zakończone: {counts.completed}</span><span>błędy: {counts.failed}</span></div></>}
+        {pipeline === 'partial_complete' && <Alert title="Analiza ukończona częściowo" tone="warning">Część ofert wymaga ponowienia. Pozostałe wyniki są gotowe.</Alert>}
+        {pipeline === 'complete' && <Alert title="Analiza zakończona" tone="success">Wyniki zostały zapisane w workspace i możesz przejść do pełnej listy.</Alert>}
+        <PrimaryButton className={isFinished ? 'button--success' : pipeline === 'running' ? 'button--processing' : ''} disabled={!canStart && !isFinished} onClick={() => isFinished ? navigate('/offers') : void startAnalysis()}>{isFinished ? 'Zobacz wyniki analizy' : pipeline === 'running' ? 'Analiza w toku' : 'Przeprowadź analizę'}</PrimaryButton>
+      </SectionCard>
+    </>}
   </section>
+}
+
+function AnalysisPreview({ analysis, hardFilter, freshness, analysisVersionId }: { analysis?: JobAnalysis; hardFilter?: 'pass' | 'weak' | 'fail'; freshness?: IntegratedOfferProgress['freshness']; analysisVersionId?: string | null }) {
+  if (hardFilter === 'fail') return <div className="analysis-preview"><strong>Odrzucona przez Hard Filter</strong><span>AI pominięte — nie zużyto tokenów.</span></div>
+  if (!analysis) return null
+  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><strong>{analysis.overallScore}/100 - {scoreBand(analysis.overallScore)}</strong><span>Rekomendacja: {analysis.recommendation}</span><span>{analysis.summary}</span><AnalysisQuality analysis={analysis} />{freshness && <small>Freshness: {freshness}</small>}{analysisVersionId && <small>analysis_version_id: {analysisVersionId}</small>}{analysis.risks[0] && <small>Ryzyko: {analysis.risks[0]}</small>}{analysis.scoring?.reliability === 'limited' && <small>Wynik oparty na ograniczonej liczbie danych.</small>}</div>
 }

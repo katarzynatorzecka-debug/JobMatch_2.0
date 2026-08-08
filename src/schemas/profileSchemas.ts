@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { UserProfile } from '../contracts/profile'
+import { profilePresentationSources } from '../contracts/profilePresentation'
 
 export const profilePriorityValues = ['experience', 'skills', 'preferences', 'growth'] as const
 const workModeSchema = z.enum(['remote', 'hybrid', 'onsite'])
@@ -39,6 +40,7 @@ export function normalizeProfile(input: Partial<UserProfile>): UserProfile {
 }
 
 const optionalText = z.string().max(800)
+const profilePresentationSchema = z.object({ fullName: z.string().max(120).nullable(), source: z.enum(profilePresentationSources) })
 const baseProfileShape = {
   primaryRole: z.string().min(2, 'Wpisz rolę główną.').max(120, 'Rola główna jest zbyt długa.'),
   alternativeRoles: z.array(z.string().min(1).max(120)).max(8),
@@ -90,6 +92,7 @@ export const userProfileDraftSchema = z.object({
   warnings: z.array(z.string().min(1).max(300)).max(12),
   source: z.enum(['pdf', 'pasted-text']),
   requiresAcceptance: z.literal(true),
+  presentation: profilePresentationSchema.optional(),
 })
 
 export function validateUserProfile(input: Partial<UserProfile>) {

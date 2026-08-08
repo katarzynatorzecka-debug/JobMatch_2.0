@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { ContractType, ProfileFieldConfidence, ProfilePriority, UserProfile, UserProfileDraft, WorkMode } from '../contracts/profile'
+import { emptyProfilePresentation } from '../contracts/profilePresentation'
+import type { ProfilePresentationMetadata } from '../contracts/profilePresentation'
 import { TagInput } from '../components/TagInput'
 import { Alert, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
 import { defaultProfile } from '../features/profile/profileDefaults'
@@ -8,6 +10,7 @@ import { extractTextFromPdf } from '../features/profile/pdfTextExtractor'
 import { extractProfileDraft } from '../features/profile/profileExtractor'
 import { getProfileQuestions, type ProfileQuestion } from '../features/profile/profileQuestions'
 import { loadUserProfile, saveUserProfile } from '../features/profile/profileStorage'
+import { clearProfilePresentation, loadProfilePresentation, saveProfilePresentation } from '../features/profile/profilePresentationStorage'
 import { useAppMode } from '../features/access/AppModeProvider'
 import { supabaseProfileRepository } from '../features/supabase/repositories'
 import { validateUserProfile } from '../schemas/profileSchemas'
@@ -26,6 +29,7 @@ export function ProfilePage() {
   const [step, setStep] = useState<OnboardingStep>('choice')
   const [profile, setProfile] = useState<UserProfile>(defaultProfile)
   const [storedProfile, setStoredProfile] = useState<UserProfile | null>(null)
+  const [presentation, setPresentation] = useState<ProfilePresentationMetadata>(emptyProfilePresentation)
   const [recognition, setRecognition] = useState<UserProfileDraft | null>(null)
   const [questions, setQuestions] = useState<ProfileQuestion[]>([])
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -36,25 +40,30 @@ export function ProfilePage() {
   const [notice, setNotice] = useState<{ tone: 'success' | 'warning'; title: string; text: string } | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [manualBack, setManualBack] = useState<OnboardingStep>('choice')
+  const [profileLoading, setProfileLoading] = useState(true)
 
   useEffect(() => {
+    if (mode === null) return
     if (mode === 'authenticated' && session) return
     const loaded = loadUserProfile()
     if (loaded.profile) { setProfile(loaded.profile); setStoredProfile(loaded.profile) }
+    setPresentation(loadProfilePresentation().presentation)
     if (params.get('mode') === 'manual') setStep('manual')
     else if (params.get('mode') === 'cv') setStep('upload')
     else if (loaded.profile) setStep('saved')
     if (loaded.warning) setNotice({ tone: 'warning', title: 'Zapis profilu pominięty', text: loaded.warning })
+    setProfileLoading(false)
   }, [mode, params, session])
 
   useEffect(() => {
     if (mode !== 'authenticated' || !session) return
     let active = true
+    setProfileLoading(true)
     void supabaseProfileRepository(session.user).load().then((loaded) => {
       if (!active) return
-      if (loaded.data) { setProfile(loaded.data); setStoredProfile(loaded.data); if (!params.get('mode')) setStep('saved') }
+      if (loaded.data) { const localPresentation = loadProfilePresentation().presentation; setProfile(loaded.data); setStoredProfile(loaded.data); setPresentation(loaded.presentation.fullName ? loaded.presentation : localPresentation); if (!params.get('mode')) setStep('saved') }
       if (loaded.error) setNotice({ tone: 'warning', title: 'Blad odczytu profilu', text: loaded.error })
-    })
+    }).finally(() => { if (active) setProfileLoading(false) })
     return () => { active = false }
   }, [mode, params, session])
 
@@ -70,7 +79,7 @@ export function ProfilePage() {
     const nextQuestions = getProfileQuestions(recognition, profile)
     setQuestions(nextQuestions); setQuestionIndex(0); setStep(nextQuestions.length ? 'questions' : 'review')
   }
-  const acceptRecognition = (draft: UserProfileDraft) => { setRecognition(draft); setProfile(draft.values); setMessage('Rozpoznaliśmy dane z CV. Sprawdź je, a następnie uzupełnij kilka informacji.'); setStep('recognition') }
+  const acceptRecognition = (draft: UserProfileDraft) => { setRecognition(draft); setProfile(draft.values); setPresentation(draft.presentation ?? emptyProfilePresentation); setMessage('Rozpoznaliśmy dane z CV. Sprawdź je, a następnie uzupełnij kilka informacji.'); setStep('recognition') }
   const readPdf = async () => {
     if (!selectedFile) { setMessage('Wybierz plik PDF przed rozpoczęciem odczytu.'); return }
     const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')
@@ -80,6 +89,7 @@ export function ProfilePage() {
     if (!result.success) { setStep('upload'); setShowFallback(true); setMessage(result.warnings[0] ?? 'Nie udało się odczytać PDF.'); return }
     try { acceptRecognition(extractProfileDraft(result.text, 'pdf')) } catch (error) { setStep('upload'); setShowFallback(true); setMessage(error instanceof Error ? error.message : 'Nie udało się przygotować profilu.') }
   }
+  const updatePresentationName = (fullName: string) => setPresentation({ fullName, source: fullName.trim() ? 'manual' : 'none' })
   const readFallback = () => {
     try { acceptRecognition(extractProfileDraft(fallbackText, 'pasted-text')) } catch (error) { setMessage(error instanceof Error ? error.message : 'Wklej więcej tekstu CV.') }
   }
@@ -90,17 +100,29 @@ export function ProfilePage() {
       setErrors(nextErrors); setNotice({ tone: 'warning', title: 'Profil wymaga uzupełnienia', text: 'Popraw oznaczone pola przed zapisem.' }); setManualBack('review'); setStep('manual'); return
     }
     if (mode === 'authenticated' && session) {
-      const saved = await supabaseProfileRepository(session.user).save(validation.data)
+      const saved = await supabaseProfileRepository(session.user).save(validation.data, presentation)
       if (!saved.data) { setNotice({ tone: 'warning', title: 'Nie udalo sie zapisac profilu', text: saved.error ?? 'Sprobuj ponownie.' }); return }
-      setProfile(saved.data); setStoredProfile(saved.data); setRecognition(null); setNotice({ tone: 'success', title: 'Profil zapisany w chmurze', text: 'Mozesz teraz przejsc do importu ofert.' }); setStep('saved'); return
+      setProfile(saved.data); setStoredProfile(saved.data); setPresentation(saved.presentation.fullName ? saved.presentation : saveProfilePresentation(presentation).success ? presentation : saved.presentation); setRecognition(null); setNotice({ tone: 'success', title: 'Profil zapisany w chmurze', text: 'Mozesz teraz przejsc do importu ofert.' }); setStep('saved'); return
     }
     const saved = saveUserProfile(validation.data)
     if (!saved.success) { setNotice({ tone: 'warning', title: 'Nie udało się zapisać profilu', text: 'Sprawdź ustawienia pamięci lokalnej przeglądarki.' }); return }
-    setProfile(saved.data); setStoredProfile(saved.data); setRecognition(null); setNotice({ tone: 'success', title: 'Profil zapisany lokalnie', text: 'Możesz teraz przejść do importu ofert.' }); setStep('saved')
+    const savedPresentation = saveProfilePresentation(presentation)
+    if (!savedPresentation.success) { setNotice({ tone: 'warning', title: 'Nie udało się zapisać nazwy profilu', text: savedPresentation.error }); return }
+    setProfile(saved.data); setStoredProfile(saved.data); setPresentation(savedPresentation.data); setRecognition(null); setNotice({ tone: 'success', title: 'Profil zapisany lokalnie', text: 'Możesz teraz przejść do importu ofert.' }); setStep('saved')
   }
-  const restart = () => { setProfile(defaultProfile); setRecognition(null); setQuestions([]); setQuestionIndex(0); setMessage(''); setFallbackText(''); setSelectedFile(null); setStep('choice') }
+  const restart = async () => {
+    setPresentation(emptyProfilePresentation); setProfile(defaultProfile); setRecognition(null); setQuestions([]); setQuestionIndex(0); setMessage(''); setFallbackText(''); setSelectedFile(null); setStep('choice')
+    try {
+      if (mode === 'authenticated' && session) await supabaseProfileRepository(session.user).clearPresentation()
+      else clearProfilePresentation()
+    } catch {
+      setNotice({ tone: 'warning', title: 'Nie udało się wyczyścić nazwy profilu', text: 'Spróbuj ponownie przed zapisaniem nowego profilu.' })
+    }
+  }
   const openManual = (back: OnboardingStep) => { setManualBack(back); setStep('manual') }
   const currentQuestion = questions[questionIndex]
+
+  if (profileLoading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie profilu</span></section>
 
   return <section className="page page--profile-onboarding">
     <PageHeader eyebrow="Profil zawodowy" title={step === 'saved' ? 'Twój zapisany profil' : 'Utwórz profil zawodowy'} intro={step === 'manual' ? 'Uzupełnij profil ręcznie. Wszystkie dane zapiszą się wyłącznie po Twoim kliknięciu.' : 'Dodaj CV, a przygotujemy większość profilu lokalnie w przeglądarce. Zawsze możesz poprawić wynik przed zapisem.'} />
@@ -110,9 +132,9 @@ export function ProfilePage() {
     {step === 'reading' && <ReadingStep />}
     {step === 'recognition' && recognition && <RecognitionStep draft={recognition} onContinue={startQuestions} onOther={() => setStep('upload')} onManual={() => openManual('recognition')} />}
     {step === 'questions' && currentQuestion && <QuestionStep question={currentQuestion} index={questionIndex} total={questions.length} profile={profile} update={update} movePriority={movePriority} onBack={() => questionIndex ? setQuestionIndex((index) => index - 1) : setStep('recognition')} onNext={() => questionIndex === questions.length - 1 ? setStep('review') : setQuestionIndex((index) => index + 1)} />}
-    {step === 'review' && <ReviewStep profile={profile} onSave={save} onEdit={() => openManual('review')} onBack={() => questions.length ? setStep('questions') : setStep('recognition')} onRestart={restart} />}
-    {step === 'manual' && <ManualForm profile={profile} update={update} movePriority={movePriority} errors={errors} onSave={save} onBack={() => setStep(manualBack)} />}
-    {step === 'saved' && <SavedStep profile={storedProfile ?? profile} onEdit={() => openManual('saved')} onImport={() => navigate('/import')} onRestart={restart} />}
+    {step === 'review' && <ReviewStep profile={profile} presentation={presentation} onSave={save} onEdit={() => openManual('review')} onBack={() => questions.length ? setStep('questions') : setStep('recognition')} onRestart={restart} />}
+    {step === 'manual' && <ManualForm profile={profile} presentation={presentation} updatePresentationName={updatePresentationName} update={update} movePriority={movePriority} errors={errors} onSave={save} onBack={() => setStep(manualBack)} />}
+    {step === 'saved' && <SavedStep profile={storedProfile ?? profile} presentation={presentation} onEdit={() => openManual('saved')} onImport={() => navigate('/import')} onRestart={restart} />}
   </section>
 }
 
@@ -129,10 +151,10 @@ function QuestionStep({ question, index, total, profile, update, movePriority, o
 function ChoiceChecks<T extends WorkMode | ContractType>({ values, labels, onChange }: { values: T[]; labels: readonly (readonly [T, string])[]; onChange: (values: T[]) => void }) { return <div className="choice-checks">{labels.map(([value, label]) => <label className="checkbox-label" key={value}><input type="checkbox" checked={values.includes(value)} onChange={(event) => onChange(toggle(values, value, event.target.checked))} />{label}</label>)}</div> }
 function PriorityList({ priorities, move }: { priorities: ProfilePriority[]; move: (index: number, direction: -1 | 1) => void }) { return <ol className="priority-list">{priorities.map((item, index) => <li key={item}><span>{index + 1}. {priorityLabels[item]}</span><span><button type="button" onClick={() => move(index, -1)} disabled={!index}>↑</button><button type="button" onClick={() => move(index, 1)} disabled={index === priorities.length - 1}>↓</button></span></li>)}</ol> }
 
-function ReviewStep({ profile, onSave, onEdit, onBack, onRestart }: { profile: UserProfile; onSave: () => void; onEdit: () => void; onBack: () => void; onRestart: () => void }) { return <SectionCard className="onboarding-panel review-panel"><p className="card-kicker">Gotowy profil</p><h2>Twój profil jest gotowy</h2><ProfileSummary profile={profile} /><div className="action-row"><PrimaryButton onClick={onSave}>Zapisz profil</PrimaryButton><SecondaryButton onClick={onEdit}>Edytuj szczegóły</SecondaryButton><SecondaryButton onClick={onBack}>Wróć do pytań</SecondaryButton><button className="text-action" type="button" onClick={onRestart}>Zacznij od nowa</button></div></SectionCard> }
+function ReviewStep({ profile, presentation, onSave, onEdit, onBack, onRestart }: { profile: UserProfile; presentation: ProfilePresentationMetadata; onSave: () => void; onEdit: () => void; onBack: () => void; onRestart: () => void }) { return <SectionCard className="onboarding-panel review-panel"><p className="card-kicker">Gotowy profil</p><h2>{presentation.fullName || 'Twój profil jest gotowy'}</h2><ProfileSummary profile={profile} /><div className="action-row"><PrimaryButton onClick={onSave}>Zapisz profil</PrimaryButton><SecondaryButton onClick={onEdit}>Edytuj szczegóły</SecondaryButton><SecondaryButton onClick={onBack}>Wróć do pytań</SecondaryButton><button className="text-action" type="button" onClick={onRestart}>Zacznij od nowa</button></div></SectionCard> }
 
-function SavedStep({ profile, onEdit, onImport, onRestart }: { profile: UserProfile; onEdit: () => void; onImport: () => void; onRestart: () => void }) { return <SectionCard className="onboarding-panel review-panel"><p className="card-kicker">Profil zapisany</p><h2>Twój profil jest gotowy</h2><ProfileSummary profile={profile} /><div className="action-row"><PrimaryButton onClick={onImport}>Przejdź do importu ofert</PrimaryButton><SecondaryButton onClick={onEdit}>Edytuj szczegóły</SecondaryButton><button className="text-action" type="button" onClick={onRestart}>Utwórz nowy profil</button></div></SectionCard> }
+function SavedStep({ profile, presentation, onEdit, onImport, onRestart }: { profile: UserProfile; presentation: ProfilePresentationMetadata; onEdit: () => void; onImport: () => void; onRestart: () => void }) { return <SectionCard className="onboarding-panel review-panel"><p className="card-kicker">Profil zapisany</p><h2>{presentation.fullName || 'Twój profil jest gotowy'}</h2><ProfileSummary profile={profile} /><div className="action-row"><PrimaryButton onClick={onImport}>Przejdź do importu ofert</PrimaryButton><SecondaryButton onClick={onEdit}>Edytuj szczegóły</SecondaryButton><button className="text-action" type="button" onClick={onRestart}>Utwórz nowy profil</button></div></SectionCard> }
 
 function ProfileSummary({ profile }: { profile: UserProfile }) { const rows: Array<[string, string]> = [['Rola główna', profile.primaryRole], ['Role alternatywne', profile.alternativeRoles.join(', ')], ['Podsumowanie doświadczenia', profile.experienceSummary], ['Umiejętności', profile.skills.join(', ')], ['Preferowane lokalizacje', profile.acceptedLocations.join(', ')], ['Tryby pracy', profile.acceptedWorkModes.join(', ')], ['Formy zatrudnienia', profile.acceptedContractTypes.join(', ')], ['Must-have', profile.additionalMustHave], ['Blacklista', profile.additionalBlacklist], ['Priorytety', profile.priorities.map((item) => priorityLabels[item]).join(' → ')]]; return <dl className="profile-review-list">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Brak danych'}</dd></div>)}</dl> }
 
-function ManualForm({ profile, update, movePriority, errors, onSave, onBack }: { profile: UserProfile; update: <K extends keyof UserProfile>(field: K, value: UserProfile[K]) => void; movePriority: (index: number, direction: -1 | 1) => void; errors: Record<string, string>; onSave: () => void; onBack: () => void }) { const fieldError = (key: string) => errors[key] && <span className="field-error">{errors[key]}</span>; const workModes = [['remote', 'Zdalnie'], ['hybrid', 'Hybrydowo'], ['onsite', 'Stacjonarnie']] as const; const contracts = [['employment', 'Umowa o pracę'], ['b2b', 'B2B'], ['freelance', 'Freelance'], ['mandate', 'Umowa zlecenie']] as const; return <form className="form-stack manual-profile-form" onSubmit={(event) => { event.preventDefault(); onSave() }}><SectionCard title="Kierunek zawodowy"><div className="field-grid"><label>Rola główna<input value={profile.primaryRole} onChange={(event) => update('primaryRole', event.target.value)} />{fieldError('primaryRole')}</label><TagInput label="Role alternatywne" values={profile.alternativeRoles} onChange={(values) => update('alternativeRoles', values)} /></div></SectionCard><SectionCard title="Doświadczenie"><label>Podsumowanie doświadczenia<textarea rows={5} value={profile.experienceSummary} onChange={(event) => update('experienceSummary', event.target.value)} />{fieldError('experienceSummary')}</label></SectionCard><SectionCard title="Umiejętności"><TagInput label="Umiejętności" values={profile.skills} onChange={(values) => update('skills', values)} />{fieldError('skills')}</SectionCard><SectionCard title="Preferencje"><TagInput label="Preferowane lokalizacje" hint="Enter, przecinek, średnik lub opuszczenie pola dodaje lokalizację." values={profile.acceptedLocations} onChange={(values) => update('acceptedLocations', values)} placeholder="np. Zielona Góra" />{fieldError('acceptedLocations')}<label>Minimum wynagrodzenia<input type="number" min="0" value={profile.minimumSalary ?? ''} onChange={(event) => update('minimumSalary', event.target.value ? Number(event.target.value) : null)} /></label><fieldset><legend>Akceptowane tryby pracy</legend><ChoiceChecks values={profile.acceptedWorkModes} labels={workModes} onChange={(values) => update('acceptedWorkModes', values)} /></fieldset><fieldset><legend>Akceptowane formy zatrudnienia</legend><ChoiceChecks values={profile.acceptedContractTypes} labels={contracts} onChange={(values) => update('acceptedContractTypes', values)} /></fieldset><label className="checkbox-label"><input type="checkbox" checked={profile.studentStatusAvailable} onChange={(event) => update('studentStatusAvailable', event.target.checked)} />Mogę korzystać ze statusu studenta</label></SectionCard><SectionCard title="Kryteria"><fieldset><legend>Wykluczone tryby pracy</legend><ChoiceChecks values={profile.excludedWorkModes} labels={workModes} onChange={(values) => update('excludedWorkModes', values)} /></fieldset><fieldset><legend>Wykluczone formy zatrudnienia</legend><ChoiceChecks values={profile.excludedContractTypes} labels={contracts} onChange={(values) => update('excludedContractTypes', values)} /></fieldset><label className="checkbox-label"><input type="checkbox" checked={profile.requiresStudentStatus} onChange={(event) => update('requiresStudentStatus', event.target.checked)} />Wymagany status studenta</label><TagInput label="Wykluczone słowa kluczowe" values={profile.excludedKeywords} onChange={(values) => update('excludedKeywords', values)} /><div className="field-grid"><label>Must-have<textarea rows={3} value={profile.additionalMustHave} onChange={(event) => update('additionalMustHave', event.target.value)} /></label><label>Blacklista<textarea rows={3} value={profile.additionalBlacklist} onChange={(event) => update('additionalBlacklist', event.target.value)} /></label></div></SectionCard><SectionCard title="Priorytety"><PriorityList priorities={profile.priorities} move={movePriority} /></SectionCard><div className="action-row"><SecondaryButton type="button" onClick={onBack}>Wróć do prostego podsumowania</SecondaryButton><PrimaryButton type="submit">Zapisz profil</PrimaryButton></div></form> }
+function ManualForm({ profile, presentation, updatePresentationName, update, movePriority, errors, onSave, onBack }: { profile: UserProfile; presentation: ProfilePresentationMetadata; updatePresentationName: (fullName: string) => void; update: <K extends keyof UserProfile>(field: K, value: UserProfile[K]) => void; movePriority: (index: number, direction: -1 | 1) => void; errors: Record<string, string>; onSave: () => void; onBack: () => void }) { const fieldError = (key: string) => errors[key] && <span className="field-error">{errors[key]}</span>; const workModes = [['remote', 'Zdalnie'], ['hybrid', 'Hybrydowo'], ['onsite', 'Stacjonarnie']] as const; const contracts = [['employment', 'Umowa o pracę'], ['b2b', 'B2B'], ['freelance', 'Freelance'], ['mandate', 'Umowa zlecenie']] as const; return <form className="form-stack manual-profile-form" onSubmit={(event) => { event.preventDefault(); onSave() }}><SectionCard title="Kierunek zawodowy"><div className="field-grid"><label>Imię i nazwisko<input value={presentation.fullName ?? ''} onChange={(event) => updatePresentationName(event.target.value)} /></label><label>Rola główna<input value={profile.primaryRole} onChange={(event) => update('primaryRole', event.target.value)} />{fieldError('primaryRole')}</label><TagInput label="Role alternatywne" values={profile.alternativeRoles} onChange={(values) => update('alternativeRoles', values)} /></div></SectionCard><SectionCard title="Doświadczenie"><label>Podsumowanie doświadczenia<textarea rows={5} value={profile.experienceSummary} onChange={(event) => update('experienceSummary', event.target.value)} />{fieldError('experienceSummary')}</label></SectionCard><SectionCard title="Umiejętności"><TagInput label="Umiejętności" values={profile.skills} onChange={(values) => update('skills', values)} />{fieldError('skills')}</SectionCard><SectionCard title="Preferencje"><TagInput label="Preferowane lokalizacje" hint="Enter, przecinek, średnik lub opuszczenie pola dodaje lokalizację." values={profile.acceptedLocations} onChange={(values) => update('acceptedLocations', values)} placeholder="np. Zielona Góra" />{fieldError('acceptedLocations')}<label>Minimum wynagrodzenia<input type="number" min="0" value={profile.minimumSalary ?? ''} onChange={(event) => update('minimumSalary', event.target.value ? Number(event.target.value) : null)} /></label><fieldset><legend>Akceptowane tryby pracy</legend><ChoiceChecks values={profile.acceptedWorkModes} labels={workModes} onChange={(values) => update('acceptedWorkModes', values)} /></fieldset><fieldset><legend>Akceptowane formy zatrudnienia</legend><ChoiceChecks values={profile.acceptedContractTypes} labels={contracts} onChange={(values) => update('acceptedContractTypes', values)} /></fieldset><label className="checkbox-label"><input type="checkbox" checked={profile.studentStatusAvailable} onChange={(event) => update('studentStatusAvailable', event.target.checked)} />Mogę korzystać ze statusu studenta</label></SectionCard><SectionCard title="Kryteria"><label className="checkbox-label"><input type="checkbox" checked={profile.requiresStudentStatus} onChange={(event) => update('requiresStudentStatus', event.target.checked)} />Wymagany status studenta</label><div className="field-grid"><label>Must-have<textarea rows={3} value={profile.additionalMustHave} onChange={(event) => update('additionalMustHave', event.target.value)} /></label><label>Blacklista<textarea rows={3} value={profile.additionalBlacklist} onChange={(event) => update('additionalBlacklist', event.target.value)} /></label></div></SectionCard><SectionCard title="Priorytety"><PriorityList priorities={profile.priorities} move={movePriority} /></SectionCard><div className="action-row"><SecondaryButton type="button" onClick={onBack}>Wróć do prostego podsumowania</SecondaryButton><PrimaryButton type="submit">Zapisz profil</PrimaryButton></div></form> }

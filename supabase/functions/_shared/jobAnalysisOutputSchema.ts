@@ -1,14 +1,24 @@
 export const analysisCategories = ['experience', 'skills', 'preferences', 'growth'] as const
 const shortText = { type: 'string', minLength: 1, maxLength: 500 }
-const category = { type: 'object', additionalProperties: false, required: ['score', 'rationale'], properties: { score: { type: 'integer', minimum: 0, maximum: 100 }, rationale: shortText } }
+const criterion = {
+  type: 'object', additionalProperties: false,
+  required: ['id', 'requirement', 'outcome', 'rationale', 'profileEvidence', 'offerEvidence', 'confidence'],
+  properties: {
+    id: { type: 'string', minLength: 1, maxLength: 120 },
+    requirement: shortText,
+    outcome: { type: 'string', enum: ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'] },
+    rationale: shortText,
+    profileEvidence: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
+    offerEvidence: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
+    confidence: { type: 'integer', minimum: 0, maximum: 100 },
+  },
+}
 
 export const jobAnalysisOutputJsonSchema = {
   type: 'object', additionalProperties: false,
-  required: ['overallScore', 'categoryScores', 'recommendation', 'summary', 'strengths', 'risks', 'missingInformation'],
+  required: ['criteria', 'summary', 'strengths', 'risks', 'missingInformation'],
   properties: {
-    overallScore: { type: 'integer', minimum: 0, maximum: 100 },
-    categoryScores: { type: 'object', additionalProperties: false, required: analysisCategories, properties: { experience: category, skills: category, preferences: category, growth: category } },
-    recommendation: { type: 'string', enum: ['Warto aplikować', 'Wymaga sprawdzenia', 'Nie rekomenduję'] },
+    criteria: { type: 'object', additionalProperties: false, required: analysisCategories, properties: { experience: { type: 'array', minItems: 1, maxItems: 12, items: criterion }, skills: { type: 'array', minItems: 1, maxItems: 12, items: criterion }, preferences: { type: 'array', minItems: 1, maxItems: 12, items: criterion }, growth: { type: 'array', minItems: 1, maxItems: 12, items: criterion } } },
     summary: { type: 'string', minLength: 1, maxLength: 1000 },
     strengths: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
     risks: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
@@ -16,13 +26,19 @@ export const jobAnalysisOutputJsonSchema = {
   },
 } as const
 
-export type AnalysisOutput = { overallScore: number; categoryScores: Record<(typeof analysisCategories)[number], { score: number; rationale: string }>; recommendation: 'Warto aplikować' | 'Wymaga sprawdzenia' | 'Nie rekomenduję'; summary: string; strengths: string[]; risks: string[]; missingInformation: string[] }
+export type CriterionOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
+export type AnalysisOutput = { criteria: Record<(typeof analysisCategories)[number], Array<{ id: string; requirement: string; outcome: CriterionOutcome; rationale: string; profileEvidence: string[]; offerEvidence: string[]; confidence: number }>>; summary: string; strengths: string[]; risks: string[]; missingInformation: string[] }
 
 export function isAnalysisOutput(value: unknown): value is AnalysisOutput {
   if (!value || typeof value !== 'object') return false
   const data = value as Record<string, unknown>
-  if (!Number.isInteger(data.overallScore) || (data.overallScore as number) < 0 || (data.overallScore as number) > 100 || !['Warto aplikować', 'Wymaga sprawdzenia', 'Nie rekomenduję'].includes(String(data.recommendation)) || typeof data.summary !== 'string') return false
-  if (!Array.isArray(data.strengths) || !Array.isArray(data.risks) || !Array.isArray(data.missingInformation) || !data.categoryScores || typeof data.categoryScores !== 'object') return false
-  const categories = data.categoryScores as Record<string, unknown>
-  return analysisCategories.every((name) => { const entry = categories[name] as Record<string, unknown> | undefined; return entry && Number.isInteger(entry.score) && (entry.score as number) >= 0 && (entry.score as number) <= 100 && typeof entry.rationale === 'string' })
+  if (typeof data.summary !== 'string' || !data.summary.trim() || !Array.isArray(data.strengths) || !Array.isArray(data.risks) || !Array.isArray(data.missingInformation) || !data.criteria || typeof data.criteria !== 'object') return false
+  const criteria = data.criteria as Record<string, unknown>
+  return analysisCategories.every((name) => {
+    const entry = criteria[name] as Record<string, unknown> | undefined
+    return Array.isArray(entry) && entry.length > 0 && entry.length <= 12 && entry.every((item) => {
+      const value = item as Record<string, unknown>
+      return value && typeof value.id === 'string' && value.id.trim().length > 0 && typeof value.requirement === 'string' && value.requirement.trim().length > 0 && ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].includes(String(value.outcome)) && typeof value.rationale === 'string' && value.rationale.trim().length > 0 && Array.isArray(value.profileEvidence) && value.profileEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Array.isArray(value.offerEvidence) && value.offerEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Number.isInteger(value.confidence) && Number(value.confidence) >= 0 && Number(value.confidence) <= 100
+    })
+  })
 }

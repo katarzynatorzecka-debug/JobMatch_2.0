@@ -1,3 +1,5 @@
+import type { ProfilePresentationMetadata } from './profilePresentation'
+
 export type CvSource = 'pdf' | 'pasted-text'
 export type CvImportStatus = 'idle' | 'reading' | 'extracting' | 'success' | 'error' | 'fallback' | 'review'
 export type ProfileFieldConfidence = 'high' | 'medium' | 'low' | 'missing' | 'manual'
@@ -32,6 +34,7 @@ export interface UserProfileDraft {
   warnings: string[]
   source: CvSource
   requiresAcceptance: true
+  presentation?: ProfilePresentationMetadata
 }
 
 export interface CvExtractionResult {
