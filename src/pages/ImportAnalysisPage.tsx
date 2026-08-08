@@ -114,7 +114,7 @@ export function ImportAnalysisPage() {
   const canStart = pipeline === 'idle' && summary.visibleOfferCount > 0 && !isProcessingFiles
   const isFinished = pipeline === 'complete' || pipeline === 'partial_complete'
 
-  if (restoringWorkspace) return <section className="page page--wide" aria-busy="true"><PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Odtwarzamy zapisany stan raportu." /><div className="import-skeleton" role="status" aria-label="Ładowanie raportu"><div className="import-skeleton__upload" /><div className="import-skeleton__analysis"><div /><div /><div /></div></div></section>
+  if (restoringWorkspace) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie raportu</span></section>
 
   return <section className="page page--wide">
     <PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Dodaj raporty, sprawdź rozpoznane dane i uruchom jedną analizę całej paczki." />

@@ -59,7 +59,7 @@ export function StartPage() {
     return () => { active = false }
   }, [mode, session])
 
-  if (state === 'loading') return <section className="page page--start" aria-busy="true"><PageHeader eyebrow="JobMatch" title="Przygotowujemy Start" intro="Odczytujemy trwaÅ‚y stan profilu." /></section>
+  if (state === 'loading') return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie zawartości strony</span></section>
   if (state === 'error') return <section className="page page--start"><Alert title="Nie udało się odczytać stanu profilu" tone="warning">Odśwież stronę i spróbuj ponownie.</Alert></section>
   return state === 'dashboard' && dashboard ? <DashboardPage viewModel={dashboard} /> : <OnboardingStart />
 }

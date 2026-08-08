@@ -183,6 +183,9 @@ body, .app-shell { min-height: 100vh; background: linear-gradient(180deg, #fffdf
 :focus-visible { outline: 3px solid var(--jm-blue); outline-offset: 4px; }
 .main-content { width: min(1180px, calc(100% - 64px)); padding: clamp(2.5rem, 5vw, 4.5rem) 0 5.5rem; }
 .page, .page--wide, .page--message { max-width: none; }
+.page--loading-surface { min-height: min(70vh, 720px); }
+.loading-spinner { display: block; width: 2rem; height: 2rem; margin: 18vh auto 0; border: 3px solid rgb(47 118 184 / 22%); border-top-color: var(--jm-blue); border-radius: 50%; animation: jobmatch-spin .75s linear infinite; }
+@keyframes jobmatch-spin { to { transform: rotate(360deg); } }
 .page-header { max-width: 760px; margin-bottom: var(--jm-space-5); }
 .page-header .eyebrow, .eyebrow, .card-kicker { color: var(--jm-blue); letter-spacing: .12em; }
 h1 { color: var(--jm-navy); font-size: clamp(2.45rem, 4.8vw, 4rem); line-height: 1.04; letter-spacing: -.055em; }

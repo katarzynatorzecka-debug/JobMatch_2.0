@@ -122,7 +122,7 @@ export function ProfilePage() {
   const openManual = (back: OnboardingStep) => { setManualBack(back); setStep('manual') }
   const currentQuestion = questions[questionIndex]
 
-  if (profileLoading) return <section className="page page--profile-onboarding" aria-busy="true"><PageHeader eyebrow="Profil zawodowy" title="Twój zapisany profil" intro="Odtwarzamy trwały stan profilu." /><div className="profile-skeleton" role="status" aria-label="Ładowanie profilu"><div className="profile-skeleton__heading" /><div className="profile-skeleton__summary"><div /><div /><div /><div /><div /></div><div className="profile-skeleton__actions" /></div></section>
+  if (profileLoading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie profilu</span></section>
 
   return <section className="page page--profile-onboarding">
     <PageHeader eyebrow="Profil zawodowy" title={step === 'saved' ? 'Twój zapisany profil' : 'Utwórz profil zawodowy'} intro={step === 'manual' ? 'Uzupełnij profil ręcznie. Wszystkie dane zapiszą się wyłącznie po Twoim kliknięciu.' : 'Dodaj CV, a przygotujemy większość profilu lokalnie w przeglądarce. Zawsze możesz poprawić wynik przed zapisem.'} />

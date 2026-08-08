@@ -40,7 +40,7 @@ export function MessageGeneratorPage() {
     return () => { active = false }
   }, [mode, offerId, session])
 
-  if (loading) return <section className="page page--message" aria-busy="true"><PageHeader eyebrow="Wiadomość" title="Przygotowujemy generator" intro="Odtwarzamy ofertę i profil użytkownika." /><div className="details-skeleton" role="status" aria-label="Ładowanie generatora"><div /><div /><div /></div></section>
+  if (loading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie generatora</span></section>
   if (error || !context || !offerId) return <section className="page page--message"><Alert title="Nie udało się otworzyć generatora" tone="warning">{error || 'Brak canonical kontekstu oferty.'}</Alert><Link className="button button--secondary" to={offerId ? `/offers/${offerId}` : '/offers'}>Wróć do szczegółów</Link></section>
 
   const generate = () => {
