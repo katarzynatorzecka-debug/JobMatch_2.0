@@ -49,14 +49,13 @@ function OfferSection({ id, title, items, empty, limit = 3 }: { id: string; titl
   )
 }
 
-function ProfileAssistance({ viewModel }: { viewModel: DashboardViewModel }) {
-  const { profile } = viewModel
+function ProfileAssistance({ viewModel: _viewModel }: { viewModel: DashboardViewModel }) {
   return (
-    <SectionCard className={'dashboard-assistance' + (profile.profileNeedsAttention ? ' dashboard-assistance--attention' : '')}>
-      <p className="card-kicker">Profile Assistance</p>
-      <h2>{profile.profileNeedsAttention ? 'Twój profil wymaga uzupełnienia' : 'Profil gotowy do dopasowywania ofert'}</h2>
-      <p>{profile.profileNeedsAttention ? 'Uzupełniono ' + profile.completeness.completed + ' z ' + profile.completeness.total + ' kluczowych obszarów.' : 'Możesz przejść do importu raportu i oceny ofert.'}</p>
-      <Link className="button button--secondary" to="/profile">{profile.profileNeedsAttention ? 'Uzupełnij profil' : 'Edytuj profil'}</Link>
+    <SectionCard className="dashboard-assistance">
+      <div className="dashboard-assistance__title"><span className="dashboard-assistance__icon" aria-hidden="true">AI</span><h2>Profile Assistance</h2></div>
+        <p className="dashboard-assistance__copy">Przygotuję dla Ciebie podpowiedź nowej wersji O MNIE pasującej do Ulubionej aktywnej oferty.</p>
+      <button className="button button--primary" type="button" disabled>Generuj z AI</button>
+      <small className="dashboard-assistance__note">W wersji demo niedostępna.</small>
     </SectionCard>
   )
 }

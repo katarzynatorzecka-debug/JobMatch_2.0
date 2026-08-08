@@ -1,4 +1,4 @@
-export type OfferImportSource = 'rocketjobs-eml'
+export type OfferImportSource = 'rocketjobs-eml' | 'job-url'
 
 export type ReportImportStatus = 'idle' | 'validating' | 'reading' | 'parsing' | 'success' | 'empty' | 'error' | 'review'
 

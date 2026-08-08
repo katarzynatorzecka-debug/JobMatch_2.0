@@ -15,8 +15,9 @@ export function shouldRestoreWorkspaceImport(input: {
   hasBatchEntries: boolean
   pipeline: 'idle' | 'running' | 'complete' | 'partial_complete'
   freshBatchStarted: boolean
+  hasExplicitEmptyBatch?: boolean
 }) {
-  return !input.alreadyRestored && input.isAuthenticated && !input.freshBatchStarted && (!input.hasBatchEntries || input.pipeline === 'complete' || input.pipeline === 'partial_complete')
+  return !input.alreadyRestored && input.isAuthenticated && !input.freshBatchStarted && !input.hasExplicitEmptyBatch && (!input.hasBatchEntries || input.pipeline === 'complete' || input.pipeline === 'partial_complete')
 }
 
 /**

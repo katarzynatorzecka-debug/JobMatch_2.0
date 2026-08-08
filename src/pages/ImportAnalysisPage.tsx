@@ -4,7 +4,7 @@ import type { ImportedReport, ImportWarning } from '../contracts/import'
 import type { JobAnalysis } from '../contracts/jobAnalysis'
 import { Alert, AnalysisQuality, HardFilterStatusBadge, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
 import { useAppMode } from '../features/access/AppModeProvider'
-import { type IntegratedBatchCounts, type IntegratedOfferProgress, retryIntegratedOffer, runIntegratedAnalysisBatch } from '../features/analysis/integratedAnalysisFlow'
+import { type BatchReport, type IntegratedBatchCounts, type IntegratedOfferProgress, retryIntegratedOffer, runIntegratedAnalysisBatch } from '../features/analysis/integratedAnalysisFlow'
 import { clearIntegratedAnalysisSession, loadIntegratedAnalysisSession, saveIntegratedAnalysisSession } from '../features/analysis/integratedAnalysisSession'
 import { restoreActiveWorkspaceImport, shouldResetTerminalBatchForNewFiles, shouldRestoreWorkspaceImport } from '../features/analysis/restoredWorkspaceImport'
 import { scoreBand } from '../features/analysis/deterministicScoring'
@@ -12,6 +12,8 @@ import { extractEmlContent } from '../features/import/emlExtractor'
 import { appendBatchEntries, createImportBatchId, createImportBatchState, hasRemovedOffers, removeBatchOffer, removeBatchReport, restoreBatchOffers, summarizeBatch, visibleOffers, type ImportBatchEntry } from '../features/import/importBatchState'
 import { validateEmlFile } from '../features/import/importUtils'
 import { parseRocketJobsReport } from '../features/import/rocketJobsReportParser'
+import { createUrlOfferSeed, importedReportFromUrlSource, normalizeOfferUrl } from '../features/import/urlOfferImport'
+import { OfferContentFetcher, OfferSourceError } from '../features/offers/offerContentFetcher'
 import { loadUserProfile } from '../features/profile/profileStorage'
 import { supabaseProfileRepository } from '../features/supabase/repositories'
 import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
@@ -32,15 +34,15 @@ export function ImportAnalysisPage() {
   const { mode, session } = useAppMode(); const navigate = useNavigate()
   const sessionScope = mode === 'authenticated' && session ? `authenticated-${session.user.id}` : 'demo'
   const inputRef = useRef<HTMLInputElement>(null); const sequenceRef = useRef(0); const analysisRunRef = useRef(false); const freshBatchStartedRef = useRef(false); const initialSession = useRef(loadIntegratedAnalysisSession(undefined, sessionScope))
-  const [batch, setBatch] = useState(() => initialSession.current?.batch ?? createImportBatchState()); const [isProcessingFiles, setIsProcessingFiles] = useState(false)
+  const [batch, setBatch] = useState(() => initialSession.current?.batch ?? createImportBatchState()); const [isProcessingFiles, setIsProcessingFiles] = useState(false); const [isProcessingUrl, setIsProcessingUrl] = useState(false); const [urlInput, setUrlInput] = useState('')
   const [pipeline, setPipeline] = useState<PipelineState>(() => initialSession.current?.pipeline ?? 'idle'); const [pipelineError, setPipelineError] = useState(() => initialSession.current?.pipeline === 'partial_complete' ? 'Odświeżenie przerwało lokalne oczekiwanie na analizę. Możesz ponowić tylko nieukończoną ofertę.' : '')
   const [progress, setProgress] = useState<Record<string, IntegratedOfferProgress>>(() => initialSession.current?.progress ?? {}); const [counts, setCounts] = useState<IntegratedBatchCounts>(() => initialSession.current?.counts ?? emptyCounts); const [restoredWorkspaceBatch, setRestoredWorkspaceBatch] = useState(false)
   const [restoringWorkspace, setRestoringWorkspace] = useState(false)
-  const summary = useMemo(() => summarizeBatch(batch), [batch]); const isReviewing = batch.entries.length > 0 && !isProcessingFiles
+  const summary = useMemo(() => summarizeBatch(batch), [batch]); const isReviewing = batch.entries.length > 0 && !isProcessingFiles && !isProcessingUrl
 
   useEffect(() => { saveIntegratedAnalysisSession({ batch, pipeline, progress, counts }, undefined, sessionScope) }, [batch, pipeline, progress, counts, sessionScope])
   useEffect(() => {
-    if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current })) return
+    if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current, hasExplicitEmptyBatch: initialSession.current?.pipeline === 'idle' && initialSession.current.batch.entries.length === 0 })) return
     let cancelled = false
     setRestoringWorkspace(true)
     void workspaceRepositoryFor('authenticated', session.user).loadWorkspace().then((snapshot) => {
@@ -73,10 +75,30 @@ export function ImportAnalysisPage() {
     setBatch((current) => appendBatchEntries(current, entries)); setIsProcessingFiles(false); if (inputRef.current) inputRef.current.value = ''
   }
 
+  async function handleUrl() {
+    if (!mode || isProcessingFiles || isProcessingUrl || pipeline === 'running') return
+    const normalizedUrl = normalizeOfferUrl(urlInput)
+    if (!normalizedUrl) { setPipelineError('Wklej poprawny adres HTTPS do oferty.'); return }
+    const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline); freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setIsProcessingUrl(true); setPipelineError(''); if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }; setBatch((current) => startsFreshPacket ? { ...createImportBatchState(), status: 'reading' } : { ...current, status: 'reading' })
+    try {
+      const seed = createUrlOfferSeed(normalizedUrl)
+      const source = await new OfferContentFetcher().fetch(seed)
+      if (source.status === 'unavailable' || !source.title) throw new Error(source.errorCode ?? 'Nie udało się odczytać treści oferty z tego adresu.')
+      const report = importedReportFromUrlSource(source, normalizedUrl)
+      const key = createImportBatchId('url-' + normalizedUrl, sequenceRef.current++)
+      setBatch((current) => appendBatchEntries(current, [{ kind: 'report', id: key, report, removedOfferIds: [] }]))
+      setUrlInput('')
+    } catch (cause) {
+      const code = cause instanceof OfferSourceError ? cause.code : cause instanceof Error ? cause.message : 'SOURCE_FETCH_FAILED'
+      setPipelineError(code === 'UNSUPPORTED_SOURCE_DOMAIN' ? 'Ten adres nie jest jeszcze obsługiwany. Użyj linku HTTPS z RocketJobs.' : 'Nie udało się odczytać treści oferty z tego adresu.')
+      setBatch((current) => ({ ...current, status: 'idle' }))
+    } finally { setIsProcessingUrl(false) }
+  }
+  function removeReport(reportId: string) { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(''); setBatch((current) => removeBatchReport(current, reportId)); clearIntegratedAnalysisSession(undefined, sessionScope); }
   function startOver() { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); sequenceRef.current = 0; setBatch(createImportBatchState()); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(''); clearIntegratedAnalysisSession(undefined, sessionScope); if (mode) void workspaceRepositoryFor(mode, session?.user).setActiveImportSession(null).catch((cause) => setPipelineError(cause instanceof Error ? cause.message : 'ACTIVE_IMPORT_SESSION_CLEAR_FAILED')); if (inputRef.current) inputRef.current.value = '' }
-  async function startAnalysis() {
+  async function startAnalysis(reportsOverride?: BatchReport[]) {
     if (!mode || pipeline === 'running' || analysisRunRef.current) return
-    const reports = batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry) })).filter((entry) => entry.offers.length > 0)
+    const reports = reportsOverride ?? batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry) })).filter((entry) => entry.offers.length > 0)
     if (!reports.length) { setPipelineError('Przywróć co najmniej jedną ofertę, aby rozpocząć analizę.'); return }
     analysisRunRef.current = true
     const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
@@ -120,7 +142,8 @@ export function ImportAnalysisPage() {
     <PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Dodaj raporty, sprawdź rozpoznane dane i uruchom jedną analizę całej paczki." />
     <input ref={inputRef} className="sr-only" type="file" multiple accept=".eml,message/rfc822" onChange={(event) => void handleFiles(event.target.files)} />
     {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title="Przygotowujemy paczkę"><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
-    {!isReviewing && !isProcessingFiles && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raporty w formacie .eml</h2><p>Możesz wybrać kilka raportów naraz lub dodawać je później. Nie przechowujemy treści EML, nagłówków wiadomości ani CV w chmurze.</p><PrimaryButton onClick={openFilePicker}>Wybierz raporty</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB na plik</span></div></SectionCard>}
+    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raporty w formacie .eml</h2><p>Możesz wybrać kilka raportów naraz lub dodawać je później. Nie przechowujemy treści EML, nagłówków wiadomości ani CV w chmurze.</p><PrimaryButton onClick={openFilePicker}>Wybierz raporty</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB na plik</span><div className="url-import"><label htmlFor="offer-url">Albo wklej link do oferty</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>Analizuj z linku</PrimaryButton></div><span className="field-hint">Obsługiwane są bezpieczne linki HTTPS z RocketJobs.</span></div></div></SectionCard>}
+{isProcessingUrl && <SectionCard title="Przygotowujemy ofertę z linku"><p className="field-hint">Pobieramy i normalizujemy treść oferty, a następnie uruchomimy analizę.</p></SectionCard>}
     {isReviewing && <>
       <SectionCard title="Przygotowanie paczki do analizy" className="import-review-card">
         <p className="section-intro">Wybierz interesujące Cię raporty. Sprawdź rozpoznane oferty, warningi i braki danych. Kliknij „Przeprowadź analizę”.</p>
@@ -131,7 +154,7 @@ export function ImportAnalysisPage() {
         {summary.localDuplicateCount > 0 && <Alert title="Możliwe powtórzenia w bieżącej paczce" tone="info">Rozpoznaliśmy lokalne powtórzenia według linku źródłowego lub pary firma/stanowisko. Nie łączymy ich na tym ekranie.</Alert>}
         <ul className="import-report-list" aria-label="Wybrane raporty">
           {batch.entries.map((entry) => entry.kind === 'file_error' ? <li key={entry.id} className="import-report-list__error"><div><strong>{entry.fileName}</strong><span>Nie udało się przygotować pliku</span></div><Alert title="Plik pominięty" tone="warning">{entry.message}</Alert></li> : <li key={entry.id}>
-            <div className="import-report-list__heading"><div><strong>{entry.report.fileName}</strong><span>Rozpoznano {entry.report.offers.length} ofert · widoczne {visibleOffers(entry).length}</span></div><SecondaryButton onClick={() => setBatch((current) => removeBatchReport(current, entry.id))} disabled={pipeline === 'running'}>Usuń raport</SecondaryButton></div>
+            <div className="import-report-list__heading"><div><strong>{entry.report.fileName}</strong><span>Rozpoznano {entry.report.offers.length} ofert · widoczne {visibleOffers(entry).length}</span></div><SecondaryButton onClick={() => removeReport(entry.id)} disabled={pipeline === 'running'}>Usuń raport</SecondaryButton></div>
             {entry.report.warnings.length > 0 && <ul className="import-warnings">{entry.report.warnings.map((warning, index) => <li key={`${warning.code}:${index}`}>{warning.message}</li>)}</ul>}
             <ul className="recognized-offers">{visibleOffers(entry).map((offer) => { const item = progress[progressKey(entry.id, offer.id)]; return <li className={`analysis-tile analysis-tile--${item?.state ?? 'waiting'}`} key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.sourceLabel ? ` · ${offer.sourceLabel}` : ''}{offer.location ? ` · ${offer.location}` : ''}</span>{offer.missingFields.length > 0 && <small className="offer-missing">Brakuje: {offer.missingFields.join(', ')}.</small>}{offer.warnings.length > 0 && <small className="offer-warning">Brak danych: {offer.warnings.map((warning) => warning.replace(/^Brak danych:\s*/i, '')).join(' ')}</small>}<span className="analysis-tile__state">{statusLabel(item)}</span>{item?.state === 'processing' && <small>Sprawdzamy dopasowanie doświadczenia, umiejętności, preferencji i kierunku rozwoju.</small>}{item?.state === 'failed' && <><small className="analysis-tile__error">{item.error ?? 'Wystąpił błąd analizy.'}</small><SecondaryButton onClick={() => void retryOffer(item)}>Spróbuj ponownie</SecondaryButton></>}{item?.state === 'completed' && <AnalysisPreview analysis={item.analysis} hardFilter={item.hardFilterStatus} freshness={item.freshness} analysisVersionId={item.analysisVersionId} />}{item?.state === 'rejected' && <><AnalysisPreview hardFilter="fail" /><SecondaryButton onClick={() => void retryOffer(item, true)}>Analizuj mimo odrzucenia</SecondaryButton></>}</div>{pipeline !== 'running' && !isFinished && <SecondaryButton onClick={() => setBatch((current) => removeBatchOffer(current, entry.id, offer.id))}>Usuń ofertę</SecondaryButton>}</li> })}</ul>
           </li>)}
