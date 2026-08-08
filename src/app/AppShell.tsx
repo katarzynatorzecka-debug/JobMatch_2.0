@@ -2,10 +2,10 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAppMode } from '../features/access/AppModeProvider'
 
 const navigationItems = [
-  { to: '/', label: 'Start', end: true },
+  { to: '/', label: 'Pulpit', end: true },
+  { to: '/profile', label: 'Profil', end: true },
   { to: '/offers', label: 'Oferty', end: false },
   { to: '/import', label: 'Import raportu', end: true },
-  { to: '/profile', label: 'Profil', end: true },
 ]
 
 export function AppShell() {
