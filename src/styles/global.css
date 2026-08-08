@@ -47,8 +47,8 @@ p, li { color: #5b6877; line-height: 1.6; }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(260px, .8fr); gap: 1.5rem; align-items: end; margin-bottom: 2rem; }
 .hero-result { border-color: #e7d4bd; background: #fffaf5; }
 .hero-result p { margin-bottom: 0; }
-.hero-result__lead { font-weight: 800; }
-.hero-result__detail { font-size: 80%; }
+.hero-result__lead { font-weight: 800; font-size: clamp(.83rem, 1.4vw, 1.02rem); }
+.hero-result__detail { font-size: 160%; }
 .flow-card { padding: 1.65rem; }
 .flow-steps { display: flex; flex-wrap: wrap; gap: .7rem 1.1rem; padding: 0; margin: 1rem 0 1.1rem; list-style: none; }
 .flow-steps li { display: flex; gap: .45rem; align-items: center; color: #3f5365; font-size: .93rem; font-weight: 700; }
