@@ -17,6 +17,7 @@ import { OfferContentFetcher, OfferSourceError } from '../features/offers/offerC
 import { loadUserProfile } from '../features/profile/profileStorage'
 import { supabaseProfileRepository } from '../features/supabase/repositories'
 import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
+import { createDemoSampleReport } from '../demo/demoSampleData'
 
 const processingLabels = { adding_files: 'Przygotowujemy wybrane pliki.', reading: 'Odczytujemy wiadomości EML lokalnie w przeglądarce.', parsing: 'Rozpoznajemy oferty RocketJobs i pola wymagające sprawdzenia.' } as const
 const emptyCounts: IntegratedBatchCounts = { total: 0, hardFilterRejected: 0, queued: 0, processing: 0, completed: 0, failed: 0 }
@@ -55,6 +56,15 @@ export function ImportAnalysisPage() {
   }, [batch.entries.length, mode, pipeline, restoredWorkspaceBatch, session])
 
   function openFilePicker() { inputRef.current?.click() }
+  async function handleSampleReport() {
+    if (!mode || isProcessingFiles || isProcessingUrl || pipeline === 'running') return
+    const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline)
+    const report = createDemoSampleReport()
+    freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setPipelineError('')
+    if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }
+    const id = createImportBatchId(report.fileName, sequenceRef.current++)
+    setBatch((current) => appendBatchEntries(startsFreshPacket ? createImportBatchState() : current, [{ kind: 'report', id, report, removedOfferIds: [] }]))
+  }
   async function handleFiles(files: FileList | null) {
     const selectedFiles = files ? Array.from(files) : []; if (!selectedFiles.length || isProcessingFiles || pipeline === 'running') return
     const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline)
@@ -142,7 +152,7 @@ export function ImportAnalysisPage() {
     <PageHeader eyebrow="Raporty ofert" title="Import i analiza" intro="Dodaj raporty, sprawdź rozpoznane dane i uruchom jedną analizę całej paczki." />
     <input ref={inputRef} className="sr-only" type="file" multiple accept=".eml,message/rfc822" onChange={(event) => void handleFiles(event.target.files)} />
     {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title="Przygotowujemy paczkę"><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
-    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raporty w formacie .eml</h2><p>Możesz wybrać kilka raportów naraz lub dodawać je później. Nie przechowujemy treści EML, nagłówków wiadomości ani CV w chmurze.</p><PrimaryButton onClick={openFilePicker}>Wybierz raporty</PrimaryButton><span className="field-hint">Format .eml · maksymalnie 10 MB na plik</span><div className="url-import"><label htmlFor="offer-url">Albo wklej link do oferty</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>Analizuj z linku</PrimaryButton></div><span className="field-hint">Obsługiwane są bezpieczne linki HTTPS z RocketJobs.</span></div></div></SectionCard>}
+    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>Dodaj raporty w formacie .eml</h2><p>Możesz wybrać kilka raportów naraz lub dodawać je później. Nie przechowujemy treści EML, nagłówków wiadomości ani CV w chmurze.</p><div className="action-row"><PrimaryButton onClick={openFilePicker}>Wybierz raporty</PrimaryButton>{mode === 'demo' && <SecondaryButton onClick={() => void handleSampleReport()}>Wgraj przykładowy .eml</SecondaryButton>}</div><span className="field-hint">Format .eml · maksymalnie 10 MB na plik</span><div className="url-import"><label htmlFor="offer-url">Albo wklej link do oferty</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>Analizuj z linku</PrimaryButton></div><span className="field-hint">Obsługiwane są bezpieczne linki HTTPS z RocketJobs.</span></div></div></SectionCard>}
 {isProcessingUrl && <SectionCard title="Przygotowujemy ofertę z linku"><p className="field-hint">Pobieramy i normalizujemy treść oferty, a następnie uruchomimy analizę.</p></SectionCard>}
     {isReviewing && <>
       <SectionCard title="Przygotowanie paczki do analizy" className="import-review-card">

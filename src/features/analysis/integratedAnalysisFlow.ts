@@ -6,6 +6,7 @@ import { calculateCriterionLevelScore } from './deterministicScoring'
 import { enqueueAndProcessAnalysis } from './analysisQueueService'
 import type { WorkspaceOfferListItem, WorkspaceRepository } from '../workspace/workspaceRepository'
 import { toWorkspaceImportInput } from '../workspace/workspaceRepository'
+import { findDemoOffer } from '../../demo/offers'
 
 export type IntegratedOfferState = 'waiting' | 'hard_filtering' | 'queued' | 'processing' | 'completed' | 'rejected' | 'failed'
 export type IntegratedOfferProgress = { key: string; offer: ImportedJobOffer; state: IntegratedOfferState; hardFilterStatus?: 'pass' | 'weak' | 'fail'; workspaceOfferId?: string; analysis?: JobAnalysis; error?: string; analysisVersionId?: string | null; freshness?: 'current' | 'stale_profile' | 'stale_offer' | 'stale_algorithm' | 'stale_prompt' | 'stale_model' | 'missing' }
@@ -28,7 +29,7 @@ function demoOutcome(offer: ImportedJobOffer, category: AnalysisCategory): Crite
   return 'PARTIAL'
 }
 
-function demoAnalysis(profile: UserProfile, offer: ImportedJobOffer, hardFilter: 'pass' | 'weak' | 'fail'): JobAnalysis {
+function baseDemoAnalysis(profile: UserProfile, offer: ImportedJobOffer, hardFilter: 'pass' | 'weak' | 'fail'): JobAnalysis {
   const outcomes = Object.fromEntries(categories.map((category) => [category, demoOutcome(offer, category)])) as Record<AnalysisCategory, CriterionOutcome>
   const criteria = Object.fromEntries(categories.map((category) => {
     const outcome = outcomes[category]
@@ -38,6 +39,20 @@ function demoAnalysis(profile: UserProfile, offer: ImportedJobOffer, hardFilter:
   const deterministic = calculateCriterionLevelScore(profile, criteria)
   const recommendation = hardFilter === 'fail' ? 'Nie rekomenduję' : deterministic.recommendation
   return { offerId: '', overallScore: deterministic.overallScore, categoryScores: Object.fromEntries(categories.map((category) => [category, { score: deterministic.categoryScores[category], rationale: criteria[category][0].rationale }])) as JobAnalysis['categoryScores'], recommendation, summary: deterministic.scoring.reliability === 'limited' ? 'Wynik oparty na ograniczonej liczbie danych.' : 'Wstępne dopasowanie według priorytetów profilu.', strengths: categories.filter((category) => outcomes[category] === 'MATCH').map((category) => `Potwierdzone: ${category}.`), risks: offer.missingFields.length ? [`Brakuje: ${offer.missingFields.join(', ')}.`] : [], missingInformation: offer.missingFields, hardFilterStatus: hardFilter, hardFilterReasons: [], sourceQuality: 'fixture', modelInfo: { provider: 'openai', model: 'demo-fixture', provisional: true }, createdAt: new Date().toISOString(), status: 'ready', criteria, scoring: deterministic.scoring }
+}
+
+function demoAnalysis(profile: UserProfile, offer: ImportedJobOffer, hardFilter: 'pass' | 'weak' | 'fail'): JobAnalysis {
+  const base = baseDemoAnalysis(profile, offer, hardFilter)
+  const sample = findDemoOffer(offer.id)?.demoAssessment
+  if (!sample) return base
+  const recommendation = sample.status === 'worth' ? 'Warto aplikować' : sample.status === 'rejected' ? 'Nie rekomenduję' : 'Wymaga sprawdzenia'
+  return {
+    ...base,
+    recommendation: hardFilter === 'fail' ? 'Nie rekomenduję' : recommendation,
+    summary: sample.recommendation,
+    strengths: sample.strengths,
+    risks: sample.risks,
+  }
 }
 
 /**
