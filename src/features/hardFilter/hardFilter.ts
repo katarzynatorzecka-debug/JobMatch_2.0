@@ -38,27 +38,33 @@ export function evaluateOffer(profile: UserProfile, offer: ImportedJobOffer): Ha
   const missingInformation = [...offer.missingFields]
   const checkedCriteria: string[] = []
   const text = offerText(offer)
+  const hardPreferences = profile.intelligence?.workPreferences
+  const hardLocations = (hardPreferences?.locations ?? []).filter((item) => item.isHard).map((item) => normalized(item.value))
+  const hardModes = (hardPreferences?.workModes ?? []).filter((item) => item.isHard).map((item) => item.value)
+  const hardContracts = (hardPreferences?.employmentTypes ?? []).filter((item) => item.isHard).map((item) => item.value)
 
   checkedCriteria.push('Typ umowy')
   const contracts = contractValues(offer.contractType)
   if (!offer.contractType) { addReason(reasons, { code: 'missing-contract', label: 'Brak informacji o rodzaju umowy.', category: 'contract' }); missingInformation.push('rodzaj umowy') }
   else if (!contracts.length) addReason(reasons, { code: 'ambiguous-contract', label: 'Rodzaj umowy wymaga sprawdzenia.', category: 'contract', offerValue: offer.contractType })
   else if (contracts.some((value) => profile.excludedContractTypes.includes(value))) addReason(reasons, { code: 'excluded-contract', label: 'Oferta zawiera wykluczony typ umowy.', category: 'contract', profileValue: readable(profile.excludedContractTypes), offerValue: offer.contractType })
-  else if (profile.acceptedContractTypes.length > 0 && !contracts.some((value) => profile.acceptedContractTypes.includes(value))) addReason(reasons, { code: 'contract-not-confirmed', label: 'Forma współpracy nie jest potwierdzona przez profil.', category: 'contract', profileValue: readable(profile.acceptedContractTypes), offerValue: offer.contractType })
+  else if (hardContracts.length && !contracts.some((value) => hardContracts.includes(value))) addReason(reasons, { code: 'hard-contract-mismatch', label: 'Oferta nie spełnia jawnie ustawionego twardego warunku formy zatrudnienia.', category: 'contract', profileValue: readable(hardContracts), offerValue: offer.contractType })
+  // Accepted terms are soft preferences. Only an explicitly excluded term is a Hard Filter signal.
 
   checkedCriteria.push('Tryb pracy')
   const workModes = workModeValues(offer.workMode)
   if (!offer.workMode) { addReason(reasons, { code: 'missing-work-mode', label: 'Brak informacji o trybie pracy.', category: 'work-mode' }); missingInformation.push('tryb pracy') }
   else if (!workModes.length) addReason(reasons, { code: 'ambiguous-work-mode', label: 'Tryb pracy wymaga sprawdzenia.', category: 'work-mode', offerValue: offer.workMode })
   else if (workModes.some((value) => profile.excludedWorkModes.includes(value))) addReason(reasons, { code: 'excluded-work-mode', label: 'Oferta zawiera wykluczony tryb pracy.', category: 'work-mode', profileValue: readable(profile.excludedWorkModes), offerValue: offer.workMode })
-  else if (profile.acceptedWorkModes.length > 0 && !workModes.some((value) => profile.acceptedWorkModes.includes(value))) addReason(reasons, { code: 'work-mode-not-confirmed', label: 'Tryb pracy nie jest potwierdzony przez profil.', category: 'work-mode', profileValue: readable(profile.acceptedWorkModes), offerValue: offer.workMode })
+  else if (hardModes.length && !workModes.some((value) => hardModes.includes(value))) addReason(reasons, { code: 'hard-work-mode-mismatch', label: 'Oferta nie spełnia jawnie ustawionego twardego warunku trybu pracy.', category: 'work-mode', profileValue: readable(hardModes), offerValue: offer.workMode })
+  // Accepted modes are soft preferences. Only an explicitly excluded mode is a Hard Filter signal.
 
-  checkedCriteria.push('Lokalizacja')
-  if (!offer.location) { addReason(reasons, { code: 'missing-location', label: 'Brak informacji o lokalizacji.', category: 'location' }); missingInformation.push('lokalizacja') }
-
-  if (profile.minimumSalary !== null) {
-    checkedCriteria.push('Wynagrodzenie')
-    if (!offer.salary) { addReason(reasons, { code: 'missing-salary', label: 'Brak wynagrodzenia potrzebnego do oceny minimalnej stawki.', category: 'salary', profileValue: String(profile.minimumSalary) }); missingInformation.push('wynagrodzenie') }
+  // Location and salary are soft by default. A user can promote a location explicitly to hard.
+  if (hardLocations.length) {
+    checkedCriteria.push('Twarda lokalizacja')
+    const offerLocation = normalized(offer.location ?? '')
+    if (!offerLocation) { addReason(reasons, { code: 'hard-location-missing', label: 'Brak informacji potrzebnej do sprawdzenia twardej lokalizacji.', category: 'location' }); missingInformation.push('lokalizacja') }
+    else if (!hardLocations.some((value) => offerLocation.includes(value) || value.includes(offerLocation))) addReason(reasons, { code: 'hard-location-mismatch', label: 'Oferta nie spełnia jawnie ustawionego twardego warunku lokalizacji.', category: 'location', profileValue: readable(hardLocations), offerValue: offer.location })
   }
 
   checkedCriteria.push('Wykluczone słowa')
@@ -77,7 +83,7 @@ export function evaluateOffer(profile: UserProfile, offer: ImportedJobOffer): Ha
     if (!mustHave.some((phrase) => text.includes(phrase))) addReason(reasons, { code: 'must-have-not-confirmed', label: 'Dodatkowe must-have nie jest potwierdzone przez dostępne dane oferty.', category: 'must-have', profileValue: readable(mustHave) })
   }
 
-  const status: HardFilterStatus = reasons.some((reason) => ['excluded-contract', 'excluded-work-mode', 'student-status-required'].includes(reason.code) || reason.code.startsWith('excluded-keyword:')) ? 'fail' : reasons.length ? 'weak' : 'pass'
+  const status: HardFilterStatus = reasons.some((reason) => ['excluded-contract', 'excluded-work-mode', 'student-status-required', 'hard-contract-mismatch', 'hard-work-mode-mismatch', 'hard-location-mismatch'].includes(reason.code) || reason.code.startsWith('excluded-keyword:')) ? 'fail' : reasons.length ? 'weak' : 'pass'
   return { offerId: offer.id, status, reasons, missingInformation: unique(missingInformation), checkedCriteria: unique(checkedCriteria) }
 }
 

@@ -3,9 +3,49 @@ import type { ProfilePresentationMetadata } from './profilePresentation'
 export type CvSource = 'pdf' | 'pasted-text'
 export type CvImportStatus = 'idle' | 'reading' | 'extracting' | 'success' | 'error' | 'fallback' | 'review'
 export type ProfileFieldConfidence = 'high' | 'medium' | 'low' | 'missing' | 'manual'
+export type ProfileDraftFieldStatus = 'extracted' | 'inferred' | 'unknown'
 export type ProfilePriority = 'experience' | 'skills' | 'preferences' | 'growth'
 export type WorkMode = 'remote' | 'hybrid' | 'onsite'
 export type ContractType = 'employment' | 'b2b' | 'mandate' | 'freelance' | 'internship'
+export type ProfileFactSource = 'cv' | 'user' | 'derived'
+export type SkillEvidenceLevel = 'professional' | 'project' | 'learning' | 'mentioned'
+export type ExperienceRecency = 'current' | 'recent' | 'earlier' | 'unknown'
+export type TargetSeniority = 'intern' | 'junior' | 'mid' | 'senior' | 'lead' | 'manager' | 'unknown'
+
+export interface ProfileEvidence {
+  source: ProfileFactSource
+  text: string
+  section: string | null
+  userConfirmed: boolean
+}
+
+export interface ExperienceArea { area: string; yearsApprox: number | null; recency: ExperienceRecency; evidence: ProfileEvidence[] }
+export interface ProfileSkill { name: string; category: string | null; evidenceLevel: SkillEvidenceLevel; yearsApprox: number | null; recency: ExperienceRecency; evidence: ProfileEvidence[] }
+export interface ProfileCapability { capability: string; evidence: ProfileEvidence[] }
+export interface ProfileDomain { name: string; yearsApprox: number | null; evidence: ProfileEvidence[] }
+export interface ProfileLanguage { name: string; level: string | null; evidence: ProfileEvidence[] }
+export interface ProfileCredential { name: string; issuer: string | null; evidence: ProfileEvidence[] }
+export interface HardPreference<T extends string> { value: T; isHard: boolean; source: ProfileFactSource; userConfirmed: boolean }
+
+export interface ProfileIntelligence {
+  schemaVersion: 2
+  candidateFacts: {
+    professionalSummary: string
+    totalExperienceYears: number | null
+    experienceAreas: ExperienceArea[]
+    skills: ProfileSkill[]
+    responsibilities: ProfileCapability[]
+    domains: ProfileDomain[]
+    achievements: ProfileCapability[]
+    languages: ProfileLanguage[]
+    education: ProfileCredential[]
+    certifications: ProfileCredential[]
+  }
+  careerTargets: { primaryRoles: string[]; alternativeRoles: string[]; targetSeniority: TargetSeniority[]; careerDirections: string[]; transitionContext: string | null }
+  workPreferences: { locations: HardPreference<string>[]; workModes: HardPreference<WorkMode>[]; employmentTypes: HardPreference<ContractType>[]; minimumSalary: number | null; availability: string | null; relocation: string | null }
+  constraints: { mustHave: string[]; blacklist: string[] }
+  matchingPriorities: ProfilePriority[]
+}
 
 export interface UserProfile {
   primaryRole: string
@@ -24,9 +64,28 @@ export interface UserProfile {
   additionalMustHave: string
   additionalBlacklist: string
   priorities: ProfilePriority[]
+  intelligence?: ProfileIntelligence
 }
 
 export type DraftProfileValues = UserProfile
+
+export interface ProfileFieldProvenance<T> {
+  value: T
+  evidence: string[]
+  confidence: number
+  status: ProfileDraftFieldStatus
+}
+
+export interface ProfileDraftProvenance {
+  fullName: ProfileFieldProvenance<string>
+  primaryRole: ProfileFieldProvenance<string>
+  alternativeRoles: ProfileFieldProvenance<string[]>
+  experienceSummary: ProfileFieldProvenance<string>
+  skills: ProfileFieldProvenance<string[]>
+  locations: ProfileFieldProvenance<string[]>
+  workModes: ProfileFieldProvenance<WorkMode[]>
+  contractTypes: ProfileFieldProvenance<ContractType[]>
+}
 
 export interface UserProfileDraft {
   values: DraftProfileValues
@@ -35,6 +94,7 @@ export interface UserProfileDraft {
   source: CvSource
   requiresAcceptance: true
   presentation?: ProfilePresentationMetadata
+  provenance?: ProfileDraftProvenance
 }
 
 export interface CvExtractionResult {

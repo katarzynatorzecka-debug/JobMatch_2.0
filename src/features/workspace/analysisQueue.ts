@@ -1,6 +1,6 @@
 import type { AnalysisFreshnessStatus, AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, OfferUserState, WorkspaceProfile } from '../../contracts/workspace'
 
-export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r3'
+export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r4'
 export const CURRENT_ANALYSIS_PROMPT_VERSION = 'jobmatch-job-match-v1'
 export const CURRENT_ANALYSIS_MODEL_VERSION = 'gpt-5.4-mini'
 

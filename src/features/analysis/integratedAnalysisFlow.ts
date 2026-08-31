@@ -34,7 +34,7 @@ function baseDemoAnalysis(profile: UserProfile, offer: ImportedJobOffer, hardFil
   const criteria = Object.fromEntries(categories.map((category) => {
     const outcome = outcomes[category]
     const rationale = outcome === 'UNKNOWN' ? 'Brak wystarczających danych w rozpoznanej ofercie.' : outcome === 'MATCH' ? 'Dane oferty są zgodne z priorytetem profilu.' : 'Dopasowanie wymaga dalszego sprawdzenia.'
-    return [category, [{ id: `demo-${category}`, requirement: `Ocena kategorii ${category}.`, outcome, rationale, profileEvidence: outcome === 'UNKNOWN' ? [] : ['Dane profilu demonstracyjnego.'], offerEvidence: offer.missingFields.length && category === 'preferences' ? [] : ['Znormalizowane dane oferty.'], confidence: outcome === 'UNKNOWN' ? 35 : outcome === 'MATCH' ? 78 : 58 } satisfies AnalysisCriterion]]
+    return [category, [{ id: `req:demo-${category}`, requirement: `Ocena kategorii ${category}.`, outcome, rationale, profileEvidence: outcome === 'UNKNOWN' ? [] : ['Dane profilu demonstracyjnego.'], offerEvidence: offer.missingFields.length && category === 'preferences' ? [] : ['Znormalizowane dane oferty.'], confidence: outcome === 'UNKNOWN' ? 35 : outcome === 'MATCH' ? 78 : 58 } satisfies AnalysisCriterion]]
   })) as Record<AnalysisCategory, AnalysisCriterion[]>
   const deterministic = calculateCriterionLevelScore(profile, criteria)
   const recommendation = hardFilter === 'fail' ? 'Nie rekomenduję' : deterministic.recommendation

@@ -9,6 +9,7 @@ import { loadImportedReport, saveImportedReport } from '../import/importSessionS
 import { loadUserProfile, saveUserProfile } from '../profile/profileStorage'
 import { clearProfilePresentation, loadProfilePresentation, normalizeProfilePresentation, saveProfilePresentation } from '../profile/profilePresentationStorage'
 import { supabase } from './client'
+import { synchronizeProfileIntelligence } from '../profile/profileIntelligence'
 
 export type RepoResult<T> = { data: T | null; error?: string }
 
@@ -35,6 +36,7 @@ export interface ImportRepository {
 
 const cloudError = 'Nie udalo sie polaczyc z zapisem w chmurze. Sprobuj ponownie.'
 const unavailableError = 'Konfiguracja Supabase jest niedostepna.'
+const profileHash = (value: unknown) => { const text = JSON.stringify(value); let hash = 2166136261; for (let index = 0; index < text.length; index += 1) { hash ^= text.charCodeAt(index); hash = Math.imul(hash, 16777619) }; return `profile-v2-${(hash >>> 0).toString(36)}` }
 
 export const localProfileRepository: ProfileRepository = {
   async load() {
@@ -65,11 +67,21 @@ export function supabaseProfileRepository(user: User): ProfileRepository {
     },
     async save(profile, presentationValue) {
       if (!supabase) return { data: null, error: unavailableError, presentation: emptyProfilePresentation }
+      const synchronized = synchronizeProfileIntelligence(profile)
       const presentation = normalizeProfilePresentation(presentationValue)
-      const { error } = await supabase.from('profiles').upsert({ user_id: user.id, profile_data: profile }, { onConflict: 'user_id' })
-      if (error) return { data: null, error: cloudError, presentation: emptyProfilePresentation }
-      const presentationResult = await supabase.from('profiles').update({ presentation_data: presentation }).eq('user_id', user.id)
-      return presentationResult.error ? { data: profile, presentation: emptyProfilePresentation } : { data: profile, presentation }
+      const { data: row, error } = await supabase.from('profiles').upsert({ user_id: user.id, profile_data: synchronized }, { onConflict: 'user_id' }).select('id').single()
+      if (error || !row) return { data: null, error: cloudError, presentation: emptyProfilePresentation }
+      const hash = profileHash(synchronized)
+      const { data: latest, error: latestError } = await supabase.from('profile_versions').select('id,version_number,content_hash').eq('user_id', user.id).eq('profile_id', row.id).order('version_number', { ascending: false }).limit(1).maybeSingle()
+      if (latestError) return { data: null, error: cloudError, presentation: emptyProfilePresentation }
+      let versionId = latest?.id ?? null
+      if (!latest || latest.content_hash !== hash) {
+        const { data: created, error: versionError } = await supabase.from('profile_versions').insert({ user_id: user.id, profile_id: row.id, version_number: (latest?.version_number ?? 0) + 1, profile_data: synchronized, content_hash: hash }).select('id').single()
+        if (versionError || !created) return { data: null, error: cloudError, presentation: emptyProfilePresentation }
+        versionId = created.id
+      }
+      const presentationResult = await supabase.from('profiles').update({ presentation_data: presentation, current_version_id: versionId }).eq('user_id', user.id)
+      return presentationResult.error ? { data: synchronized, presentation: emptyProfilePresentation } : { data: synchronized, presentation }
     },
     async clearPresentation() {
       if (!supabase) throw new Error(unavailableError)

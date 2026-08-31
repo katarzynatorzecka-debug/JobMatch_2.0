@@ -4,7 +4,7 @@ const criterion = {
   type: 'object', additionalProperties: false,
   required: ['id', 'requirement', 'outcome', 'rationale', 'profileEvidence', 'offerEvidence', 'confidence'],
   properties: {
-    id: { type: 'string', minLength: 1, maxLength: 120 },
+    id: { type: 'string', pattern: '^req:[a-z0-9][a-z0-9._-]{0,115}$', maxLength: 120 },
     requirement: shortText,
     outcome: { type: 'string', enum: ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'] },
     rationale: shortText,
@@ -34,11 +34,14 @@ export function isAnalysisOutput(value: unknown): value is AnalysisOutput {
   const data = value as Record<string, unknown>
   if (typeof data.summary !== 'string' || !data.summary.trim() || !Array.isArray(data.strengths) || !Array.isArray(data.risks) || !Array.isArray(data.missingInformation) || !data.criteria || typeof data.criteria !== 'object') return false
   const criteria = data.criteria as Record<string, unknown>
+  const ids = new Set<string>()
   return analysisCategories.every((name) => {
     const entry = criteria[name] as Record<string, unknown> | undefined
     return Array.isArray(entry) && entry.length > 0 && entry.length <= 12 && entry.every((item) => {
       const value = item as Record<string, unknown>
-      return value && typeof value.id === 'string' && value.id.trim().length > 0 && typeof value.requirement === 'string' && value.requirement.trim().length > 0 && ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].includes(String(value.outcome)) && typeof value.rationale === 'string' && value.rationale.trim().length > 0 && Array.isArray(value.profileEvidence) && value.profileEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Array.isArray(value.offerEvidence) && value.offerEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Number.isInteger(value.confidence) && Number(value.confidence) >= 0 && Number(value.confidence) <= 100
+      if (!value || typeof value.id !== 'string' || !/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(value.id) || ids.has(value.id)) return false
+      ids.add(value.id)
+      return typeof value.requirement === 'string' && value.requirement.trim().length > 0 && ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].includes(String(value.outcome)) && typeof value.rationale === 'string' && value.rationale.trim().length > 0 && Array.isArray(value.profileEvidence) && value.profileEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Array.isArray(value.offerEvidence) && value.offerEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Number.isInteger(value.confidence) && Number(value.confidence) >= 0 && Number(value.confidence) <= 100
     })
   })
 }

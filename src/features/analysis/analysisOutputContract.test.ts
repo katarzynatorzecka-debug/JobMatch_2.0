@@ -4,7 +4,7 @@ import edgeSource from '../../../supabase/functions/analyze-job-match/index.ts?r
 import { DETERMINISTIC_SCORING_VERSION } from './deterministicScoring'
 import { CURRENT_ANALYSIS_ALGORITHM_VERSION } from '../workspace/analysisQueue'
 
-const criteria = Object.fromEntries(['experience', 'skills', 'preferences', 'growth'].map((category) => [category, [{ id: `${category}-criterion`, requirement: `Wymóg ${category}.`, outcome: 'MATCH', rationale: 'Potwierdzone konkretnymi danymi.', profileEvidence: ['Dane profilu.'], offerEvidence: ['Dane oferty.'], confidence: 80 }]]))
+const criteria = Object.fromEntries(['experience', 'skills', 'preferences', 'growth'].map((category) => [category, [{ id: `req:${category}-criterion`, requirement: `Wymóg ${category}.`, outcome: 'MATCH', rationale: 'Potwierdzone konkretnymi danymi.', profileEvidence: ['Dane profilu.'], offerEvidence: ['Dane oferty.'], confidence: 80 }]]))
 
 describe('AI criterion output contract', () => {
   it('accepts only criterion outcomes rather than an AI-generated final score', () => {
@@ -14,6 +14,11 @@ describe('AI criterion output contract', () => {
   it('rejects a missing criterion and an unsupported outcome', () => {
     expect(isAnalysisOutput({ criteria: { ...criteria, growth: undefined }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
     expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], outcome: 'MAYBE' }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
+  })
+
+  it('requires req identifiers and rejects the same atomic requirement in two categories', () => {
+    expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], id: criteria.experience[0].id }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
+    expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], id: 'skill' }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
   })
 
   it('rejects a MATCH without both evidence sides in the Edge completion guard', () => {

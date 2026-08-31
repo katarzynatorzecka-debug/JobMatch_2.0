@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { UserProfile } from '../contracts/profile'
 import { profilePresentationSources } from '../contracts/profilePresentation'
+import { profileIntelligenceSchema } from './profileIntelligenceSchemas'
 
 export const profilePriorityValues = ['experience', 'skills', 'preferences', 'growth'] as const
 const workModeSchema = z.enum(['remote', 'hybrid', 'onsite'])
@@ -36,6 +37,7 @@ export function normalizeProfile(input: Partial<UserProfile>): UserProfile {
     additionalMustHave: (input.additionalMustHave ?? '').trim(),
     additionalBlacklist: (input.additionalBlacklist ?? '').trim(),
     priorities: input.priorities ?? ['experience', 'skills', 'preferences', 'growth'],
+    intelligence: input.intelligence,
   }
 }
 
@@ -58,6 +60,7 @@ const baseProfileShape = {
   additionalMustHave: optionalText,
   additionalBlacklist: optionalText,
   priorities: z.array(z.enum(profilePriorityValues)).length(4),
+  intelligence: profileIntelligenceSchema.optional(),
 }
 
 function withDuplicateRules<T extends z.ZodObject<typeof baseProfileShape>>(schema: T) {
