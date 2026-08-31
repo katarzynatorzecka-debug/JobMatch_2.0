@@ -8,7 +8,7 @@ const extracted = <T extends string | string[]>(value: T, evidence: string[]) =>
 const inferred = <T extends string | string[]>(value: T, evidence: string[]) => ({ value, evidence, confidence: .62, status: 'inferred' as const })
 const unknownNumber = { value: null, evidence: [], confidence: 0, status: 'unknown' as const }
 const fact = <T extends object>(value: T) => ({ ...value, evidence: ['CV: potwierdzone'], confidence: .9, status: 'extracted' as const })
-const candidateFacts = () => ({ totalExperienceYears: unknownNumber, experienceAreas: [fact({ area: 'Service delivery', yearsApprox: 5, recency: 'recent' as const })], skills: [fact({ name: 'Jira', category: null, evidenceLevel: 'professional' as const, yearsApprox: 4, recency: 'recent' as const })], responsibilities: [fact({ capability: 'Prowadzenie usług' })], domains: [fact({ name: 'IT operations', yearsApprox: 5 })], achievements: [fact({ capability: 'Usprawniono raportowanie' })], languages: [fact({ name: 'Angielski', level: 'B2' })], education: [fact({ name: 'Zarządzanie', issuer: 'Uczelnia' })], certifications: [fact({ name: 'ITIL', issuer: 'AXELOS' })] })
+const candidateFacts = () => ({ totalExperienceYears: unknownNumber, experienceEntries: [fact({ role: 'Service Delivery Manager', company: 'Example Co', startDate: '2020', endDate: null, duration: null, responsibilities: [fact({ capability: 'Prowadzenie usług' })], achievements: [fact({ capability: 'Usprawniono raportowanie' })], domains: [fact({ name: 'IT operations', yearsApprox: 5 })] })], experienceAreas: [fact({ area: 'Service delivery', yearsApprox: 5, recency: 'recent' as const })], skills: [fact({ name: 'Jira', category: null, evidenceLevel: 'professional' as const, yearsApprox: 4, recency: 'recent' as const })], responsibilities: [fact({ capability: 'Prowadzenie usług' })], domains: [fact({ name: 'IT operations', yearsApprox: 5 })], achievements: [fact({ capability: 'Usprawniono raportowanie' })], languages: [fact({ name: 'Angielski', level: 'B2' })], education: [fact({ name: 'Zarządzanie', issuer: 'Uczelnia' })], certifications: [fact({ name: 'ITIL', issuer: 'AXELOS' })] })
 const base = (): SemanticProfileMapping => ({
   fullName: extracted('Anna Example', ['Anna Example']),
   primaryRole: extracted('Service Delivery Manager', ['Service Delivery Manager']),
@@ -28,6 +28,16 @@ describe('semanticMappingToDraft', () => {
     expect(draft.values.intelligence?.candidateFacts.experienceAreas[0]?.area).toBe('Service delivery')
     expect(draft.values.intelligence?.candidateFacts.domains[0]?.name).toBe('IT operations')
     expect(draft.values.intelligence?.candidateFacts.certifications[0]?.name).toBe('ITIL')
+    expect(draft.values.intelligence?.candidateFacts.experienceEntries[0]?.role).toBe('Service Delivery Manager')
+    expect(draft.values.intelligence?.candidateFacts.skills[0]?.status).toBe('extracted')
+  })
+
+  it('redacts direct contact data before it enters the canonical draft', () => {
+    const mapping = base(); mapping.candidateFacts.skills[0]!.evidence = ['Contact: anna@example.com, +48 500 600 700']
+    const draft = semanticMappingToDraft(mapping, 'pasted-text')
+    const jira = draft.values.intelligence?.candidateFacts.skills.find((skill) => skill.name === 'Jira')
+    expect(jira?.evidence[0]?.text).toContain('[e-mail ukryty]')
+    expect(jira?.evidence[0]?.text).toContain('[telefon ukryty]')
   })
 
   it('T2 accepts a two-column reordered response without relying on source order', () => {

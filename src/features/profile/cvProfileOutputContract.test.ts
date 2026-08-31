@@ -14,6 +14,7 @@ const mapping = {
   contractTypes: { value: [], evidence: [], confidence: 0, status: 'unknown' },
   candidateFacts: {
     totalExperienceYears: { value: null, evidence: [], confidence: 0, status: 'unknown' },
+    experienceEntries: [],
     experienceAreas: [{ area: 'Service delivery', yearsApprox: 5, recency: 'recent', evidence: ['Experience in service delivery'], confidence: .9, status: 'extracted' }],
     skills: [{ name: 'Jira', category: null, evidenceLevel: 'professional', yearsApprox: 3, recency: 'recent', evidence: ['Jira used in role'], confidence: .9, status: 'extracted' }],
     responsibilities: [{ capability: 'Stakeholder management', evidence: ['Stakeholder management'], confidence: .9, status: 'extracted' }],

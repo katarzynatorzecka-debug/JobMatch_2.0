@@ -19,12 +19,14 @@ export interface ProfileEvidence {
   userConfirmed: boolean
 }
 
-export interface ExperienceArea { area: string; yearsApprox: number | null; recency: ExperienceRecency; evidence: ProfileEvidence[] }
-export interface ProfileSkill { name: string; category: string | null; evidenceLevel: SkillEvidenceLevel; yearsApprox: number | null; recency: ExperienceRecency; evidence: ProfileEvidence[] }
-export interface ProfileCapability { capability: string; evidence: ProfileEvidence[] }
-export interface ProfileDomain { name: string; yearsApprox: number | null; evidence: ProfileEvidence[] }
-export interface ProfileLanguage { name: string; level: string | null; evidence: ProfileEvidence[] }
-export interface ProfileCredential { name: string; issuer: string | null; evidence: ProfileEvidence[] }
+export interface ProfileFactQuality { confidence?: number | null; status?: ProfileDraftFieldStatus }
+export interface ExperienceArea extends ProfileFactQuality { area: string; yearsApprox: number | null; recency: ExperienceRecency; evidence: ProfileEvidence[] }
+export interface ProfileSkill extends ProfileFactQuality { name: string; category: string | null; evidenceLevel: SkillEvidenceLevel; yearsApprox: number | null; recency: ExperienceRecency; evidence: ProfileEvidence[] }
+export interface ProfileCapability extends ProfileFactQuality { capability: string; evidence: ProfileEvidence[] }
+export interface ProfileDomain extends ProfileFactQuality { name: string; yearsApprox: number | null; evidence: ProfileEvidence[] }
+export interface ProfileLanguage extends ProfileFactQuality { name: string; level: string | null; evidence: ProfileEvidence[] }
+export interface ProfileCredential extends ProfileFactQuality { name: string; issuer: string | null; evidence: ProfileEvidence[] }
+export interface ProfileExperienceEntry extends ProfileFactQuality { role: string; company: string | null; startDate: string | null; endDate: string | null; duration: string | null; responsibilities: ProfileCapability[]; achievements: ProfileCapability[]; domains: ProfileDomain[]; evidence: ProfileEvidence[] }
 export interface HardPreference<T extends string> { value: T; isHard: boolean; source: ProfileFactSource; userConfirmed: boolean }
 
 export interface ProfileIntelligence {
@@ -32,6 +34,7 @@ export interface ProfileIntelligence {
   candidateFacts: {
     professionalSummary: string
     totalExperienceYears: number | null
+    experienceEntries: ProfileExperienceEntry[]
     experienceAreas: ExperienceArea[]
     skills: ProfileSkill[]
     responsibilities: ProfileCapability[]

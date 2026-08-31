@@ -1,13 +1,28 @@
-import type { ContractType, ProfileIntelligence, ProfilePriority, UserProfile, WorkMode } from '../../contracts/profile'
+import type { ContractType, ProfileEvidence, ProfileIntelligence, ProfilePriority, UserProfile, WorkMode } from '../../contracts/profile'
 
 const priorityValues: ProfilePriority[] = ['experience', 'skills', 'preferences', 'growth']
 
 function splitLegacy(value: string) { return value.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean) }
 
+/** Removes direct contact data without turning evidence into a CV archive. */
+export function sanitizeEvidenceText(value: string) {
+  return value.trim()
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[e-mail ukryty]')
+    .replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, '[telefon ukryty]')
+    .replace(/(?:https?:\/\/|www\.)[^\s)]+/gi, '[adres ukryty]')
+    .slice(0, 180)
+}
+
+export function sanitizeEvidence(items: ProfileEvidence[]) {
+  return items.map((item) => ({ ...item, text: sanitizeEvidenceText(item.text) })).filter((item) => Boolean(item.text)).slice(0, 3)
+}
+
+const manualEvidence = (text: string): ProfileEvidence[] => [{ source: 'user', text: sanitizeEvidenceText(`Potwierdzone ręcznie: ${text}`), section: null, userConfirmed: true }]
+
 export function emptyProfileIntelligence(): ProfileIntelligence {
   return {
     schemaVersion: 2,
-    candidateFacts: { professionalSummary: '', totalExperienceYears: null, experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] },
+    candidateFacts: { professionalSummary: '', totalExperienceYears: null, experienceEntries: [], experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] },
     careerTargets: { primaryRoles: [], alternativeRoles: [], targetSeniority: ['unknown'], careerDirections: [], transitionContext: null },
     workPreferences: { locations: [], workModes: [], employmentTypes: [], minimumSalary: null, availability: null, relocation: null },
     constraints: { mustHave: [], blacklist: [] },
@@ -23,7 +38,7 @@ export function profileIntelligenceFromLegacy(profile: UserProfile): ProfileInte
     candidateFacts: {
       ...emptyProfileIntelligence().candidateFacts,
       professionalSummary: profile.experienceSummary,
-      skills: profile.skills.map((name) => ({ name, category: null, evidenceLevel: 'mentioned', yearsApprox: null, recency: 'unknown', evidence: [{ source: 'derived', text: 'Przeniesione z profilu V1.', section: null, userConfirmed: true }] })),
+      skills: profile.skills.map((name) => ({ name, category: null, evidenceLevel: 'mentioned', yearsApprox: null, recency: 'unknown', evidence: [{ source: 'derived', text: 'Przeniesione z profilu V1.', section: null, userConfirmed: true }], confidence: null, status: 'unknown' })),
     },
     careerTargets: { primaryRoles: profile.primaryRole ? [profile.primaryRole] : [], alternativeRoles: profile.alternativeRoles, targetSeniority: ['unknown'], careerDirections: [], transitionContext: null },
     workPreferences: {
@@ -47,7 +62,7 @@ export function applyProfileIntelligence(profile: UserProfile, intelligence: Pro
     primaryRole,
     alternativeRoles: intelligence.careerTargets.alternativeRoles,
     experienceSummary: intelligence.candidateFacts.professionalSummary,
-    skills: profile.skills,
+    skills: intelligence.candidateFacts.skills.map((skill) => skill.name),
     acceptedLocations: soft(intelligence.workPreferences.locations),
     acceptedWorkModes: soft(intelligence.workPreferences.workModes) as WorkMode[],
     acceptedContractTypes: soft(intelligence.workPreferences.employmentTypes) as ContractType[],
@@ -63,7 +78,7 @@ export function applyProfileIntelligence(profile: UserProfile, intelligence: Pro
 
 /** Manual fields always win over parser values before persistence. */
 export function synchronizeProfileIntelligence(profile: UserProfile): UserProfile {
-  const intelligence = profileIntelligenceFromLegacy(profile)
+  const intelligence = structuredClone(profileIntelligenceFromLegacy(profile))
   intelligence.candidateFacts.professionalSummary = profile.experienceSummary
   intelligence.careerTargets.primaryRoles = profile.primaryRole ? [profile.primaryRole] : []
   intelligence.careerTargets.alternativeRoles = profile.alternativeRoles
@@ -75,6 +90,28 @@ export function synchronizeProfileIntelligence(profile: UserProfile): UserProfil
   intelligence.workPreferences.employmentTypes = mergePreferences(profile.acceptedContractTypes, intelligence.workPreferences.employmentTypes)
   intelligence.workPreferences.minimumSalary = profile.minimumSalary
   const existing = new Map(intelligence.candidateFacts.skills.map((skill) => [skill.name.toLocaleLowerCase(), skill]))
-  intelligence.candidateFacts.skills = profile.skills.map((name) => existing.get(name.toLocaleLowerCase()) ?? { name, category: null, evidenceLevel: 'mentioned', yearsApprox: null, recency: 'unknown', evidence: [{ source: 'user', text: 'Dodane ręcznie przez użytkownika.', section: null, userConfirmed: true }] })
+  const currentProjection = intelligence.candidateFacts.skills.map((skill) => skill.name)
+  if (JSON.stringify(currentProjection.map((name) => name.toLocaleLowerCase()).sort()) !== JSON.stringify(profile.skills.map((name) => name.toLocaleLowerCase()).sort())) {
+    intelligence.candidateFacts.skills = profile.skills.map((name) => {
+      const previous = existing.get(name.toLocaleLowerCase())
+      return previous ? { ...previous, evidence: sanitizeEvidence(previous.evidence) } : { name, category: null, evidenceLevel: 'mentioned', yearsApprox: null, recency: 'unknown', evidence: manualEvidence(name), confidence: null, status: 'unknown' as const }
+    })
+  }
+  const sanitizeFacts = <T extends { evidence: ProfileEvidence[] }>(items: T[]) => items.map((item) => ({ ...item, evidence: sanitizeEvidence(item.evidence) }))
+  intelligence.candidateFacts.skills = sanitizeFacts(intelligence.candidateFacts.skills)
+  intelligence.candidateFacts.experienceAreas = sanitizeFacts(intelligence.candidateFacts.experienceAreas)
+  intelligence.candidateFacts.responsibilities = sanitizeFacts(intelligence.candidateFacts.responsibilities)
+  intelligence.candidateFacts.domains = sanitizeFacts(intelligence.candidateFacts.domains)
+  intelligence.candidateFacts.achievements = sanitizeFacts(intelligence.candidateFacts.achievements)
+  intelligence.candidateFacts.languages = sanitizeFacts(intelligence.candidateFacts.languages)
+  intelligence.candidateFacts.education = sanitizeFacts(intelligence.candidateFacts.education)
+  intelligence.candidateFacts.certifications = sanitizeFacts(intelligence.candidateFacts.certifications)
+  intelligence.candidateFacts.experienceEntries = intelligence.candidateFacts.experienceEntries.map((entry) => ({ ...entry, evidence: sanitizeEvidence(entry.evidence), responsibilities: sanitizeFacts(entry.responsibilities), achievements: sanitizeFacts(entry.achievements), domains: sanitizeFacts(entry.domains) }))
+  if (intelligence.candidateFacts.experienceEntries.length) {
+    const unique = <T extends { evidence: ProfileEvidence[] }>(items: T[], key: (item: T) => string) => [...new Map(items.map((item) => [key(item).toLocaleLowerCase(), item])).values()]
+    intelligence.candidateFacts.responsibilities = unique(intelligence.candidateFacts.experienceEntries.flatMap((entry) => entry.responsibilities), (item) => item.capability)
+    intelligence.candidateFacts.achievements = unique(intelligence.candidateFacts.experienceEntries.flatMap((entry) => entry.achievements), (item) => item.capability)
+    intelligence.candidateFacts.domains = unique(intelligence.candidateFacts.experienceEntries.flatMap((entry) => entry.domains), (item) => item.name)
+  }
   return applyProfileIntelligence(profile, intelligence)
 }
