@@ -2,7 +2,7 @@ import type { AnalysisCategory, AnalysisCriteria, AnalysisCriterion, CriterionOu
 import type { ProfilePriority, UserProfile } from '../../contracts/profile'
 import { assertAtomicCriteria, deduplicateAtomicCriteria } from './atomicCriteria'
 
-export const DETERMINISTIC_SCORING_VERSION = 'jobmatch-deterministic-r6'
+export const DETERMINISTIC_SCORING_VERSION = 'jobmatch-deterministic-r7'
 const defaultPriorities: ProfilePriority[] = ['experience', 'skills', 'preferences', 'growth']
 export const scoringWeightsByRank = [35, 30, 20, 15] as const
 export const outcomePercent: Record<CriterionOutcome, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }

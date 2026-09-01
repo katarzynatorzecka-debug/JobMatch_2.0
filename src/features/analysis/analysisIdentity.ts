@@ -6,10 +6,12 @@ export type AnalysisIdentityInput = {
   promptVersion: string
   modelVersion: string
   algorithmVersion: string
+  contractHash?: string
 }
 
 export function analysisIdentityMaterial(input: AnalysisIdentityInput) {
-  return [input.userId, input.jobOfferId, input.offerVersionId, input.profileVersionId, input.promptVersion, input.modelVersion, input.algorithmVersion].join('|')
+  const algorithmContract = input.contractHash ? `${input.algorithmVersion}:${input.contractHash}` : input.algorithmVersion
+  return [input.userId, input.jobOfferId, input.offerVersionId, input.profileVersionId, input.promptVersion, input.modelVersion, algorithmContract].join('|')
 }
 
 export async function buildAnalysisIdentity(input: AnalysisIdentityInput) {

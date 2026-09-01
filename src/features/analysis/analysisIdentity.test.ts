@@ -21,4 +21,8 @@ describe('analysis identity', () => {
   it.each(['userId', 'jobOfferId', 'offerVersionId', 'profileVersionId', 'promptVersion', 'modelVersion', 'algorithmVersion'] as const)('changes when %s changes', async (field) => {
     expect(await buildAnalysisIdentity(base)).not.toBe(await buildAnalysisIdentity({ ...base, [field]: `${base[field]}-changed` }))
   })
+
+  it('changes when the frozen offer-and-manifest contract changes', async () => {
+    await expect(buildAnalysisIdentity({ ...base, contractHash: 'a'.repeat(64) })).resolves.not.toBe(await buildAnalysisIdentity({ ...base, contractHash: 'b'.repeat(64) }))
+  })
 })

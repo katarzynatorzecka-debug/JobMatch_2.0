@@ -5,6 +5,7 @@ import completionCorrection from '../../../supabase/migrations/202608061220_anal
 import replayAlignment from '../../../supabase/migrations/202608310900_analysis_identity_v2_replay_alignment.sql?raw'
 import contractSnapshot from '../../../supabase/migrations/202608310910_offer_analysis_contract_snapshot.sql?raw'
 import reuseVersionGuard from '../../../supabase/migrations/202609011345_analysis_reuse_version_guard.sql?raw'
+import contractIdentityR7 from '../../../supabase/migrations/20260901143852_analysis_contract_identity_r7.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -62,5 +63,14 @@ describe('analysis identity migration', () => {
     expect(reuseVersionGuard).toContain("v.algorithm_version = 'jobmatch-deterministic-r6'")
     expect(reuseVersionGuard).toContain('v.analysis_identity = v_analysis_identity')
     expect(reuseVersionGuard).not.toMatch(/\b(drop|truncate|delete)\b/i)
+  })
+
+  it('binds r7 replay identity to the persisted source-and-manifest hash without altering history', () => {
+    expect(contractIdentityR7).toContain('add column if not exists analysis_contract_hash text')
+    expect(contractIdentityR7).toContain("'jobmatch-job-match-v3', 'gpt-5.4-mini', 'jobmatch-deterministic-r7:' || coalesce(v_contract_hash, 'pending')")
+    expect(contractIdentityR7).toContain("v.algorithm_version = 'jobmatch-deterministic-r7'")
+    expect(contractIdentityR7).toContain('v_contract_hash is not null')
+    expect(contractIdentityR7).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
+    expect(contractIdentityR7).not.toMatch(/\b(drop|truncate|delete)\b/i)
   })
 })

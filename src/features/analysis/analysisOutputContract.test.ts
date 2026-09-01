@@ -42,7 +42,14 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain('Trwały snapshot publicznej treści oferty')
     expect(edgeSource).toContain('analysis_source_snapshot')
     expect(edgeSource).toContain('OPENAI_CRITERIA_MANIFEST_MISMATCH')
+    expect(edgeSource).toContain('buildDeterministicOfferManifest(offer, source)')
     expect(edgeSource).toContain("sourceQuality: 'partial'")
+  })
+
+  it('keeps UNKNOWN in the Edge score denominator and never resolves duplicate criteria in favour of MATCH', () => {
+    expect(edgeSource).toContain(' / totalWeight) : 0')
+    expect(edgeSource).not.toContain('const rank: Record<string, number>')
+    expect(edgeSource).not.toContain('const preferred =')
   })
 
   it('keeps a manually overridden Hard Filter FAIL visible and non-recommendable', () => {

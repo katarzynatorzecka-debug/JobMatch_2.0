@@ -2,12 +2,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { isAnalysisOutput, jobAnalysisOutputJsonSchema } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
-import { isAnalysisCriteriaManifest, manifestFromAnalysis, outputMatchesManifest, type AnalysisCriteriaManifest } from '../_shared/analysisCriteriaManifest.ts'
+import { buildDeterministicOfferManifest, isAnalysisCriteriaManifest, outputMatchesManifest, type AnalysisCriteriaManifest } from '../_shared/analysisCriteriaManifest.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
-const promptVersion = 'jobmatch-job-match-v2'
-const algorithmVersion = 'jobmatch-deterministic-r6'
+const promptVersion = 'jobmatch-job-match-v3'
+const algorithmVersion = 'jobmatch-deterministic-r7'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -31,29 +31,10 @@ function validPriorities(value: unknown): value is string[] {
   const allowed = ['experience', 'skills', 'preferences', 'growth']
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
 }
-function criterionKey(criterion: { canonicalKey?: string; requirement: string; id?: string }) {
-  const supplied = String(criterion.canonicalKey ?? '').trim().toLowerCase()
-  if (/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(supplied)) return supplied
-  return String(criterion.id ?? '').trim().toLowerCase()
-}
-function deduplicateCriteria(criteria: Record<string, Array<{ id: string; canonicalKey?: string; requirement: string; outcome: string; confidence: number; profileEvidence?: string[]; offerEvidence?: string[] }>>) {
-  const seen = new Map<string, { category: string; criterion: (typeof criteria)[string][number] }>()
-  const result = Object.fromEntries(categories.map((category) => [category, [] as (typeof criteria)[string]])) as Record<string, (typeof criteria)[string]>
-  const rank: Record<string, number> = { UNKNOWN: 0, NO_MATCH: 1, PARTIAL: 2, MATCH: 3 }
-  for (const category of categories) for (const raw of criteria[category] ?? []) {
-    const key = criterionKey(raw)
-    const existing = seen.get(key)
-    if (!existing) { const criterion = { ...raw, canonicalKey: key }; result[category].push(criterion); seen.set(key, { category, criterion }); continue }
-    const preferred = rank[raw.outcome] > rank[existing.criterion.outcome] ? raw : existing.criterion
-    const merged = { ...preferred, id: existing.criterion.id, canonicalKey: key, profileEvidence: [...new Set([...(existing.criterion.profileEvidence ?? []), ...(raw.profileEvidence ?? [])])].slice(0, 8), offerEvidence: [...new Set([...(existing.criterion.offerEvidence ?? []), ...(raw.offerEvidence ?? [])])].slice(0, 8), confidence: Math.max(existing.criterion.confidence, raw.confidence) }
-    const index = result[existing.category].findIndex((item) => item.id === existing.criterion.id)
-    result[existing.category][index] = merged
-    seen.set(key, { category: existing.category, criterion: merged })
-  }
-  return result
-}
 function deterministicScore(profile: Record<string, unknown>, rawCriteria: Record<string, Array<{ id: string; canonicalKey?: string; requirement: string; outcome: string; confidence: number; profileEvidence?: string[]; offerEvidence?: string[] }>>) {
-  const criteria = deduplicateCriteria(rawCriteria)
+  // `isAnalysisOutput` and the manifest check have already rejected duplicate,
+  // unknown or renamed requirements. Never repair conflicts by preferring MATCH.
+  const criteria = rawCriteria
   const priority = profile.priorities as typeof categories
   const weightsByRank = [35, 30, 20, 15]
   const weights = Object.fromEntries(priority.map((category, index) => [category, weightsByRank[index]]))
@@ -61,7 +42,9 @@ function deterministicScore(profile: Record<string, unknown>, rawCriteria: Recor
   const known = entries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
   const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
   const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
-  const score = scoredWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / scoredWeight) : 0
+  // UNKNOWN has no positive or negative outcome, but its fixed rubric weight
+  // stays in the denominator. This must remain identical to the frontend.
+  const score = totalWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / totalWeight) : 0
   const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const evidenceCeiling = profileEvidenceCeiling(profile)
   const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * Math.min(entry.criterion.confidence, evidenceCeiling ?? 100), 0) / scoredWeight) : null
@@ -70,55 +53,77 @@ function deterministicScore(profile: Record<string, unknown>, rawCriteria: Recor
   const categoryScores = Object.fromEntries(categories.map((category) => {
     const categoryKnown = criteria[category] ?? []
     const known = categoryKnown.filter((criterion) => criterion.outcome !== 'UNKNOWN')
-    return [category, known.length ? Math.round(known.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / known.length) : null]
+    return [category, categoryKnown.length ? Math.round(known.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / categoryKnown.length) : null]
   }))
   return { score, weights, coverage, criterionConfidence, reliability, scoredCategories: categories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length, criteria }
 }
 
 async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
   const sourceUrl = typeof offer.sourceUrl === 'string' ? offer.sourceUrl : ''
-  if (!sourceUrl) return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] }
+  if (!sourceUrl) return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] }
   try {
     const source = await fetch(`${supabaseUrl}/functions/v1/fetch-offer-page`, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' }, body: JSON.stringify({ offerId: typeof offer.id === 'string' ? offer.id : 'workspace-offer', sourceUrl, offer }) })
-    if (!source.ok) return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] }
+    if (!source.ok) return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] }
     const data = await source.json() as Record<string, unknown>
     const description = typeof data.description === 'string' ? data.description : ''
     const requirements = Array.isArray(data.requirements) ? data.requirements.filter((item): item is string => typeof item === 'string') : []
     const responsibilities = Array.isArray(data.responsibilities) ? data.responsibilities.filter((item): item is string => typeof item === 'string') : []
     const benefits = Array.isArray(data.benefits) ? data.benefits.filter((item): item is string => typeof item === 'string') : []
     const text = [description, requirements.length ? `Wymagania: ${requirements.join('; ')}` : '', responsibilities.length ? `Zakres obowiązków: ${responsibilities.join('; ')}` : '', benefits.length ? `Benefity: ${benefits.join('; ')}` : ''].filter(Boolean).join('\n').slice(0, 18_000)
-    return { sourceQuality: data.sourceQuality === 'full' && text ? 'full' : 'partial', text, missingInformation: Array.isArray(data.missingInformation) ? data.missingInformation.filter((item): item is string => typeof item === 'string') : [] }
-  } catch { return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] } }
+    return { sourceQuality: data.sourceQuality === 'full' && text ? 'full' as const : 'partial' as const, text, requirements, responsibilities, benefits, missingInformation: Array.isArray(data.missingInformation) ? data.missingInformation.filter((item): item is string => typeof item === 'string') : [] }
+  } catch { return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] } }
 }
 
-type OfferSourceSnapshot = { sourceQuality: 'full' | 'partial'; text: string; missingInformation: string[] }
+type OfferSourceSnapshot = { sourceQuality: 'full' | 'partial'; text: string; requirements: string[]; responsibilities: string[]; benefits: string[]; missingInformation: string[] }
 
 function isOfferSourceSnapshot(value: unknown): value is OfferSourceSnapshot {
   if (!value || typeof value !== 'object') return false
   const data = value as Record<string, unknown>
   return (data.sourceQuality === 'full' || data.sourceQuality === 'partial') && typeof data.text === 'string' && Array.isArray(data.missingInformation) && data.missingInformation.every((item) => typeof item === 'string')
+    && ['requirements', 'responsibilities', 'benefits'].every((key) => data[key] === undefined || (Array.isArray(data[key]) && data[key].every((item) => typeof item === 'string')))
 }
 
-async function sourceHash(source: OfferSourceSnapshot) {
-  const bytes = new TextEncoder().encode(JSON.stringify(source))
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+async function sha256Text(value: string) {
+  const bytes = new TextEncoder().encode(value)
+  const rawDigest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(rawDigest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+async function digest(value: unknown) { return await sha256Text(JSON.stringify(value)) }
+
+async function sourceHash(source: OfferSourceSnapshot) { return await digest(source) }
+async function contractHash(source: OfferSourceSnapshot, manifest: AnalysisCriteriaManifest) {
+  return await digest({ source, manifest, contractVersion: 'jobmatch-analysis-contract-r7' })
+}
+
+async function queueAnalysisIdentity(queueItem: Record<string, unknown>, nextContractHash: string) {
+  return await sha256Text([
+    String(queueItem.user_id ?? ''), String(queueItem.job_offer_id ?? ''), String(queueItem.offer_version_id ?? ''),
+    String(queueItem.profile_version_id ?? ''), promptVersion, model, `${algorithmVersion}:${nextContractHash}`,
+  ].join('|'))
 }
 
 async function loadOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string) {
-  const { data, error } = await worker.from('offer_versions').select('analysis_source_snapshot,analysis_source_hash,analysis_criteria_manifest').eq('id', offerVersionId).eq('user_id', userId).maybeSingle()
-  if (error || !data) return { error: true as const, source: null, manifest: null }
+  const { data, error } = await worker.from('offer_versions').select('analysis_source_snapshot,analysis_source_hash,analysis_criteria_manifest,analysis_contract_hash').eq('id', offerVersionId).eq('user_id', userId).maybeSingle()
+  if (error || !data) return { error: true as const, source: null, manifest: null, contractHash: null }
   return {
     error: false as const,
-    source: isOfferSourceSnapshot(data.analysis_source_snapshot) ? data.analysis_source_snapshot : null,
+    source: isOfferSourceSnapshot(data.analysis_source_snapshot) ? { ...data.analysis_source_snapshot, requirements: data.analysis_source_snapshot.requirements ?? [], responsibilities: data.analysis_source_snapshot.responsibilities ?? [], benefits: data.analysis_source_snapshot.benefits ?? [] } : null,
     manifest: isAnalysisCriteriaManifest(data.analysis_criteria_manifest) ? data.analysis_criteria_manifest : null,
+    contractHash: typeof data.analysis_contract_hash === 'string' ? data.analysis_contract_hash : null,
   }
 }
 
-async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, manifest?: AnalysisCriteriaManifest) {
-  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: await sourceHash(source), analysis_contract_version: 'jobmatch-offer-criteria-r1' }
-  if (manifest) payload.analysis_criteria_manifest = manifest
+async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, manifest: AnalysisCriteriaManifest) {
+  const nextContractHash = await contractHash(source, manifest)
+  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: await sourceHash(source), analysis_criteria_manifest: manifest, analysis_contract_hash: nextContractHash, analysis_contract_version: 'jobmatch-analysis-contract-r7' }
   const { error } = await worker.from('offer_versions').update(payload).eq('id', offerVersionId).eq('user_id', userId)
+  return { ok: !error, contractHash: nextContractHash }
+}
+
+async function alignQueueAnalysisIdentity(worker: ReturnType<typeof createClient>, queueItem: Record<string, unknown>, workerToken: string, nextContractHash: string) {
+  const identity = await queueAnalysisIdentity(queueItem, nextContractHash)
+  const { error } = await worker.from('analysis_queue').update({ analysis_identity: identity }).eq('id', String(queueItem.id ?? '')).eq('user_id', String(queueItem.user_id ?? '')).eq('worker_token', workerToken)
   return !error
 }
 
@@ -164,11 +169,14 @@ Deno.serve(async (request) => {
   if (contract.error) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_UNAVAILABLE')
   const fetchedSource = contract.source ? null : await loadPublicOfferSource(url, authorization, offer)
   const source: OfferSourceSnapshot = contract.source ?? fetchedSource!
-  if (!contract.source && !await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source)) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
+  const manifest = contract.manifest ?? buildDeterministicOfferManifest(offer, source)
+  const persistedContract = contract.contractHash && contract.source && contract.manifest
+    ? { ok: true, contractHash: contract.contractHash }
+    : await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, manifest)
+  if (!persistedContract.ok) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
+  if (!await alignQueueAnalysisIdentity(worker, queueItem, workerToken, persistedContract.contractHash)) return await failQueue('WORKSPACE_ANALYSIS_IDENTITY_SAVE_FAILED')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
-  const manifestInstruction = contract.manifest
-    ? `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(contract.manifest)}`
-    : 'Dla każdej kategorii zwróć atomowe kryteria: id, canonicalKey, requirement, profileEvidence, offerEvidence, MATCH/PARTIAL/NO_MATCH/UNKNOWN, confidence i rationale. id oraz canonicalKey mają postać req:<stabilny-klucz>; canonicalKey opisuje realne wymaganie niezależnie od kategorii lub etykiety. Jednego wymagania nie wolno powtarzać.'
+  const manifestInstruction = `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(manifest)}`
   const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. MATCH wymaga konkretnego dowodu z profilu i z oferty. Gdy dowodu brakuje, użyj UNKNOWN. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
   let openAiResponse: Response
@@ -189,9 +197,7 @@ Deno.serve(async (request) => {
   const parsed = readOpenAiStructuredOutput(payload)
   if (!parsed.ok) { console.info(JSON.stringify({ diagnostic: parsed.code, ...parsed.diagnostics })); return await failQueue(parsed.code) }
   if (!isAnalysisOutput(parsed.value)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
-  if (contract.manifest && !outputMatchesManifest(parsed.value.criteria, contract.manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
-  const manifest = contract.manifest ?? manifestFromAnalysis(parsed.value.criteria)
-  if (!contract.manifest && !await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, manifest)) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
+  if (!outputMatchesManifest(parsed.value.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
   if (categories.some((category) => parsed.value.criteria[category].some((criterion) => criterion.outcome === 'MATCH' && (!criterion.profileEvidence.length || !criterion.offerEvidence.length)))) return await failQueue('OPENAI_EVIDENCE_MISSING')
   const scoring = deterministicScore(profile, parsed.value.criteria)
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
