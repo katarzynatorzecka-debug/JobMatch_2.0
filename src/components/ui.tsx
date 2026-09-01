@@ -32,6 +32,12 @@ function criterionList(analysis: JobAnalysis, category: AnalysisCategory): Analy
   const value = analysis.criteria?.[category]
   return Array.isArray(value) ? value : []
 }
+function uniqueReadable(items: string[]) {
+  return items.filter((item, index) => {
+    const value = item.trim().toLocaleLowerCase('pl-PL').replace(/^(brakuje|brak danych)\s*:\s*/i, '').replace(/[.!]+$/g, '')
+    return value && !items.slice(0, index).some((previous) => previous.trim().toLocaleLowerCase('pl-PL').replace(/^(brakuje|brak danych)\s*:\s*/i, '').replace(/[.!]+$/g, '') === value)
+  })
+}
 export function analysisNarrativeData(analysis: JobAnalysis | null | undefined) {
   if (!analysis) return null
   const headline = analysis.recommendation === 'Warto aplikować'
@@ -49,7 +55,7 @@ export function analysisNarrativeData(analysis: JobAnalysis | null | undefined) 
     recommendation: analysis.recommendation,
     summary: analysis.summary,
     strengths: analysis.strengths.slice(0, 3),
-    risks: [...analysis.risks, ...analysis.missingInformation].slice(0, 3),
+    risks: uniqueReadable([...analysis.risks, ...analysis.missingInformation]).slice(0, 3),
     hardFilterWarning,
   }
 }
