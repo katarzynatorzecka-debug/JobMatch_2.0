@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ImportedJobOffer } from '../../contracts/import'
-import type { UserProfile } from '../../contracts/profile'
+import type { ProfileIntelligence, UserProfile } from '../../contracts/profile'
 import { evaluateOffer, evaluateOffers } from './hardFilter'
 
 const profile: UserProfile = { primaryRole: 'Analyst', alternativeRoles: [], experienceSummary: 'Analizuję dane i usprawniam procesy biznesowe w zespołach.', skills: ['SQL'], acceptedWorkModes: [], acceptedContractTypes: [], acceptedLocations: [], minimumSalary: null, studentStatusAvailable: false, excludedContractTypes: [], excludedWorkModes: [], excludedKeywords: [], requiresStudentStatus: false, additionalMustHave: '', additionalBlacklist: '', priorities: ['experience', 'skills', 'preferences', 'growth'] }
@@ -26,4 +26,9 @@ describe('Hard Filter', () => {
   it('uses profile criteria rather than hardcoded user keywords', () => { expect(evaluateOffer({ ...profile, excludedKeywords: ['finance'] }, offer()).status).toBe('pass'); expect(evaluateOffer({ ...profile, excludedKeywords: ['analyst'] }, offer()).status).toBe('fail') })
   it('preserves input order in evaluateOffers', () => { const first = offer({ id: 'offer-first', title: 'First role' }); const second = offer({ id: 'offer-second', title: 'Second role' }); expect(evaluateOffers(profile, [first, second]).map((item) => item.offer.id)).toEqual(['offer-first', 'offer-second']) })
   it('keeps must-have uncertainty as WEAK rather than confirmed conflict', () => expect(evaluateOffer({ ...profile, additionalMustHave: 'Power BI' }, offer()).status).toBe('weak'))
+  it('uses V2 explicit constraints but keeps empty constraints neutral', () => {
+    const intelligence: ProfileIntelligence = { schemaVersion: 2, candidateFacts: { professionalSummary: '', totalExperienceYears: null, experienceEntries: [], experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] }, careerTargets: { primaryRoles: [], alternativeRoles: [], targetSeniority: ['unknown'], careerDirections: [], transitionContext: null }, workPreferences: { locations: [], workModes: [], employmentTypes: [], minimumSalary: null, availability: null, relocation: null }, constraints: { mustHave: [], blacklist: [] }, matchingPriorities: ['experience', 'skills', 'preferences', 'growth'] }
+    expect(evaluateOffer({ ...profile, intelligence }, offer()).status).toBe('pass')
+    expect(evaluateOffer({ ...profile, intelligence: { ...intelligence, constraints: { mustHave: [], blacklist: ['Analyst'] } } }, offer()).status).toBe('fail')
+  })
 })

@@ -2,11 +2,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { isAnalysisOutput, jobAnalysisOutputJsonSchema } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
+import { isAnalysisCriteriaManifest, manifestFromAnalysis, outputMatchesManifest, type AnalysisCriteriaManifest } from '../_shared/analysisCriteriaManifest.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
-const promptVersion = 'jobmatch-job-match-v1'
-const algorithmVersion = 'jobmatch-deterministic-r4'
+const promptVersion = 'jobmatch-job-match-v2'
+const algorithmVersion = 'jobmatch-deterministic-r6'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -23,14 +24,36 @@ function profileEvidenceCeiling(profile: Record<string, unknown>) {
     const source = Math.round(evidence.reduce((total, item) => total + (item.userConfirmed === true ? 95 : sourceScore[String(item.source)] ?? 0), 0) / evidence.length)
     return level ? Math.round(source * .6 + (levelScore[level] ?? 0) * .4) : source
   }
-  const values = ['experienceAreas', 'responsibilities', 'domains'].flatMap((key) => Array.isArray(facts[key]) ? (facts[key] as Array<Record<string, unknown>>).map((entry) => score(entry)) : []).concat(Array.isArray(facts.skills) ? (facts.skills as Array<Record<string, unknown>>).map((entry) => score(entry, String(entry.evidenceLevel))) : []).filter((value) => value > 0)
+  const values = ['experienceEntries', 'experienceAreas', 'responsibilities', 'domains', 'achievements', 'languages', 'education', 'certifications'].flatMap((key) => Array.isArray(facts[key]) ? (facts[key] as Array<Record<string, unknown>>).map((entry) => score(entry)) : []).concat(Array.isArray(facts.skills) ? (facts.skills as Array<Record<string, unknown>>).map((entry) => score(entry, String(entry.evidenceLevel))) : []).filter((value) => value > 0)
   return values.length ? Math.round(values.reduce((total, value) => total + value, 0) / values.length) : null
 }
 function validPriorities(value: unknown): value is string[] {
   const allowed = ['experience', 'skills', 'preferences', 'growth']
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
 }
-function deterministicScore(profile: Record<string, unknown>, criteria: Record<string, Array<{ outcome: string; confidence: number }>>) {
+function criterionKey(criterion: { canonicalKey?: string; requirement: string; id?: string }) {
+  const supplied = String(criterion.canonicalKey ?? '').trim().toLowerCase()
+  if (/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(supplied)) return supplied
+  return String(criterion.id ?? '').trim().toLowerCase()
+}
+function deduplicateCriteria(criteria: Record<string, Array<{ id: string; canonicalKey?: string; requirement: string; outcome: string; confidence: number; profileEvidence?: string[]; offerEvidence?: string[] }>>) {
+  const seen = new Map<string, { category: string; criterion: (typeof criteria)[string][number] }>()
+  const result = Object.fromEntries(categories.map((category) => [category, [] as (typeof criteria)[string]])) as Record<string, (typeof criteria)[string]>
+  const rank: Record<string, number> = { UNKNOWN: 0, NO_MATCH: 1, PARTIAL: 2, MATCH: 3 }
+  for (const category of categories) for (const raw of criteria[category] ?? []) {
+    const key = criterionKey(raw)
+    const existing = seen.get(key)
+    if (!existing) { const criterion = { ...raw, canonicalKey: key }; result[category].push(criterion); seen.set(key, { category, criterion }); continue }
+    const preferred = rank[raw.outcome] > rank[existing.criterion.outcome] ? raw : existing.criterion
+    const merged = { ...preferred, id: existing.criterion.id, canonicalKey: key, profileEvidence: [...new Set([...(existing.criterion.profileEvidence ?? []), ...(raw.profileEvidence ?? [])])].slice(0, 8), offerEvidence: [...new Set([...(existing.criterion.offerEvidence ?? []), ...(raw.offerEvidence ?? [])])].slice(0, 8), confidence: Math.max(existing.criterion.confidence, raw.confidence) }
+    const index = result[existing.category].findIndex((item) => item.id === existing.criterion.id)
+    result[existing.category][index] = merged
+    seen.set(key, { category: existing.category, criterion: merged })
+  }
+  return result
+}
+function deterministicScore(profile: Record<string, unknown>, rawCriteria: Record<string, Array<{ id: string; canonicalKey?: string; requirement: string; outcome: string; confidence: number; profileEvidence?: string[]; offerEvidence?: string[] }>>) {
+  const criteria = deduplicateCriteria(rawCriteria)
   const priority = profile.priorities as typeof categories
   const weightsByRank = [35, 30, 20, 15]
   const weights = Object.fromEntries(priority.map((category, index) => [category, weightsByRank[index]]))
@@ -49,7 +72,7 @@ function deterministicScore(profile: Record<string, unknown>, criteria: Record<s
     const known = categoryKnown.filter((criterion) => criterion.outcome !== 'UNKNOWN')
     return [category, known.length ? Math.round(known.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / known.length) : null]
   }))
-  return { score, weights, coverage, criterionConfidence, reliability, scoredCategories: categories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length }
+  return { score, weights, coverage, criterionConfidence, reliability, scoredCategories: categories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length, criteria }
 }
 
 async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
@@ -66,6 +89,37 @@ async function loadPublicOfferSource(supabaseUrl: string, authorization: string,
     const text = [description, requirements.length ? `Wymagania: ${requirements.join('; ')}` : '', responsibilities.length ? `Zakres obowiązków: ${responsibilities.join('; ')}` : '', benefits.length ? `Benefity: ${benefits.join('; ')}` : ''].filter(Boolean).join('\n').slice(0, 18_000)
     return { sourceQuality: data.sourceQuality === 'full' && text ? 'full' : 'partial', text, missingInformation: Array.isArray(data.missingInformation) ? data.missingInformation.filter((item): item is string => typeof item === 'string') : [] }
   } catch { return { sourceQuality: 'partial', text: '', missingInformation: ['pełna treść oferty'] } }
+}
+
+type OfferSourceSnapshot = { sourceQuality: 'full' | 'partial'; text: string; missingInformation: string[] }
+
+function isOfferSourceSnapshot(value: unknown): value is OfferSourceSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const data = value as Record<string, unknown>
+  return (data.sourceQuality === 'full' || data.sourceQuality === 'partial') && typeof data.text === 'string' && Array.isArray(data.missingInformation) && data.missingInformation.every((item) => typeof item === 'string')
+}
+
+async function sourceHash(source: OfferSourceSnapshot) {
+  const bytes = new TextEncoder().encode(JSON.stringify(source))
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+async function loadOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string) {
+  const { data, error } = await worker.from('offer_versions').select('analysis_source_snapshot,analysis_source_hash,analysis_criteria_manifest').eq('id', offerVersionId).eq('user_id', userId).maybeSingle()
+  if (error || !data) return { error: true as const, source: null, manifest: null }
+  return {
+    error: false as const,
+    source: isOfferSourceSnapshot(data.analysis_source_snapshot) ? data.analysis_source_snapshot : null,
+    manifest: isAnalysisCriteriaManifest(data.analysis_criteria_manifest) ? data.analysis_criteria_manifest : null,
+  }
+}
+
+async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, manifest?: AnalysisCriteriaManifest) {
+  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: await sourceHash(source), analysis_contract_version: 'jobmatch-offer-criteria-r1' }
+  if (manifest) payload.analysis_criteria_manifest = manifest
+  const { error } = await worker.from('offer_versions').update(payload).eq('id', offerVersionId).eq('user_id', userId)
+  return !error
 }
 
 Deno.serve(async (request) => {
@@ -106,9 +160,16 @@ Deno.serve(async (request) => {
   if (!queueItem || !profile || !offer || !hardFilter || !workerToken) return failure('WORKSPACE_ANALYSIS_CONTEXT_INVALID', 409)
   const failQueue = async (code: string) => { await worker.rpc('workspace_fail_analysis', { queue_item_id: queueItemId, worker_token: workerToken, error_code: code }); return failure(code, 502) }
   if (!validPriorities(profile.priorities)) return await failQueue('WORKSPACE_PROFILE_PRIORITIES_INVALID')
-  const source = await loadPublicOfferSource(url, authorization, offer)
+  const contract = await loadOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''))
+  if (contract.error) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_UNAVAILABLE')
+  const fetchedSource = contract.source ? null : await loadPublicOfferSource(url, authorization, offer)
+  const source: OfferSourceSnapshot = contract.source ?? fetchedSource!
+  if (!contract.source && !await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source)) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
-  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. Dla każdej kategorii zwróć atomowe kryteria podrzędne: requirement, profileEvidence, offerEvidence, MATCH/PARTIAL/NO_MATCH/UNKNOWN, confidence i rationale. Używaj id req:<stabilny-klucz>; identycznego wymagania nie wolno umieszczać w więcej niż jednej kategorii. Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie odrębnymi punktami. MATCH wymaga konkretnego dowodu z profilu i z oferty. Gdy dowodu brakuje, użyj UNKNOWN; UNKNOWN jest poza score i obniża jedynie coverage. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nPełna publiczna treść oferty (może być częściowa): ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
+  const manifestInstruction = contract.manifest
+    ? `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(contract.manifest)}`
+    : 'Dla każdej kategorii zwróć atomowe kryteria: id, canonicalKey, requirement, profileEvidence, offerEvidence, MATCH/PARTIAL/NO_MATCH/UNKNOWN, confidence i rationale. id oraz canonicalKey mają postać req:<stabilny-klucz>; canonicalKey opisuje realne wymaganie niezależnie od kategorii lub etykiety. Jednego wymagania nie wolno powtarzać.'
+  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. MATCH wymaga konkretnego dowodu z profilu i z oferty. Gdy dowodu brakuje, użyj UNKNOWN. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
   let openAiResponse: Response
   try {
@@ -128,14 +189,18 @@ Deno.serve(async (request) => {
   const parsed = readOpenAiStructuredOutput(payload)
   if (!parsed.ok) { console.info(JSON.stringify({ diagnostic: parsed.code, ...parsed.diagnostics })); return await failQueue(parsed.code) }
   if (!isAnalysisOutput(parsed.value)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
+  if (contract.manifest && !outputMatchesManifest(parsed.value.criteria, contract.manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
+  const manifest = contract.manifest ?? manifestFromAnalysis(parsed.value.criteria)
+  if (!contract.manifest && !await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, manifest)) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
   if (categories.some((category) => parsed.value.criteria[category].some((criterion) => criterion.outcome === 'MATCH' && (!criterion.profileEvidence.length || !criterion.offerEvidence.length)))) return await failQueue('OPENAI_EVIDENCE_MISSING')
   const scoring = deterministicScore(profile, parsed.value.criteria)
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {
     ...parsed.value,
+    criteria: scoring.criteria,
     offerId: queueItem.job_offer_id,
     overallScore: scoring.score,
-    categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: parsed.value.criteria[category].map((criterion) => criterion.rationale).join(' ') }])),
+    categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: scoring.criteria[category].map((criterion) => criterion.rationale).join(' ') }])),
     recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.score >= 75 && scoring.coverage >= 75 && scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.score >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
     hardFilterStatus: analysisHardFilterStatus,
     hardFilterReasons: Array.isArray(hardFilter.reasons) ? hardFilter.reasons.map((reason) => typeof reason === 'object' && reason ? (reason as Record<string, unknown>).label : '').filter((label): label is string => typeof label === 'string') : [],

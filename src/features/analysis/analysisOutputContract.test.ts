@@ -4,7 +4,7 @@ import edgeSource from '../../../supabase/functions/analyze-job-match/index.ts?r
 import { DETERMINISTIC_SCORING_VERSION } from './deterministicScoring'
 import { CURRENT_ANALYSIS_ALGORITHM_VERSION } from '../workspace/analysisQueue'
 
-const criteria = Object.fromEntries(['experience', 'skills', 'preferences', 'growth'].map((category) => [category, [{ id: `req:${category}-criterion`, requirement: `Wymóg ${category}.`, outcome: 'MATCH', rationale: 'Potwierdzone konkretnymi danymi.', profileEvidence: ['Dane profilu.'], offerEvidence: ['Dane oferty.'], confidence: 80 }]]))
+const criteria = Object.fromEntries(['experience', 'skills', 'preferences', 'growth'].map((category) => [category, [{ id: `req:${category}-criterion`, canonicalKey: `req:${category}-criterion`, requirement: `Wymóg ${category}.`, outcome: 'MATCH', rationale: 'Potwierdzone konkretnymi danymi.', profileEvidence: ['Dane profilu.'], offerEvidence: ['Dane oferty.'], confidence: 80 }]]))
 
 describe('AI criterion output contract', () => {
   it('accepts only criterion outcomes rather than an AI-generated final score', () => {
@@ -21,6 +21,11 @@ describe('AI criterion output contract', () => {
     expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], id: 'skill' }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
   })
 
+  it('requires the stable canonical requirement key for new Edge output', () => {
+    expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], canonicalKey: 'invalid' }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
+    expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], id: 'req:different-id', canonicalKey: criteria.experience[0].canonicalKey }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
+  })
+
   it('rejects a MATCH without both evidence sides in the Edge completion guard', () => {
     expect(edgeSource).toContain("criterion.outcome === 'MATCH' && (!criterion.profileEvidence.length || !criterion.offerEvidence.length)")
     expect(edgeSource).toContain("OPENAI_EVIDENCE_MISSING")
@@ -34,7 +39,9 @@ describe('AI criterion output contract', () => {
 
   it('passes fetched public offer text to the structured analysis prompt and keeps partial fallback explicit', () => {
     expect(edgeSource).toContain('/functions/v1/fetch-offer-page')
-    expect(edgeSource).toContain('Pełna publiczna treść oferty')
+    expect(edgeSource).toContain('Trwały snapshot publicznej treści oferty')
+    expect(edgeSource).toContain('analysis_source_snapshot')
+    expect(edgeSource).toContain('OPENAI_CRITERIA_MANIFEST_MISMATCH')
     expect(edgeSource).toContain("sourceQuality: 'partial'")
   })
 

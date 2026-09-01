@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import migration from '../../../supabase/migrations/202608061200_analysis_identity_reuse.sql?raw'
 import correction from '../../../supabase/migrations/202608061210_analysis_identity_enqueue_fix.sql?raw'
 import completionCorrection from '../../../supabase/migrations/202608061220_analysis_completion_reuse_fix.sql?raw'
+import replayAlignment from '../../../supabase/migrations/202608310900_analysis_identity_v2_replay_alignment.sql?raw'
+import contractSnapshot from '../../../supabase/migrations/202608310910_offer_analysis_contract_snapshot.sql?raw'
+import reuseVersionGuard from '../../../supabase/migrations/202609011345_analysis_reuse_version_guard.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -37,5 +40,27 @@ describe('analysis identity migration', () => {
     expect(completionCorrection).toContain('analysis_identity, analysis_data')
     expect(completionCorrection).not.toContain('on conflict (queue_item_id) where queue_item_id is not null')
     expect(completionCorrection).not.toMatch(/\b(drop|truncate|delete)\b/i)
+  })
+
+  it('aligns ordinary replay with the current v2 prompt and r5 deterministic scorer', () => {
+    expect(replayAlignment).toContain("'jobmatch-job-match-v2', 'gpt-5.4-mini', 'jobmatch-deterministic-r6'")
+    expect(replayAlignment).toContain('v.analysis_identity = v_analysis_identity')
+    expect(replayAlignment).toContain("'reused', true")
+    expect(replayAlignment).not.toMatch(/\b(drop|truncate|delete)\b/i)
+  })
+
+  it('adds a non-destructive public-offer snapshot and criteria contract per offer version', () => {
+    expect(contractSnapshot).toContain('add column if not exists analysis_source_snapshot jsonb')
+    expect(contractSnapshot).toContain('add column if not exists analysis_criteria_manifest jsonb')
+    expect(contractSnapshot).toContain('offer_versions_analysis_contract_lookup_idx')
+    expect(contractSnapshot).not.toMatch(/\b(drop|truncate|delete)\b/i)
+  })
+
+  it('does not reuse an older persisted scorer under a newer identity contract', () => {
+    expect(reuseVersionGuard).toContain("v.prompt_version = 'jobmatch-job-match-v2'")
+    expect(reuseVersionGuard).toContain("v.model_version = 'gpt-5.4-mini'")
+    expect(reuseVersionGuard).toContain("v.algorithm_version = 'jobmatch-deterministic-r6'")
+    expect(reuseVersionGuard).toContain('v.analysis_identity = v_analysis_identity')
+    expect(reuseVersionGuard).not.toMatch(/\b(drop|truncate|delete)\b/i)
   })
 })

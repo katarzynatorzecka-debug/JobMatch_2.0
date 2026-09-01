@@ -11,4 +11,11 @@ describe('AnalysisCandidateContext', () => {
     expect(context.experience).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Target role only' })]))
     expect((context.workPreferences as Record<string, unknown>).locations).toEqual(['Warszawa'])
   })
+
+  it('uses structured professional experience but never promotes a target role into it', () => {
+    const profile = { intelligence: { schemaVersion: 2, candidateFacts: { professionalSummary: '', totalExperienceYears: 4, experienceEntries: [{ role: 'Automation Specialist', company: 'Example', duration: '2022-2026', responsibilities: [{ capability: 'Service delivery', evidence: [] }], domains: [{ name: 'IT operations', evidence: [] }], evidence: [{ text: 'Automation and service delivery.', source: 'cv', userConfirmed: false }] }], experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] }, careerTargets: { primaryRoles: ['Data Scientist'], alternativeRoles: [], careerDirections: [] }, workPreferences: { locations: [], workModes: [], employmentTypes: [] }, constraints: {}, matchingPriorities: ['experience', 'skills', 'preferences', 'growth'] } }
+    const context = buildAnalysisCandidateContext(profile, 'Oferta Automation Specialist') as Record<string, unknown>
+    expect(context.experienceEntries).toEqual([expect.objectContaining({ role: 'Automation Specialist', capabilities: ['Service delivery'] })])
+    expect(JSON.stringify(context.experienceEntries)).not.toContain('Data Scientist')
+  })
 })

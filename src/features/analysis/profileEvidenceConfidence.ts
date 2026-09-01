@@ -13,10 +13,15 @@ export function profileEvidenceConfidence(profile: Pick<UserProfile, 'intelligen
   const facts = profile.intelligence?.candidateFacts
   if (!facts) return null
   const values = [
+    ...facts.experienceEntries.map((item) => confidenceFromProfileEvidence(item.evidence)),
     ...facts.experienceAreas.map((item) => confidenceFromProfileEvidence(item.evidence)),
     ...facts.skills.map((item) => confidenceFromProfileEvidence(item.evidence, item.evidenceLevel)),
     ...facts.responsibilities.map((item) => confidenceFromProfileEvidence(item.evidence)),
     ...facts.domains.map((item) => confidenceFromProfileEvidence(item.evidence)),
+    ...facts.achievements.map((item) => confidenceFromProfileEvidence(item.evidence)),
+    ...facts.languages.map((item) => confidenceFromProfileEvidence(item.evidence)),
+    ...facts.education.map((item) => confidenceFromProfileEvidence(item.evidence)),
+    ...facts.certifications.map((item) => confidenceFromProfileEvidence(item.evidence)),
   ].filter((value) => value > 0)
   return values.length ? Math.round(values.reduce((total, value) => total + value, 0) / values.length) : null
 }

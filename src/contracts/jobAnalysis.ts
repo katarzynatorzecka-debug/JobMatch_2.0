@@ -8,6 +8,8 @@ export type CriterionOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
 export interface CategoryScore { score: number | null; rationale: string }
 export interface AnalysisCriterion {
   id: string
+  /** Stable job-requirement identity. Kept optional so historical analysis rows remain readable. */
+  canonicalKey?: string
   requirement: string
   outcome: CriterionOutcome
   rationale: string

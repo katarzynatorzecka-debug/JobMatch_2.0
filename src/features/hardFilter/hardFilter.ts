@@ -68,16 +68,17 @@ export function evaluateOffer(profile: UserProfile, offer: ImportedJobOffer): Ha
   }
 
   checkedCriteria.push('Wykluczone słowa')
-  const blockedPhrases = unique([...profile.excludedKeywords.map(normalized), ...phraseList(profile.additionalBlacklist)])
+  const canonicalConstraints = profile.intelligence?.constraints
+  const blockedPhrases = unique([...profile.excludedKeywords.map(normalized), ...phraseList(profile.additionalBlacklist), ...(canonicalConstraints?.blacklist ?? []).map(normalized)])
   blockedPhrases.forEach((phrase) => { if (phrase && text.includes(phrase)) addReason(reasons, { code: `excluded-keyword:${phrase}`, label: 'Oferta zawiera wykluczone słowo lub frazę.', category: 'keyword', profileValue: phrase, offerValue: phrase }) })
 
   if (profile.requiresStudentStatus) {
     checkedCriteria.push('Status studenta')
     if (/\bstudent\w*\b/.test(text) && !profile.studentStatusAvailable) addReason(reasons, { code: 'student-status-required', label: 'Oferta wymaga statusu studenta, którego profil nie potwierdza.', category: 'student-status' })
-    else if (!/\bstudent\w*\b/.test(text)) { addReason(reasons, { code: 'student-status-missing', label: 'Brak informacji, czy oferta wymaga statusu studenta.', category: 'student-status' }); missingInformation.push('wymóg statusu studenta') }
+    // This legacy flag was an explicit restriction, not a request to penalise every offer that omits student status.
   }
 
-  const mustHave = phraseList(profile.additionalMustHave)
+  const mustHave = unique([...phraseList(profile.additionalMustHave), ...(canonicalConstraints?.mustHave ?? []).map(normalized)])
   if (mustHave.length) {
     checkedCriteria.push('Dodatkowe must-have')
     if (!mustHave.some((phrase) => text.includes(phrase))) addReason(reasons, { code: 'must-have-not-confirmed', label: 'Dodatkowe must-have nie jest potwierdzone przez dostępne dane oferty.', category: 'must-have', profileValue: readable(mustHave) })
