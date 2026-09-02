@@ -36,6 +36,14 @@ describe('dashboard selectors', () => {
     expect(vm.offers.recommended[0]).toMatchObject({ score: 90, analysisAvailable: true, hardFilterStatus: 'pass' })
   })
 
+  it('does not promote a limited analysis as a recommended offer', () => {
+    const offers = [offer('standard'), offer('limited')]
+    const standard = { ...analysis('standard', 80), scoring: { algorithmVersion: 'r8', weights: { experience: 35, skills: 30, preferences: 20, growth: 15 }, coverage: 85, criterionConfidence: 80, reliability: 'standard', scoredCategories: ['experience', 'skills', 'preferences'] } }
+    const limited = { ...analysis('limited', 100), scoring: { algorithmVersion: 'r8', weights: { experience: 35, skills: 30, preferences: 20, growth: 15 }, coverage: 35, criterionConfidence: 80, reliability: 'limited', scoredCategories: ['preferences'] } }
+    const vm = selectDashboardViewModel({ snapshot: snapshot(offers, [state('standard'), state('limited')], [hardFilter('standard'), hardFilter('limited')], [standard, limited]), profile: profile() })
+    expect(vm.offers.recommended.map((item) => item.offerId)).toEqual(['standard'])
+  })
+
   it('maps import history and deterministic next steps', () => {
     const sessions = [{ id: 'session-1', userId: 'user', sourceType: 'rocketjobs-eml', sourceFilename: 'new.eml', status: 'active', foundCount: 3, newCount: 2, duplicateCount: 1, invalidCount: 0, needsReviewCount: 1, warnings: [], operationMetadata: {}, createdAt: '2026-08-07T10:00:00.000Z', revertedAt: null, reactivatedAt: null }]
     const empty = selectDashboardViewModel({ snapshot: snapshot([], [], [], [], [], []), profile: profile() })

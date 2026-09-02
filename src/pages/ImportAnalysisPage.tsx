@@ -7,7 +7,6 @@ import { useAppMode } from '../features/access/AppModeProvider'
 import { type BatchReport, type IntegratedBatchCounts, type IntegratedOfferProgress, retryIntegratedOffer, runIntegratedAnalysisBatch } from '../features/analysis/integratedAnalysisFlow'
 import { clearIntegratedAnalysisSession, loadIntegratedAnalysisSession, saveIntegratedAnalysisSession } from '../features/analysis/integratedAnalysisSession'
 import { restoreActiveWorkspaceImport, shouldResetTerminalBatchForNewFiles, shouldRestoreWorkspaceImport } from '../features/analysis/restoredWorkspaceImport'
-import { scoreBand } from '../features/analysis/deterministicScoring'
 import { extractEmlContent } from '../features/import/emlExtractor'
 import { appendBatchEntries, createImportBatchId, createImportBatchState, hasRemovedOffers, removeBatchOffer, removeBatchReport, restoreBatchOffers, summarizeBatch, visibleOffers, type ImportBatchEntry } from '../features/import/importBatchState'
 import { validateEmlFile } from '../features/import/importUtils'
@@ -186,5 +185,5 @@ export function ImportAnalysisPage() {
 function AnalysisPreview({ analysis, hardFilter, freshness, analysisVersionId }: { analysis?: JobAnalysis; hardFilter?: 'pass' | 'weak' | 'fail'; freshness?: IntegratedOfferProgress['freshness']; analysisVersionId?: string | null }) {
   if (hardFilter === 'fail') return <div className="analysis-preview"><strong>Odrzucona przez Hard Filter</strong><span>AI pominięte — nie zużyto tokenów.</span></div>
   if (!analysis) return null
-  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><strong>{analysis.overallScore}/100 - {scoreBand(analysis.overallScore)}</strong><span>Rekomendacja: {analysis.recommendation}</span><span>{analysis.summary}</span><AnalysisQuality analysis={analysis} />{freshness && <small>Freshness: {freshness}</small>}{analysisVersionId && <small>analysis_version_id: {analysisVersionId}</small>}{analysis.risks[0] && <small>Ryzyko: {analysis.risks[0]}</small>}{analysis.scoring?.reliability === 'limited' && <small>Wynik oparty na ograniczonej liczbie danych.</small>}</div>
+  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><AnalysisQuality analysis={analysis} />{freshness && <small>Freshness: {freshness}</small>}{analysisVersionId && <small>analysis_version_id: {analysisVersionId}</small>}</div>
 }

@@ -31,6 +31,14 @@ function compareImportDate(left: WorkspaceOfferListItem, right: WorkspaceOfferLi
   return right.offer.id.localeCompare(left.offer.id)
 }
 
+function compareAnalysisQuality(left: WorkspaceOfferListItem, right: WorkspaceOfferListItem) {
+  const rank = (item: WorkspaceOfferListItem) => item.analysis?.scoring?.reliability === 'standard' ? 2 : item.analysis?.scoring?.reliability === 'limited' ? 1 : 0
+  const rankDifference = rank(right) - rank(left)
+  if (rankDifference) return rankDifference
+  const coverage = (item: WorkspaceOfferListItem) => item.analysis?.scoring?.coverage ?? 0
+  return coverage(right) - coverage(left)
+}
+
 export function sortWorkspaceOffers(items: WorkspaceOfferListItem[], sort: OfferListSort) {
   return [...items].sort((left, right) => {
     if (sort === 'score_desc' || sort === 'score_asc') {
@@ -38,6 +46,8 @@ export function sortWorkspaceOffers(items: WorkspaceOfferListItem[], sort: Offer
       const rightScore = right.analysis?.overallScore ?? null
       if (leftScore === null && rightScore !== null) return 1
       if (leftScore !== null && rightScore === null) return -1
+      const quality = compareAnalysisQuality(left, right)
+      if (quality) return quality
       if (leftScore !== null && rightScore !== null && leftScore !== rightScore) return sort === 'score_desc' ? rightScore - leftScore : leftScore - rightScore
     }
     const chronological = compareImportDate(left, right)

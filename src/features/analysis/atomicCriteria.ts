@@ -35,5 +35,7 @@ export function assertAtomicCriteria(criteria: AnalysisCriteria) {
   for (const category of categories) for (const item of list(criteria, category)) {
     if (!item.id.trim()) throw new Error('ANALYSIS_CRITERION_ID_REQUIRED')
     if (!item.id.trim().startsWith('req:')) throw new Error('ANALYSIS_CRITERION_ID_INVALID')
+    if (item.outcome !== 'UNKNOWN' && !item.offerEvidence.length) throw new Error(`ANALYSIS_CRITERION_OFFER_EVIDENCE_REQUIRED:${item.id}`)
+    if ((item.outcome === 'MATCH' || item.outcome === 'PARTIAL') && !item.profileEvidence.length) throw new Error(`ANALYSIS_CRITERION_PROFILE_EVIDENCE_REQUIRED:${item.id}`)
   }
 }

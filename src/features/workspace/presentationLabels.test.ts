@@ -17,7 +17,7 @@ describe('presentation labels', () => {
     expect(['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].map(criterionOutcomeLabel)).toEqual([
       'Spełnione',
       'Częściowo spełnione',
-      'Niespełnione',
+      'Niepotwierdzone w profilu',
       'Brak wystarczających danych',
     ])
   })

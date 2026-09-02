@@ -29,7 +29,7 @@ export function calculateDeterministicScore(profile: Pick<UserProfile, 'prioriti
   return calculateCriterionLevelScore(profile, criteria)
 }
 
-export function calculateCriterionLevelScore(profile: Pick<UserProfile, 'priorities'>, criteria: AnalysisCriteria, candidateEvidenceConfidence?: number | null): DeterministicScore {
+export function calculateCriterionLevelScore(profile: Pick<UserProfile, 'priorities'>, criteria: AnalysisCriteria): DeterministicScore {
   normalizedPriorities(profile.priorities)
   assertAtomicCriteria(criteria)
   const deduplicated = deduplicateAtomicCriteria(criteria)
@@ -46,7 +46,9 @@ export function calculateCriterionLevelScore(profile: Pick<UserProfile, 'priorit
   const overallScore = scoredWeight ? Math.round(weightedPoints / scoredWeight) : 0
   const coverage = totalWeight ? Math.round((scoredWeight / totalWeight) * 100) : 0
   const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
-  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * Math.min(entry.criterion.confidence, candidateEvidenceConfidence ?? 100), 0) / scoredWeight) : null
+  // Confidence is attached to each classified requirement and its concrete
+  // evidence. Do not cap it with an unrelated average over the whole profile.
+  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / scoredWeight) : null
   const reliability = coverage < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
   const recommendation: Recommendation = overallScore >= 75 && coverage >= 75 && reliability === 'standard' ? 'Warto aplikować' : overallScore >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję'
   return {

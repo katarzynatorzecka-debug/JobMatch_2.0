@@ -47,6 +47,12 @@ describe('offer list sorting and combined filters', () => {
     expect(listWorkspaceOffers([noScore, older, newer], defaultOfferListQuery, 'score_asc').map((item) => item.offer.id)).toEqual(['older', 'newer', 'no-score'])
   })
 
+  it('never ranks a limited 100/35 above a standard, sufficiently covered result', () => {
+    const limited = offerItem('limited', '2026-08-07T10:00:00.000Z', 100, { analysis: { overallScore: 100, scoring: { reliability: 'limited', coverage: 35 } } })
+    const standard = offerItem('standard', '2026-08-06T10:00:00.000Z', 80, { analysis: { overallScore: 80, scoring: { reliability: 'standard', coverage: 85 } } })
+    expect(listWorkspaceOffers([limited, standard], defaultOfferListQuery, 'score_desc').map((item) => item.offer.id)).toEqual(['standard', 'limited'])
+  })
+
   it('combines Hard Filter, source and import-session filters with sorting', () => {
     const matching = offerItem('matching', '2026-08-05T10:00:00.000Z', 70, { importSessionIds: ['session-b'], userState: { lifecycleStatus: 'analyzed', exclusionReason: null }, hardFilter: { status: 'needs_review' }, offer: { id: 'matching', sourceType: 'other-source', lastSeenAt: '2026-08-05T10:00:00.000Z', firstSeenAt: '2026-08-05T10:00:00.000Z', createdAt: '2026-08-05T10:00:00.000Z' } })
     const result = listWorkspaceOffers([older, matching, newer], { ...defaultOfferListQuery, hardFilter: 'needs_review', sourceType: 'other-source', importSessionId: 'session-b' }, 'score_desc')

@@ -24,6 +24,8 @@ const card = (overrides: Partial<DashboardViewModel['offers']['recommended'][num
   title: 'Senior Operations Manager',
   company: 'Acme',
   score: 82,
+  reliability: 'standard' as const,
+  coverage: 90,
   recommendation: 'Warto aplikować',
   hardFilterStatus: 'pass' as const,
   analysisAvailable: true,
@@ -82,5 +84,14 @@ describe('DashboardPage', () => {
     expect(markup).toContain('Nie spełnia wymagań')
     expect(markup).toContain('Score niedostępny dla FAIL')
     expect(markup).not.toContain('Ocena dopasowania: 99 na 100')
+  })
+
+  it('labels a low-coverage score as partial on the dashboard', () => {
+    const viewModel = base()
+    viewModel.offers.recentlyViewed = [card({ score: 100, reliability: 'limited', coverage: 35, recommendation: 'Wymaga sprawdzenia' })]
+    const markup = renderToStaticMarkup(<MemoryRouter><DashboardPage viewModel={viewModel} /></MemoryRouter>)
+    expect(markup).toContain('Wynik częściowy')
+    expect(markup).toContain('pokrycie 35%')
+    expect(markup).toContain('wiarygodność ograniczona')
   })
 })

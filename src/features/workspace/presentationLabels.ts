@@ -33,7 +33,7 @@ export function criterionOutcomeLabel(value: string): string {
   switch (value) {
     case 'MATCH': return 'Spełnione'
     case 'PARTIAL': return 'Częściowo spełnione'
-    case 'NO_MATCH': return 'Niespełnione'
+    case 'NO_MATCH': return 'Niepotwierdzone w profilu'
     case 'UNKNOWN': return 'Brak wystarczających danych'
     default: return 'Status kryterium niedostępny'
   }

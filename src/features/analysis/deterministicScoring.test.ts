@@ -46,6 +46,20 @@ describe('deterministic scoring', () => {
     expect(result.recommendation).toBe('Wymaga sprawdzenia')
   })
 
+  it('scores a clear unsupported requirement as NO_MATCH instead of removing it from coverage', () => {
+    const unsupported = { id: 'req:arabic-native', canonicalKey: 'req:arabic-native', requirement: 'Język arabski na poziomie native', outcome: 'NO_MATCH' as const, rationale: 'Profil nie zawiera potwierdzenia tego wymagania.', profileEvidence: [], offerEvidence: ['Arabic native required.'], confidence: 92 }
+    const result = calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { experience: [], skills: [unsupported], preferences: [], growth: [] })
+    expect(result.overallScore).toBe(0)
+    expect(result.scoring.coverage).toBe(100)
+    expect(result.scoring.criterionConfidence).toBe(92)
+    expect(result.scoring.unknownCriterionCount).toBe(0)
+  })
+
+  it('rejects positive or partial classifications without criterion-level profile evidence', () => {
+    const unsupportedPartial = { id: 'req:moderation', canonicalKey: 'req:moderation', requirement: 'Doświadczenie w moderacji', outcome: 'PARTIAL' as const, rationale: 'Częściowe dopasowanie.', profileEvidence: [], offerEvidence: ['Moderation experience required.'], confidence: 70 }
+    expect(() => calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { experience: [unsupportedPartial], skills: [], preferences: [], growth: [] })).toThrow('ANALYSIS_CRITERION_PROFILE_EVIDENCE_REQUIRED:req:moderation')
+  })
+
   it('rejects duplicate canonical requirements instead of selecting the most optimistic outcome', () => {
     const base = { requirement: 'Znajomość SQL', outcome: 'MATCH' as const, rationale: 'Potwierdzone.', profileEvidence: ['SQL w doświadczeniu.'], offerEvidence: ['SQL wymagany.'], confidence: 80, canonicalKey: 'req:sql' }
     expect(() => calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, {

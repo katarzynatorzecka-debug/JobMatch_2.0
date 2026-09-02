@@ -11,6 +11,8 @@ export type DashboardOfferCard = {
   title: string
   company: string
   score: number | null
+  reliability: 'standard' | 'limited' | null
+  coverage: number | null
   recommendation: string | null
   hardFilterStatus: WorkspaceHardFilterStatus | null
   analysisAvailable: boolean
@@ -84,6 +86,8 @@ function toCard(item: WorkspaceOfferListItem): DashboardOfferCard {
     title: item.offer.title,
     company: item.offer.company,
     score: item.analysis?.overallScore ?? null,
+    reliability: item.analysis?.scoring?.reliability ?? null,
+    coverage: item.analysis?.scoring?.coverage ?? null,
     recommendation: item.analysis?.recommendation ?? null,
     hardFilterStatus: item.hardFilter?.status ?? null,
     analysisAvailable: Boolean(item.analysis),
@@ -101,7 +105,9 @@ function newestFirst(left: WorkspaceOfferListItem, right: WorkspaceOfferListItem
 }
 
 function scoreFirst(left: WorkspaceOfferListItem, right: WorkspaceOfferListItem) {
-  return (right.analysis?.overallScore ?? -1) - (left.analysis?.overallScore ?? -1) || newestFirst(left, right)
+  const reliability = (item: WorkspaceOfferListItem) => item.analysis?.scoring?.reliability === 'standard' ? 2 : item.analysis?.scoring?.reliability === 'limited' ? 1 : 0
+  const coverage = (item: WorkspaceOfferListItem) => item.analysis?.scoring?.coverage ?? 0
+  return reliability(right) - reliability(left) || coverage(right) - coverage(left) || (right.analysis?.overallScore ?? -1) - (left.analysis?.overallScore ?? -1) || newestFirst(left, right)
 }
 
 function activeAndVisible(item: WorkspaceOfferListItem) {
@@ -129,7 +135,7 @@ export function selectDashboardViewModel(input: DashboardSelectorInput): Dashboa
   const items = currentItems(snapshot)
   const byId = new Map(items.map((item) => [item.offer.id, item]))
   const activeVisible = items.filter(activeAndVisible)
-  const recommendedItems = activeVisible.filter((item) => item.hardFilter?.status !== 'fail' && item.analysis && item.analysis.overallScore !== null && item.analysis.recommendation).sort(scoreFirst)
+  const recommendedItems = activeVisible.filter((item) => item.hardFilter?.status !== 'fail' && item.analysis?.recommendation === 'Warto aplikować' && item.analysis.scoring?.reliability !== 'limited').sort(scoreFirst)
   const offersToAnalyze = activeVisible.filter((item) => item.hardFilter && item.hardFilter.status !== 'fail' && !item.analysis && !item.analysisState.queueItem).sort(newestFirst)
   const viewedIds = [...snapshot.recentlyViewed].sort((left, right) => Date.parse(right.viewedAt) - Date.parse(left.viewedAt)).map((entry) => entry.jobOfferId)
   const profileSummary = profileCompleteness(profile)

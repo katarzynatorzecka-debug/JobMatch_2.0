@@ -14,7 +14,7 @@ export function SecondaryLink({ to, children }: { to: string; children: ReactNod
 export function StatusBadge({ status }: { status: DemoStatus }) { const meta = statusMeta[status]; return <span className={`status-badge status-badge--${status}`}><span aria-hidden="true">{meta.symbol}</span>{meta.label}</span> }
 const hardFilterMeta: Record<HardFilterStatus, { label: string; symbol: string }> = { pass: { label: 'Przechodzi', symbol: '✓' }, weak: { label: 'Wymaga sprawdzenia', symbol: '?' }, fail: { label: 'Odrzucona', symbol: '×' } }
 export function HardFilterStatusBadge({ status }: { status: HardFilterStatus }) { const meta = hardFilterMeta[status]; return <span className={`status-badge status-badge--hard-${status}`}><span aria-hidden="true">{meta.symbol}</span>{meta.label}</span> }
-export function ScoreBadge({ score }: { score: number }) { return <span className="score-badge" aria-label={`Ocena dopasowania: ${score} na 100`}><strong>{score}</strong><span>/100</span></span> }
+export function ScoreBadge({ score, limited = false }: { score: number; limited?: boolean }) { return <span className={`score-badge${limited ? ' score-badge--limited' : ''}`} aria-label={limited ? `Wynik częściowy: ${score} na 100, wiarygodność ograniczona` : `Ocena dopasowania: ${score} na 100`}><strong>{score}</strong><span>/100</span>{limited && <small>wynik częściowy</small>}</span> }
 export function SourceBadge({ state }: { state: DemoOffer['sourceState'] }) { return <span className="source-badge"><span aria-hidden="true">▣</span>{state === 'fallback' ? 'Użyto danych zapasowych' : 'Analiza na podstawie częściowych danych'}</span> }
 export function CategoryScore({ label, score }: { label: string; score: number | null }) { if (score === null) return <div className="category-score"><div><span>{label}</span><strong>Brak danych</strong></div></div>; return <div className="category-score"><div><span>{label}</span><strong>{score}/100</strong></div><div className="progress-track" aria-label={`${label}: ${score} na 100`}><span style={{ width: `${score}%` }} /></div></div> }
 const categoryLabels: Record<AnalysisCategory, string> = { experience: 'Doświadczenie', skills: 'Umiejętności', preferences: 'Preferencje', growth: 'Rozwój' }
@@ -32,10 +32,16 @@ function criterionList(analysis: JobAnalysis, category: AnalysisCategory): Analy
   const value = analysis.criteria?.[category]
   return Array.isArray(value) ? value : []
 }
+function readableFingerprint(item: string) {
+  return item.trim().toLocaleLowerCase('pl-PL').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/^(ryzyko|brakuje|brak(?: danych| informacji| potwierdzenia)?)\s*:\s*/i, '')
+    .replace(/^(ryzyko|brakuje|brak danych|brak informacji(?: o)?|brak potwierdzenia)\s+/i, '')
+    .replace(/[^a-z0-9+#.]+/g, ' ').trim().replace(/\s+/g, ' ')
+}
 function uniqueReadable(items: string[]) {
   return items.filter((item, index) => {
-    const value = item.trim().toLocaleLowerCase('pl-PL').replace(/^(brakuje|brak danych)\s*:\s*/i, '').replace(/[.!]+$/g, '')
-    return value && !items.slice(0, index).some((previous) => previous.trim().toLocaleLowerCase('pl-PL').replace(/^(brakuje|brak danych)\s*:\s*/i, '').replace(/[.!]+$/g, '') === value)
+    const value = readableFingerprint(item)
+    return value && !items.slice(0, index).some((previous) => readableFingerprint(previous) === value)
   })
 }
 export function analysisNarrativeData(analysis: JobAnalysis | null | undefined) {
@@ -77,11 +83,10 @@ export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobA
   const coverage = scoring?.coverage
   const confidence = scoring?.criterionConfidence
   const limited = scoring?.reliability === 'limited'
-  const conditionalHundred = analysis.overallScore === 100 && typeof coverage === 'number' && coverage < 100
   if (!scoring && !analysis.criteria) return <AnalysisNarrative analysis={analysis} compact />
   return <div className={`analysis-quality${detailed ? ' analysis-quality--detailed' : ''}`}>
     {!detailed && <AnalysisNarrative analysis={analysis} />}
-    <p><strong>{conditionalHundred ? `100/100 dla ${formatPercentage(coverage)} pokrycia kryteriów` : `${analysis.overallScore}/100`}</strong>{limited && <span className="analysis-quality__limited">Wiarygodność ograniczona</span>}</p>
+    <p><strong>{limited ? `Wynik częściowy: ${analysis.overallScore}/100${typeof coverage === 'number' ? ` przy ${formatPercentage(coverage)} pokrycia` : ''}` : `${analysis.overallScore}/100`}</strong>{limited && <span className="analysis-quality__limited">Nie interpretuj jako pełnego dopasowania</span>}</p>
     <div className="analysis-quality__metrics"><span>Pokrycie: {typeof coverage === 'number' ? formatPercentage(coverage) : 'brak danych'}</span><span>Pewność: {typeof confidence === 'number' ? `${confidence}%` : 'brak danych'}</span><span>Wiarygodność: {scoring?.reliability === 'standard' ? 'standardowa' : scoring?.reliability === 'limited' ? 'ograniczona' : 'brak danych'}</span></div>
     {detailed && <div className="analysis-quality__criteria">{(['experience', 'skills', 'preferences', 'growth'] as AnalysisCategory[]).map((category) => {
       const items = criterionList(analysis, category)

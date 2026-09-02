@@ -12,21 +12,6 @@ function response(body: Record<string, unknown>, status = 200) { return new Resp
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
 const outcomePercent: Record<string, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
-function profileEvidenceCeiling(profile: Record<string, unknown>) {
-  const intelligence = profile.intelligence as Record<string, unknown> | undefined
-  const facts = intelligence?.candidateFacts as Record<string, unknown> | undefined
-  if (!facts) return null
-  const sourceScore: Record<string, number> = { user: 95, cv: 80, derived: 50 }
-  const levelScore: Record<string, number> = { professional: 90, project: 75, learning: 55, mentioned: 45 }
-  const score = (entry: Record<string, unknown>, level?: string) => {
-    const evidence = Array.isArray(entry.evidence) ? entry.evidence as Array<Record<string, unknown>> : []
-    if (!evidence.length) return 0
-    const source = Math.round(evidence.reduce((total, item) => total + (item.userConfirmed === true ? 95 : sourceScore[String(item.source)] ?? 0), 0) / evidence.length)
-    return level ? Math.round(source * .6 + (levelScore[level] ?? 0) * .4) : source
-  }
-  const values = ['experienceEntries', 'experienceAreas', 'responsibilities', 'domains', 'achievements', 'languages', 'education', 'certifications'].flatMap((key) => Array.isArray(facts[key]) ? (facts[key] as Array<Record<string, unknown>>).map((entry) => score(entry)) : []).concat(Array.isArray(facts.skills) ? (facts.skills as Array<Record<string, unknown>>).map((entry) => score(entry, String(entry.evidenceLevel))) : []).filter((value) => value > 0)
-  return values.length ? Math.round(values.reduce((total, value) => total + value, 0) / values.length) : null
-}
 function validPriorities(value: unknown): value is string[] {
   const allowed = ['experience', 'skills', 'preferences', 'growth']
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
@@ -46,8 +31,9 @@ function deterministicScore(profile: Record<string, unknown>, rawCriteria: Recor
   // negative assessment in the deterministic score.
   const score = scoredWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / scoredWeight) : 0
   const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
-  const evidenceCeiling = profileEvidenceCeiling(profile)
-  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * Math.min(entry.criterion.confidence, evidenceCeiling ?? 100), 0) / scoredWeight) : null
+  // Confidence belongs to the classification and evidence of this exact
+  // requirement. A global profile average would couple unrelated criteria.
+  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / scoredWeight) : null
   const coverage = totalWeight ? Math.round((scoredWeight / totalWeight) * 100) : 0
   const reliability = coverage < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
   const categoryScores = Object.fromEntries(categories.map((category) => {
@@ -187,7 +173,7 @@ Deno.serve(async (request) => {
   if (!isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
   const manifestInstruction = `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(manifest)}`
-  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. MATCH wymaga konkretnego dowodu z profilu i z oferty. Gdy dowodu brakuje, użyj UNKNOWN. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
+  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Każda pozycja manifestu jest jawnym wymaganiem oferty i musi mieć offerEvidence. MATCH oznacza, że konkretny dowód z profilu spełnia wymaganie. PARTIAL oznacza częściowy lub transferowalny dowód z profilu. NO_MATCH oznacza, że wymaganie jest jasne, ale pełny przekazany kontekst kandydata nie zawiera wspierającego dowodu albo zawiera dowód sprzeczny; sam brak wzmianki w profilu nie jest UNKNOWN. Opisuj NO_MATCH jako brak potwierdzenia w profilu, nie jako pewność, że kandydat nie posiada kompetencji. UNKNOWN stosuj wyłącznie wtedy, gdy mimo manifestu nie da się jednoznacznie zrozumieć wymagania albo przekazany kontekst kandydata jest technicznie niewystarczający do klasyfikacji. MATCH i PARTIAL wymagają profileEvidence oraz offerEvidence. NO_MATCH wymaga offerEvidence, a profileEvidence może być puste. Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
   let openAiResponse: Response
   try {
@@ -208,7 +194,8 @@ Deno.serve(async (request) => {
   if (!parsed.ok) { console.info(JSON.stringify({ diagnostic: parsed.code, ...parsed.diagnostics })); return await failQueue(parsed.code) }
   if (!isAnalysisOutput(parsed.value)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
   if (!outputMatchesManifest(parsed.value.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
-  if (categories.some((category) => parsed.value.criteria[category].some((criterion) => criterion.outcome === 'MATCH' && (!criterion.profileEvidence.length || !criterion.offerEvidence.length)))) return await failQueue('OPENAI_EVIDENCE_MISSING')
+  if (categories.some((category) => parsed.value.criteria[category].some((criterion) => !criterion.offerEvidence.length))) return await failQueue('OPENAI_OFFER_EVIDENCE_MISSING')
+  if (categories.some((category) => parsed.value.criteria[category].some((criterion) => (criterion.outcome === 'MATCH' || criterion.outcome === 'PARTIAL') && !criterion.profileEvidence.length))) return await failQueue('OPENAI_PROFILE_EVIDENCE_MISSING')
   const scoring = deterministicScore(profile, parsed.value.criteria)
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {

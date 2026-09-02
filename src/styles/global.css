@@ -336,6 +336,8 @@ legend { color: var(--jm-muted); }
 .offer-card__footer { display: flex; justify-content: flex-end; padding: 1.1rem 1.5rem 1.35rem; }
 .score-badge { min-width: 82px; padding: .7rem .8rem; border-color: #9fc7e4; border-radius: 15px; background: var(--jm-blue-soft); color: #1d5b91; }
 .score-badge strong { font-size: 1.55rem; }
+.score-badge--limited { border-color: #efcf9b; background: var(--jm-orange-soft); color: #7e4b17; }
+.score-badge small { margin-top: .35rem; font-size: .62rem; font-weight: 800; line-height: 1.1; text-align: center; }
 .status-badge, .source-badge { min-height: 30px; padding: .3rem .62rem; }
 .status-badge--hard-pass, .status-badge--worth { border-color: #b9dfc4; background: var(--jm-success-soft); color: #28613d; }
 .status-badge--hard-weak, .status-badge--review { border-color: #efcf9b; background: var(--jm-orange-soft); color: #7e4b17; }
@@ -378,8 +380,6 @@ legend { color: var(--jm-muted); }
 .analysis-narrative__hard-filter { margin: 0; padding: .75rem .9rem; border: 1px solid #f0d4aa; border-radius: var(--jm-radius-sm); background: #fff8ee; color: #795022; font-size: .9rem; }
 .analysis-narrative--compact { gap: .55rem; margin-bottom: .7rem; }
 .analysis-narrative--compact .analysis-narrative__summary { padding: .8rem .9rem; font-size: .92rem; }
-section.surface-card > p:has(+ .analysis-quality) { display: none; }
-.analysis-preview > span:nth-of-type(2), .analysis-preview > span:nth-of-type(3) { display: none; }
 
 /* Access Gate: responsive layout built from live HTML, not a reference image. */
 .access-gate { position: relative; display: grid; box-sizing: border-box; grid-template-columns: minmax(0, 1.05fr) minmax(420px, .95fr); align-items: center; min-height: 100svh; gap: clamp(2.5rem, 7vw, 7rem); padding: clamp(2.5rem, 7vw, 7rem); overflow-x: clip; isolation: isolate; background: radial-gradient(circle at 82% 24%, rgb(246 163 58 / 23%) 0 11%, transparent 30%), radial-gradient(circle at 78% 86%, rgb(73 118 164 / 13%) 0 10%, transparent 32%), linear-gradient(118deg, #fffdf9 0%, #fff8ee 56%, #fff3df 100%); }

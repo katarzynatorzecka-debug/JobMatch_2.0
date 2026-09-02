@@ -23,11 +23,12 @@ function OfferPreview({ item }: { item: DashboardOfferCard }) {
           <h3><Link to={item.href}>{item.title}</Link></h3>
           <p>{item.company}</p>
         </div>
-        {!blocked && item.score !== null && <ScoreBadge score={item.score} />}
+        {!blocked && item.score !== null && <ScoreBadge score={item.score} limited={item.reliability === 'limited'} />}
       </div>
       <div className="dashboard-offer-card__meta">
         <span>{hardFilterLabel(item.hardFilterStatus)}</span>
         {item.analysisAvailable && <span>Analiza dostępna</span>}
+        {item.reliability === 'limited' && <span>{item.coverage === null ? 'Wynik częściowy' : `Wynik częściowy · pokrycie ${Math.round(item.coverage)}%`}</span>}
         {blocked && <span>Score niedostępny dla FAIL</span>}
       </div>
       {item.recommendation && !blocked && <p className="dashboard-offer-card__recommendation">{item.recommendation}</p>}

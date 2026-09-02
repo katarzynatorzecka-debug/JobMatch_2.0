@@ -23,7 +23,7 @@ describe('canonical message generator', () => {
     for (const raw of ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN']) expect(message).not.toContain(raw)
     expect(message).toContain('Spełnione')
     expect(message).toContain('Częściowo spełnione')
-    expect(message).toContain('Niespełnione')
+    expect(message).toContain('Niepotwierdzone w profilu')
     expect(message).toContain('Brak wystarczających danych')
   })
   it('works without analysis and does not invent unsupported facts', () => {

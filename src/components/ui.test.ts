@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { createElement } from 'react'
 import type { JobAnalysis } from '../contracts/jobAnalysis'
-import { analysisNarrativeData, formatPercentage } from './ui'
+import { AnalysisQuality, ScoreBadge, analysisNarrativeData, formatPercentage } from './ui'
 
 const analysis: JobAnalysis = {
   offerId: 'offer-1',
@@ -39,6 +41,21 @@ describe('analysisNarrativeData', () => {
 
   it('does not invent a narrative when an analysis is unavailable', () => {
     expect(analysisNarrativeData(null)).toBeNull()
+  })
+
+  it('deduplicates the same risk repeated with a technical prefix', () => {
+    const repeated = { ...analysis, risks: ['Brak bezpośredniego doświadczenia w moderacji social media'], missingInformation: ['Ryzyko: Brak bezpośredniego doświadczenia w moderacji social media'] }
+    expect(analysisNarrativeData(repeated)?.risks).toEqual(['Brak bezpośredniego doświadczenia w moderacji social media'])
+  })
+
+  it('never presents 100 at low coverage as a full high match', () => {
+    const limited = { ...analysis, overallScore: 100, recommendation: 'Wymaga sprawdzenia' as const, scoring: { ...analysis.scoring!, coverage: 35, reliability: 'limited' as const } }
+    const quality = renderToStaticMarkup(createElement(AnalysisQuality, { analysis: limited }))
+    const badge = renderToStaticMarkup(createElement(ScoreBadge, { score: 100, limited: true }))
+    expect(quality).toContain('Wynik częściowy: 100/100 przy 35% pokrycia')
+    expect(quality).toContain('Nie interpretuj jako pełnego dopasowania')
+    expect(quality).not.toContain('wysokie dopasowanie')
+    expect(badge).toContain('wynik częściowy')
   })
 })
 

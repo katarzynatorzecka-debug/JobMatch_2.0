@@ -26,9 +26,12 @@ describe('AI criterion output contract', () => {
     expect(isAnalysisOutput({ criteria: { ...criteria, skills: [{ ...criteria.skills[0], id: 'req:different-id', canonicalKey: criteria.experience[0].canonicalKey }] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
   })
 
-  it('rejects a MATCH without both evidence sides in the Edge completion guard', () => {
-    expect(edgeSource).toContain("criterion.outcome === 'MATCH' && (!criterion.profileEvidence.length || !criterion.offerEvidence.length)")
-    expect(edgeSource).toContain("OPENAI_EVIDENCE_MISSING")
+  it('separates a clear unsupported requirement from UNKNOWN and guards criterion evidence', () => {
+    expect(edgeSource).toContain('sam brak wzmianki w profilu nie jest UNKNOWN')
+    expect(edgeSource).toContain("criterion.outcome === 'MATCH' || criterion.outcome === 'PARTIAL'")
+    expect(edgeSource).toContain("OPENAI_OFFER_EVIDENCE_MISSING")
+    expect(edgeSource).toContain("OPENAI_PROFILE_EVIDENCE_MISSING")
+    expect(edgeSource).not.toContain('profileEvidenceCeiling')
   })
 
   it('keeps frontend, Edge and persisted freshness on the same deterministic algorithm version', () => {
