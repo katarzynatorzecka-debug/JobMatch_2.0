@@ -46,8 +46,8 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain("sourceQuality: 'partial'")
   })
 
-  it('keeps UNKNOWN in the Edge score denominator and never resolves duplicate criteria in favour of MATCH', () => {
-    expect(edgeSource).toContain(' / totalWeight) : 0')
+  it('keeps UNKNOWN outside the Edge score denominator and never resolves duplicate criteria in favour of MATCH', () => {
+    expect(edgeSource).toContain(' / scoredWeight) : 0')
     expect(edgeSource).not.toContain('const rank: Record<string, number>')
     expect(edgeSource).not.toContain('const preferred =')
   })

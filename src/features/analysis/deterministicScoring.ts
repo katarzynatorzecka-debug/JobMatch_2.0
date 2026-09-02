@@ -2,7 +2,7 @@ import type { AnalysisCategory, AnalysisCriteria, AnalysisCriterion, CriterionOu
 import type { ProfilePriority, UserProfile } from '../../contracts/profile'
 import { assertAtomicCriteria, deduplicateAtomicCriteria } from './atomicCriteria'
 
-export const DETERMINISTIC_SCORING_VERSION = 'jobmatch-deterministic-r7'
+export const DETERMINISTIC_SCORING_VERSION = 'jobmatch-deterministic-r8'
 const defaultPriorities: ProfilePriority[] = ['experience', 'skills', 'preferences', 'growth']
 export const scoringWeightsByRank = [35, 30, 20, 15] as const
 export const outcomePercent: Record<CriterionOutcome, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
@@ -41,9 +41,9 @@ export function calculateCriterionLevelScore(profile: Pick<UserProfile, 'priorit
   const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
   const weightedPoints = known.reduce((total, entry) => total + entry.weight * (outcomePercent[entry.criterion.outcome] ?? 0), 0)
   const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
-  // UNKNOWN has no positive or negative outcome value. Its fixed share of the
-  // rubric remains in the denominator, so missing evidence cannot inflate a score.
-  const overallScore = totalWeight ? Math.round(weightedPoints / totalWeight) : 0
+  // UNKNOWN is not a negative judgement. It stays visible in coverage and
+  // reliability, but does not alter the point score of known requirements.
+  const overallScore = scoredWeight ? Math.round(weightedPoints / scoredWeight) : 0
   const coverage = totalWeight ? Math.round((scoredWeight / totalWeight) * 100) : 0
   const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * Math.min(entry.criterion.confidence, candidateEvidenceConfidence ?? 100), 0) / scoredWeight) : null
@@ -55,7 +55,7 @@ export function calculateCriterionLevelScore(profile: Pick<UserProfile, 'priorit
     categoryScores: Object.fromEntries(defaultPriorities.map((category) => {
       const categoryEntries = categoryCriteria(category)
       const knownEntries = categoryEntries.filter((criterion) => criterion.outcome !== 'UNKNOWN')
-      const score = categoryEntries.length ? Math.round(knownEntries.reduce((total, criterion) => total + (outcomePercent[criterion.outcome] ?? 0), 0) / categoryEntries.length) : null
+      const score = knownEntries.length ? Math.round(knownEntries.reduce((total, criterion) => total + (outcomePercent[criterion.outcome] ?? 0), 0) / knownEntries.length) : null
       return [category, score]
     })) as Record<AnalysisCategory, number | null>,
     scoring: { algorithmVersion: DETERMINISTIC_SCORING_VERSION, weights, coverage, criterionConfidence, reliability, scoredCategories, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length },

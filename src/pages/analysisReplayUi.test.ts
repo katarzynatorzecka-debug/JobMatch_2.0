@@ -11,4 +11,13 @@ describe('analysis replay UI', () => {
     expect(offersSource).toContain("disabled={action === 'current' || action === 'in_progress'}")
     expect(detailsSource).toContain("disabled={replayAction === 'current' || replayAction === 'in_progress'}")
   })
+
+  it('keeps the offer list visible while an active analysis is refreshed in the background', () => {
+    expect(offersSource).toContain('const [initialLoading, setInitialLoading]')
+    expect(offersSource).toContain('const hasLoaded = useRef(false)')
+    expect(offersSource).toContain('const initial = !hasLoaded.current')
+    expect(offersSource).toContain("item.analysisState.queueItem?.status === 'queued' || item.analysisState.queueItem?.status === 'processing'")
+    expect(offersSource).toContain('if (initialLoading) return')
+    expect(offersSource).toContain('aria-busy={refreshing || undefined}')
+  })
 })

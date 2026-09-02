@@ -1,7 +1,7 @@
 import type { AnalysisFreshnessStatus, AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, OfferUserState, WorkspaceProfile } from '../../contracts/workspace'
 
-export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r7'
-export const CURRENT_ANALYSIS_PROMPT_VERSION = 'jobmatch-job-match-v3'
+export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r8'
+export const CURRENT_ANALYSIS_PROMPT_VERSION = 'jobmatch-job-match-v4'
 export const CURRENT_ANALYSIS_MODEL_VERSION = 'gpt-5.4-mini'
 
 function analysisHardFilterStatus(status: HardFilterResultRecord['status']) { return status === 'needs_review' ? 'weak' : status }

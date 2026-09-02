@@ -6,8 +6,8 @@ import { buildDeterministicOfferManifest, isAnalysisCriteriaManifest, outputMatc
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
-const promptVersion = 'jobmatch-job-match-v3'
-const algorithmVersion = 'jobmatch-deterministic-r7'
+const promptVersion = 'jobmatch-job-match-v4'
+const algorithmVersion = 'jobmatch-deterministic-r8'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -42,9 +42,9 @@ function deterministicScore(profile: Record<string, unknown>, rawCriteria: Recor
   const known = entries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
   const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
   const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
-  // UNKNOWN has no positive or negative outcome, but its fixed rubric weight
-  // stays in the denominator. This must remain identical to the frontend.
-  const score = totalWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / totalWeight) : 0
+  // UNKNOWN is visible through coverage and reliability, not treated as a
+  // negative assessment in the deterministic score.
+  const score = scoredWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / scoredWeight) : 0
   const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const evidenceCeiling = profileEvidenceCeiling(profile)
   const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * Math.min(entry.criterion.confidence, evidenceCeiling ?? 100), 0) / scoredWeight) : null
@@ -53,7 +53,7 @@ function deterministicScore(profile: Record<string, unknown>, rawCriteria: Recor
   const categoryScores = Object.fromEntries(categories.map((category) => {
     const categoryKnown = criteria[category] ?? []
     const known = categoryKnown.filter((criterion) => criterion.outcome !== 'UNKNOWN')
-    return [category, categoryKnown.length ? Math.round(known.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / categoryKnown.length) : null]
+    return [category, known.length ? Math.round(known.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / known.length) : null]
   }))
   return { score, weights, coverage, criterionConfidence, reliability, scoredCategories: categories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length, criteria }
 }

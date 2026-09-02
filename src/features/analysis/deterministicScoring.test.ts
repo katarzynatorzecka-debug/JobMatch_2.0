@@ -11,12 +11,12 @@ describe('deterministic scoring', () => {
     expect(result.overallScore).toBe(68)
   })
 
-  it('keeps UNKNOWN non-positive in a fixed denominator and reports the uncovered weight as coverage', () => {
+  it('keeps UNKNOWN outside score and reports the uncovered weight as coverage', () => {
     const result = calculateDeterministicScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { ...allMatch, growth: 'UNKNOWN' }, { experience: 80, skills: 80, preferences: 80 })
-    expect(result.overallScore).toBe(85)
+    expect(result.overallScore).toBe(100)
     expect(result.scoring.coverage).toBe(85)
     expect(result.scoring.reliability).toBe('standard')
-    expect(result.categoryScores.growth).toBe(0)
+    expect(result.categoryScores.growth).toBeNull()
   })
 
   it('changes weights when the profile priority order changes', () => {
@@ -36,10 +36,10 @@ describe('deterministic scoring', () => {
     expect(() => calculateDeterministicScore({ priorities: ['experience', 'experience', 'skills', 'growth'] }, allMatch)).toThrow('PROFILE_PRIORITIES_INVALID')
   })
 
-  it('calculates coverage from subcriteria and prevents a perfect score with unknown criteria', () => {
+  it('calculates coverage from subcriteria without penalizing known matches for unknown criteria', () => {
     let index = 0; const criterion = (outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN', confidence = 80) => ({ id: `req:${outcome.toLocaleLowerCase()}-${++index}`, requirement: outcome, outcome, rationale: outcome, profileEvidence: outcome === 'UNKNOWN' ? [] : ['profil'], offerEvidence: outcome === 'UNKNOWN' ? [] : ['oferta'], confidence })
     const result = calculateCriterionLevelScore({ priorities: ['preferences', 'growth', 'skills', 'experience'] }, { preferences: [criterion('MATCH')], growth: [criterion('UNKNOWN')], skills: [criterion('MATCH')], experience: [criterion('MATCH')] })
-    expect(result.overallScore).toBe(70)
+    expect(result.overallScore).toBe(100)
     expect(result.scoring.coverage).toBe(70)
     expect(result.scoring.reliability).toBe('limited')
     expect(result.scoring.unknownCriterionCount).toBe(1)
@@ -79,10 +79,10 @@ describe('deterministic scoring', () => {
       preferences: [criterion('MATCH'), criterion('MATCH'), criterion('PARTIAL'), criterion('NO_MATCH'), criterion('UNKNOWN'), criterion('UNKNOWN')],
       growth: [criterion('MATCH'), criterion('PARTIAL'), criterion('UNKNOWN'), criterion('UNKNOWN')],
     })
-    expect(result.overallScore).toBe(58)
+    expect(result.overallScore).toBe(77)
     expect(result.scoring.coverage).toBe(76)
-    expect(result.categoryScores).toEqual({ experience: 73, skills: 60, preferences: 43, growth: 40 })
+    expect(result.categoryScores).toEqual({ experience: 73, skills: 90, preferences: 65, growth: 80 })
     expect(result.scoring.reliability).toBe('standard')
-    expect(result.recommendation).toBe('Wymaga sprawdzenia')
+    expect(result.recommendation).toBe('Warto aplikować')
   })
 })

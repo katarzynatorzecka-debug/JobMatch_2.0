@@ -1,10 +1,8 @@
 const limit = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : ''
 const array = (value: unknown) => Array.isArray(value) ? value : []
-const terms = (value: string) => new Set(value.toLocaleLowerCase().split(/[^\p{L}\p{N}+#.]+/u).filter((word) => word.length >= 3))
-const relevant = (name: string, offerTerms: Set<string>) => terms(name).size === 0 || [...terms(name)].some((term) => offerTerms.has(term))
 
 /** Keeps candidate facts bounded and never promotes targets to experience. */
-export function buildAnalysisCandidateContext(profile: Record<string, unknown>, offerText: string) {
+export function buildAnalysisCandidateContext(profile: Record<string, unknown>, _offerText: string) {
   const intelligence = profile.intelligence as Record<string, unknown> | undefined
   if (!intelligence || intelligence.schemaVersion !== 2) return {
     schemaVersion: 1,
@@ -18,14 +16,16 @@ export function buildAnalysisCandidateContext(profile: Record<string, unknown>, 
   const facts = intelligence.candidateFacts as Record<string, unknown> ?? {}
   const targets = intelligence.careerTargets as Record<string, unknown> ?? {}
   const preferences = intelligence.workPreferences as Record<string, unknown> ?? {}
-  const offerTerms = terms(offerText)
-  const pick = (key: string, nameKey: string, max: number) => array(facts[key]).filter((entry) => entry && typeof entry === 'object' && relevant(limit((entry as Record<string, unknown>)[nameKey], 160), offerTerms)).slice(0, max).map((entry) => {
+  // Relevance cannot depend on literal token overlap: it silently removes
+  // transferable experience (for example service delivery vs coordination).
+  // Preserve a deterministic, bounded subset and let AI assess relevance.
+  const pick = (key: string, nameKey: string, max: number) => array(facts[key]).filter((entry) => entry && typeof entry === 'object' && limit((entry as Record<string, unknown>)[nameKey], 160)).slice(0, max).map((entry) => {
     const raw = entry as Record<string, unknown>
     const evidence = array(raw.evidence).map((item) => item && typeof item === 'object' ? limit((item as Record<string, unknown>).text, 180) : '').filter(Boolean).slice(0, 2)
     const evidenceItems = array(raw.evidence).filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
     return { name: limit(raw[nameKey], 160), evidenceLevel: limit(raw.evidenceLevel, 24) || null, recency: limit(raw.recency, 24) || null, evidence, source: limit(evidenceItems[0]?.source, 16) || null, userConfirmed: evidenceItems.some((item) => item.userConfirmed === true) }
   })
-  const experienceEntries = array(facts.experienceEntries).filter((entry) => entry && typeof entry === 'object' && relevant(limit((entry as Record<string, unknown>).role, 160), offerTerms)).slice(0, 6).map((entry) => {
+  const experienceEntries = array(facts.experienceEntries).filter((entry) => entry && typeof entry === 'object' && limit((entry as Record<string, unknown>).role, 160)).slice(0, 6).map((entry) => {
     const raw = entry as Record<string, unknown>
     const capabilities = array(raw.responsibilities).map((item) => item && typeof item === 'object' ? limit((item as Record<string, unknown>).capability, 160) : '').filter(Boolean).slice(0, 6)
     const domains = array(raw.domains).map((item) => item && typeof item === 'object' ? limit((item as Record<string, unknown>).name, 120) : '').filter(Boolean).slice(0, 4)

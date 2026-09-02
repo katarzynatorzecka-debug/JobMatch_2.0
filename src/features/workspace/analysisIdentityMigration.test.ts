@@ -6,6 +6,7 @@ import replayAlignment from '../../../supabase/migrations/202608310900_analysis_
 import contractSnapshot from '../../../supabase/migrations/202608310910_offer_analysis_contract_snapshot.sql?raw'
 import reuseVersionGuard from '../../../supabase/migrations/202609011345_analysis_reuse_version_guard.sql?raw'
 import contractIdentityR7 from '../../../supabase/migrations/20260901143852_analysis_contract_identity_r7.sql?raw'
+import scoringRecoveryR8 from '../../../supabase/migrations/202609021430_scoring_recovery_r8.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -72,5 +73,12 @@ describe('analysis identity migration', () => {
     expect(contractIdentityR7).toContain('v_contract_hash is not null')
     expect(contractIdentityR7).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
     expect(contractIdentityR7).not.toMatch(/\b(drop|truncate|delete)\b/i)
+  })
+
+  it('makes r8 analyses distinct without rewriting prior history or weakening the RPC boundary', () => {
+    expect(scoringRecoveryR8).toContain("'jobmatch-job-match-v4', 'gpt-5.4-mini', 'jobmatch-deterministic-r8:' || coalesce(v_contract_hash, 'pending')")
+    expect(scoringRecoveryR8).toContain("v.algorithm_version = 'jobmatch-deterministic-r8'")
+    expect(scoringRecoveryR8).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
+    expect(scoringRecoveryR8).not.toMatch(/\b(drop|truncate|delete|update public\.analysis_versions)\b/i)
   })
 })

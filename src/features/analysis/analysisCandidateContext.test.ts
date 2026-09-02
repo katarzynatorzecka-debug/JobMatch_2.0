@@ -18,4 +18,11 @@ describe('AnalysisCandidateContext', () => {
     expect(context.experienceEntries).toEqual([expect.objectContaining({ role: 'Automation Specialist', capabilities: ['Service delivery'] })])
     expect(JSON.stringify(context.experienceEntries)).not.toContain('Data Scientist')
   })
+
+  it('keeps bounded transferable facts even when they share no literal token with the offer', () => {
+    const profile = { intelligence: { schemaVersion: 2, candidateFacts: { professionalSummary: '', totalExperienceYears: 6, experienceEntries: [{ role: 'Service Delivery Manager', company: 'Example', duration: '2020-2026', responsibilities: [], domains: [], evidence: [{ text: 'Service delivery.', source: 'cv', userConfirmed: false }] }], experienceAreas: [], skills: [{ name: 'Stakeholder management', evidenceLevel: 'professional', evidence: [{ text: 'Stakeholder management.', source: 'cv', userConfirmed: false }] }], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] }, careerTargets: { primaryRoles: [], alternativeRoles: [], careerDirections: [] }, workPreferences: { locations: [], workModes: [], employmentTypes: [] }, constraints: {}, matchingPriorities: ['experience', 'skills', 'preferences', 'growth'] } }
+    const context = buildAnalysisCandidateContext(profile, 'Oferta koordynacji operacyjnej') as Record<string, unknown>
+    expect(context.experienceEntries).toEqual([expect.objectContaining({ role: 'Service Delivery Manager' })])
+    expect(context.skills).toEqual([expect.objectContaining({ name: 'Stakeholder management' })])
+  })
 })

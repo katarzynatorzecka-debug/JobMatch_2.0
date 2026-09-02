@@ -1,0 +1,26 @@
+# Local, private and non-production artifacts must never enter a Vercel source upload.
+.git/
+.env
+.env.*
+node_modules/
+dist/
+private-data/
+docs/
+scripts/
+coverage/
+.vscode/
+.idea/
+*.local
+*.log
+*.tsbuildinfo
+*.md
+*.zip
+Wideo — skrót .lnk
+
+# The frontend typecheck imports the shared Supabase contracts. Exclude only
+# database history, CLI state and non-frontend Edge Function entrypoints.
+/supabase/.temp/
+/supabase/migrations/
+/supabase/functions/analyze-job-match/
+/supabase/functions/fetch-offer-page/
+/supabase/functions/map-cv-profile/
