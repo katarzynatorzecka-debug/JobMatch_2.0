@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { isAnalysisOutput, jobAnalysisOutputJsonSchema } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
-import { buildDeterministicOfferManifest, isAnalysisCriteriaManifest, outputMatchesManifest, type AnalysisCriteriaManifest } from '../_shared/analysisCriteriaManifest.ts'
+import { buildDeterministicOfferManifest, canonicalSourceHashInput, isAnalysisCriteriaManifest, isManifestSufficientForAnalysis, outputMatchesManifest, type AnalysisCriteriaManifest } from '../_shared/analysisCriteriaManifest.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
@@ -69,7 +69,7 @@ async function loadPublicOfferSource(supabaseUrl: string, authorization: string,
     const requirements = Array.isArray(data.requirements) ? data.requirements.filter((item): item is string => typeof item === 'string') : []
     const responsibilities = Array.isArray(data.responsibilities) ? data.responsibilities.filter((item): item is string => typeof item === 'string') : []
     const benefits = Array.isArray(data.benefits) ? data.benefits.filter((item): item is string => typeof item === 'string') : []
-    const text = [description, requirements.length ? `Wymagania: ${requirements.join('; ')}` : '', responsibilities.length ? `Zakres obowiązków: ${responsibilities.join('; ')}` : '', benefits.length ? `Benefity: ${benefits.join('; ')}` : ''].filter(Boolean).join('\n').slice(0, 18_000)
+    const text = description.slice(0, 18_000)
     return { sourceQuality: data.sourceQuality === 'full' && text ? 'full' as const : 'partial' as const, text, requirements, responsibilities, benefits, missingInformation: Array.isArray(data.missingInformation) ? data.missingInformation.filter((item): item is string => typeof item === 'string') : [] }
   } catch { return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] } }
 }
@@ -91,7 +91,7 @@ async function sha256Text(value: string) {
 
 async function digest(value: unknown) { return await sha256Text(JSON.stringify(value)) }
 
-async function sourceHash(source: OfferSourceSnapshot) { return await digest(source) }
+async function sourceHash(source: OfferSourceSnapshot) { return await sha256Text(canonicalSourceHashInput(source)) }
 async function contractHash(source: OfferSourceSnapshot, manifest: AnalysisCriteriaManifest) {
   return await digest({ source, manifest, contractVersion: 'jobmatch-analysis-contract-r7' })
 }
@@ -105,18 +105,21 @@ async function queueAnalysisIdentity(queueItem: Record<string, unknown>, nextCon
 
 async function loadOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string) {
   const { data, error } = await worker.from('offer_versions').select('analysis_source_snapshot,analysis_source_hash,analysis_criteria_manifest,analysis_contract_hash').eq('id', offerVersionId).eq('user_id', userId).maybeSingle()
-  if (error || !data) return { error: true as const, source: null, manifest: null, contractHash: null }
+  if (error || !data) return { error: true as const, source: null, sourceHash: null, manifest: null, contractHash: null }
   return {
     error: false as const,
     source: isOfferSourceSnapshot(data.analysis_source_snapshot) ? { ...data.analysis_source_snapshot, requirements: data.analysis_source_snapshot.requirements ?? [], responsibilities: data.analysis_source_snapshot.responsibilities ?? [], benefits: data.analysis_source_snapshot.benefits ?? [] } : null,
+    sourceHash: typeof data.analysis_source_hash === 'string' ? data.analysis_source_hash : null,
     manifest: isAnalysisCriteriaManifest(data.analysis_criteria_manifest) ? data.analysis_criteria_manifest : null,
     contractHash: typeof data.analysis_contract_hash === 'string' ? data.analysis_contract_hash : null,
   }
 }
 
 async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, manifest: AnalysisCriteriaManifest) {
+  const nextSourceHash = await sourceHash(source)
+  if (manifest.sourceSnapshotHash !== nextSourceHash) return { ok: false, contractHash: '' }
   const nextContractHash = await contractHash(source, manifest)
-  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: await sourceHash(source), analysis_criteria_manifest: manifest, analysis_contract_hash: nextContractHash, analysis_contract_version: 'jobmatch-analysis-contract-r7' }
+  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: nextSourceHash, analysis_criteria_manifest: manifest, analysis_contract_hash: nextContractHash, analysis_contract_version: 'jobmatch-analysis-contract-r7' }
   const { error } = await worker.from('offer_versions').update(payload).eq('id', offerVersionId).eq('user_id', userId)
   return { ok: !error, contractHash: nextContractHash }
 }
@@ -167,14 +170,21 @@ Deno.serve(async (request) => {
   if (!validPriorities(profile.priorities)) return await failQueue('WORKSPACE_PROFILE_PRIORITIES_INVALID')
   const contract = await loadOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''))
   if (contract.error) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_UNAVAILABLE')
-  const fetchedSource = contract.source ? null : await loadPublicOfferSource(url, authorization, offer)
-  const source: OfferSourceSnapshot = contract.source ?? fetchedSource!
-  const manifest = contract.manifest ?? buildDeterministicOfferManifest(offer, source)
-  const persistedContract = contract.contractHash && contract.source && contract.manifest
+  let source: OfferSourceSnapshot = contract.source ?? await loadPublicOfferSource(url, authorization, offer)
+  let nextSourceHash = await sourceHash(source)
+  let manifest = contract.manifest?.sourceSnapshotHash === nextSourceHash ? contract.manifest : buildDeterministicOfferManifest(offer, source, nextSourceHash)
+  if (!isManifestSufficientForAnalysis(manifest) && contract.source) {
+    const refreshedSource = await loadPublicOfferSource(url, authorization, offer)
+    const refreshedHash = await sourceHash(refreshedSource)
+    const refreshedManifest = buildDeterministicOfferManifest(offer, refreshedSource, refreshedHash)
+    if (isManifestSufficientForAnalysis(refreshedManifest)) { source = refreshedSource; nextSourceHash = refreshedHash; manifest = refreshedManifest }
+  }
+  const persistedContract = contract.contractHash && contract.source && contract.sourceHash === nextSourceHash && contract.manifest?.sourceSnapshotHash === nextSourceHash
     ? { ok: true, contractHash: contract.contractHash }
     : await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, manifest)
   if (!persistedContract.ok) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
   if (!await alignQueueAnalysisIdentity(worker, queueItem, workerToken, persistedContract.contractHash)) return await failQueue('WORKSPACE_ANALYSIS_IDENTITY_SAVE_FAILED')
+  if (!isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
   const manifestInstruction = `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(manifest)}`
   const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. MATCH wymaga konkretnego dowodu z profilu i z oferty. Gdy dowodu brakuje, użyj UNKNOWN. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`

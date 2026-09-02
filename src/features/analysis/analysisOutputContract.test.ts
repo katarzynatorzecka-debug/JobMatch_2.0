@@ -42,8 +42,16 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain('Trwały snapshot publicznej treści oferty')
     expect(edgeSource).toContain('analysis_source_snapshot')
     expect(edgeSource).toContain('OPENAI_CRITERIA_MANIFEST_MISMATCH')
-    expect(edgeSource).toContain('buildDeterministicOfferManifest(offer, source)')
+    expect(edgeSource).toContain('buildDeterministicOfferManifest(offer, source, nextSourceHash)')
+    expect(edgeSource).toContain("WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT")
+    expect(edgeSource).toContain('canonicalSourceHashInput(source)')
     expect(edgeSource).toContain("sourceQuality: 'partial'")
+    expect(edgeSource.indexOf('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')).toBeLessThan(edgeSource.indexOf('https://api.openai.com/v1/responses'))
+  })
+
+  it('allows empty categories but never an entirely empty provider rubric', () => {
+    expect(isAnalysisOutput({ criteria: { ...criteria, growth: [] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(true)
+    expect(isAnalysisOutput({ criteria: { experience: [], skills: [], preferences: [], growth: [] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)
   })
 
   it('keeps UNKNOWN outside the Edge score denominator and never resolves duplicate criteria in favour of MATCH', () => {

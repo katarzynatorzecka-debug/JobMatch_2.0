@@ -19,7 +19,7 @@ export const jobAnalysisOutputJsonSchema = {
   type: 'object', additionalProperties: false,
   required: ['criteria', 'summary', 'strengths', 'risks', 'missingInformation'],
   properties: {
-    criteria: { type: 'object', additionalProperties: false, required: analysisCategories, properties: { experience: { type: 'array', minItems: 1, maxItems: 12, items: criterion }, skills: { type: 'array', minItems: 1, maxItems: 12, items: criterion }, preferences: { type: 'array', minItems: 1, maxItems: 12, items: criterion }, growth: { type: 'array', minItems: 1, maxItems: 12, items: criterion } } },
+    criteria: { type: 'object', additionalProperties: false, required: analysisCategories, properties: { experience: { type: 'array', maxItems: 32, items: criterion }, skills: { type: 'array', maxItems: 32, items: criterion }, preferences: { type: 'array', maxItems: 32, items: criterion }, growth: { type: 'array', maxItems: 32, items: criterion } } },
     summary: { type: 'string', minLength: 1, maxLength: 1000 },
     strengths: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
     risks: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
@@ -37,9 +37,9 @@ export function isAnalysisOutput(value: unknown): value is AnalysisOutput {
   const criteria = data.criteria as Record<string, unknown>
   const ids = new Set<string>()
   const canonicalKeys = new Set<string>()
-  return analysisCategories.every((name) => {
+  const valid = analysisCategories.every((name) => {
     const entry = criteria[name] as Record<string, unknown> | undefined
-    return Array.isArray(entry) && entry.length > 0 && entry.length <= 12 && entry.every((item) => {
+    return Array.isArray(entry) && entry.length <= 32 && entry.every((item) => {
       const value = item as Record<string, unknown>
       if (!value || typeof value.id !== 'string' || !/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(value.id) || typeof value.canonicalKey !== 'string' || !/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(value.canonicalKey) || ids.has(value.id) || canonicalKeys.has(value.canonicalKey)) return false
       ids.add(value.id)
@@ -47,4 +47,5 @@ export function isAnalysisOutput(value: unknown): value is AnalysisOutput {
       return typeof value.requirement === 'string' && value.requirement.trim().length > 0 && ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].includes(String(value.outcome)) && typeof value.rationale === 'string' && value.rationale.trim().length > 0 && Array.isArray(value.profileEvidence) && value.profileEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Array.isArray(value.offerEvidence) && value.offerEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Number.isInteger(value.confidence) && Number(value.confidence) >= 0 && Number(value.confidence) <= 100
     })
   })
+  return valid && ids.size > 0
 }

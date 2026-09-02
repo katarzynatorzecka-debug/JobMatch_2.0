@@ -25,4 +25,29 @@ describe('normalizeOfferPage', () => {
     expect(result.requirements).toEqual([])
     expect(result.missingInformation).toContain('wymagania')
   })
+
+  it('recognizes current RocketJobs English sections and stops at the next heading', () => {
+    const modern = `<main><h1>Systems Specialist</h1><p>Operational technology role in an international team with a sufficiently detailed public description.</p><h2>What you will do:</h2><ul><li>Build automated workflows</li><li>Maintain leadership dashboards</li></ul><h2>We look forward to working together if:</h2><ul><li>You have 3-5 years of experience in IT operations</li><li>You are fluent in English</li></ul><h2>Even better if:</h2><ul><li>You have experience with agentic AI</li></ul><h2>What we offer:</h2><ul><li>Private healthcare</li></ul><h2>About us:</h2><p>Company description must not leak into benefits.</p></main>`
+    const result = normalizeOfferPage('offer-2', sourceUrl, modern)
+    expect(result.sourceQuality).toBe('full')
+    expect(result.responsibilities).toEqual(['Build automated workflows', 'Maintain leadership dashboards'])
+    expect(result.requirements).toEqual(['You have 3-5 years of experience in IT operations', 'You are fluent in English', 'Mile widziane: You have experience with agentic AI'])
+    expect(result.benefits).toEqual(['Private healthcare'])
+    expect(result.benefits.join(' ')).not.toContain('Company description')
+  })
+
+  it('uses explicit statements from text when the page has no recognized section headings', () => {
+    const result = normalizeOfferPage('offer-3', sourceUrl, '<main><p>Detailed role description for a distributed team. You have at least 4 years of experience in service delivery. You are fluent in English.</p></main>')
+    expect(result.requirements).toEqual(['You have at least 4 years of experience in service delivery.', 'You are fluent in English.'])
+    expect(result.responsibilities).toEqual([])
+    expect(result.sourceQuality).toBe('partial')
+  })
+
+  it('treats visual text headings as section boundaries instead of mixing benefits into responsibilities', () => {
+    const visual = `<main><h1>Marketing Manager</h1><p>⭐ About Example</p><p>Company description.</p><p>⭐ What You'll Do</p><p>Build acquisition campaigns</p><p>Measure incrementality</p><p>⭐ What We're Looking For</p><p>Must-haves</p><p>5 years of performance marketing experience</p><p>Nice-to-haves</p><p>Experience with LinkedIn Ads</p><p>⭐ What Makes Us a Great Place to Work</p><p>Private healthcare</p><h2>About us</h2><p>Footer copy.</p></main>`
+    const result = normalizeOfferPage('offer-4', sourceUrl, visual)
+    expect(result.responsibilities).toEqual(['Build acquisition campaigns', 'Measure incrementality'])
+    expect(result.requirements).toEqual(['5 years of performance marketing experience', 'Mile widziane: Experience with LinkedIn Ads'])
+    expect(result.benefits).toEqual(['Private healthcare'])
+  })
 })
