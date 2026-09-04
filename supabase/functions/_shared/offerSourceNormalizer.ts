@@ -1,4 +1,4 @@
-type SourceSection = 'requirements' | 'responsibilities' | 'benefits' | 'ignore'
+type SourceSection = 'description' | 'requirements' | 'responsibilities' | 'benefits' | 'ignore'
 
 type SectionHeading = { section: SourceSection; prefix?: string }
 
@@ -53,6 +53,10 @@ const headingMap = new Map<string, SectionHeading>([
   ['qualifications', { section: 'requirements' }],
   ['required skills', { section: 'requirements' }],
   ['must haves', { section: 'requirements' }],
+  ['czego szukamy', { section: 'requirements' }],
+  ['kogo szukamy', { section: 'requirements' }],
+  ['nasze oczekiwania', { section: 'requirements' }],
+  ['my liczymy na', { section: 'requirements' }],
   ['mile widziane', { section: 'requirements', prefix: 'Mile widziane: ' }],
   ['nice to have', { section: 'requirements', prefix: 'Mile widziane: ' }],
   ['nice to haves', { section: 'requirements', prefix: 'Mile widziane: ' }],
@@ -63,10 +67,14 @@ const headingMap = new Map<string, SectionHeading>([
   ['what you will do', { section: 'responsibilities' }],
   ['what youll do', { section: 'responsibilities' }],
   ['what you will be doing', { section: 'responsibilities' }],
+  ['co bedziesz robic', { section: 'responsibilities' }],
   ['your responsibilities', { section: 'responsibilities' }],
   ['responsibilities', { section: 'responsibilities' }],
   ['your role', { section: 'responsibilities' }],
-  ['opis stanowiska', { section: 'ignore' }],
+  ['czym bedziesz sie zajmowac', { section: 'responsibilities' }],
+  ['pracujac na tym stanowisku bedziesz zajmowac sie przede wszystkim', { section: 'responsibilities' }],
+  ['czego wymagamy', { section: 'requirements' }],
+  ['opis stanowiska', { section: 'description' }],
   ['job description', { section: 'responsibilities' }],
   ['about the role', { section: 'responsibilities' }],
   ['benefity', { section: 'benefits' }],
@@ -76,6 +84,10 @@ const headingMap = new Map<string, SectionHeading>([
   ['what we offer', { section: 'benefits' }],
   ['what makes us a great place to work', { section: 'benefits' }],
   ['why join us', { section: 'benefits' }],
+  ['mozesz liczyc na', { section: 'benefits' }],
+  ['co zyskujesz', { section: 'benefits' }],
+  ['dlaczego warto', { section: 'benefits' }],
+  ['nasza oferta', { section: 'benefits' }],
   ['you will', { section: 'responsibilities' }],
   ['we need you', { section: 'requirements' }],
   ['we offer', { section: 'benefits' }],
@@ -170,7 +182,9 @@ export function normalizeOfferPage(offerId: string, sourceUrl: string, html: str
   const sectionRequirements = valuesFor(lines, 'requirements')
   const languageRequirements = lines.filter((line) => /^(?:language|język)\s*:/i.test(withoutHeadingMarker(line)))
   const requirements = unique([...sectionRequirements, ...languageRequirements, ...extractExplicitRequirementLines(unsectionedLines(lines).join('\n'))])
-  const responsibilities = valuesFor(lines, 'responsibilities')
+  const explicitResponsibilities = valuesFor(lines, 'responsibilities')
+  const roleDescription = valuesFor(lines, 'description')
+  const responsibilities = explicitResponsibilities.length > 0 ? explicitResponsibilities : unique(roleDescription)
   const benefits = valuesFor(lines, 'benefits')
   const sourceQuality = description.length > 260 && requirements.length > 0 && responsibilities.length > 0 ? 'full' : 'partial'
   const missingInformation = [requirements.length ? null : 'wymagania', responsibilities.length ? null : 'zakres obowiązków', benefits.length ? null : 'benefity'].filter((value): value is string => Boolean(value))

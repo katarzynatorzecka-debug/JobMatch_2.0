@@ -45,6 +45,33 @@ describe('normalizeOfferPage', () => {
     expect(result.benefits).toEqual(['Flexible timelines'])
   })
 
+  it('recognizes strong paragraph labels used by CodeTwo offer pages', () => {
+    const codeTwo = `<main><h1>Business Processes Specialist</h1><p>Detailed business process role description for an international software company with a full public offer.</p><p><strong>Pracując na tym stanowisku będziesz zajmować się przede wszystkim:</strong></p><ul><li>Optymalizacją procesów biznesowych</li><li>Tworzeniem dokumentacji procesowej</li></ul><p><strong>Czego wymagamy?</strong></p><ul><li>Rocznego doświadczenia na podobnym stanowisku</li><li>Znajomości narzędzi do pracy nad procesami biznesowymi</li></ul><p><strong>Co oferujemy?</strong></p><ul><li>Pracę zdalną</li></ul></main>`
+    const result = normalizeOfferPage('offer-codetwo', sourceUrl, codeTwo)
+    expect(result.sourceQuality).toBe('full')
+    expect(result.responsibilities).toEqual(['Optymalizacją procesów biznesowych', 'Tworzeniem dokumentacji procesowej'])
+    expect(result.requirements).toEqual(['Rocznego doświadczenia na podobnym stanowisku', 'Znajomości narzędzi do pracy nad procesami biznesowymi'])
+    expect(result.benefits).toEqual(['Pracę zdalną'])
+  })
+
+  it('recognizes the Czym bedziesz sie zajmowac heading used by Vercom offer pages', () => {
+    const vercom = `<main><h1>AI &amp; Cybersecurity Compliance Specialist</h1><p>Detailed compliance role description for an international technology company with a full public offer.</p><p><strong>Czym będziesz się zajmować:</strong></p><ul><li>Analizą regulacji i standardów</li><li>Tworzeniem dokumentacji compliance</li></ul><p><strong>Czego oczekujemy:</strong></p><ul><li>Doświadczeniem w compliance</li></ul><p><strong>Co oferujemy:</strong></p><ul><li>Elastyczny model pracy</li></ul></main>`
+    const result = normalizeOfferPage('offer-vercom', sourceUrl, vercom)
+    expect(result.sourceQuality).toBe('full')
+    expect(result.responsibilities).toEqual(['Analizą regulacji i standardów', 'Tworzeniem dokumentacji compliance'])
+    expect(result.requirements).toEqual(['Doświadczeniem w compliance'])
+    expect(result.benefits).toEqual(['Elastyczny model pracy'])
+  })
+
+  it('classifies semantic RocketJobs headings and uses a rich role description as a responsibility fallback', () => {
+    const semantic = `<main><h1>AI Prototype Builder</h1><h3>Opis stanowiska</h3><p>Tworzenie klikalnych prototypów i mikroaplikacji z użyciem narzędzi GenAI dla zespołów marketingowych.</p><p><strong>Możesz liczyć na:</strong></p><ul><li>Pracę w innowacyjnej agencji</li><li>Budżet na rozwój</li></ul><p><strong>My liczymy na:</strong></p><ul><li>Samodzielność i dopinanie detali</li><li>Zaawansowane wykorzystanie AI</li></ul></main>`
+    const result = normalizeOfferPage('offer-semantic', sourceUrl, semantic)
+    expect(result.sourceQuality).toBe('full')
+    expect(result.responsibilities.join(' ')).toContain('Tworzenie klikalnych prototypów')
+    expect(result.requirements).toEqual(['Samodzielność i dopinanie detali', 'Zaawansowane wykorzystanie AI'])
+    expect(result.benefits).toEqual(['Pracę w innowacyjnej agencji', 'Budżet na rozwój'])
+  })
+
   it('uses explicit statements from text when the page has no recognized section headings', () => {
     const result = normalizeOfferPage('offer-3', sourceUrl, '<main><p>Detailed role description for a distributed team. You have at least 4 years of experience in service delivery. You are fluent in English.</p></main>')
     expect(result.requirements).toEqual(['You have at least 4 years of experience in service delivery.', 'You are fluent in English.'])
