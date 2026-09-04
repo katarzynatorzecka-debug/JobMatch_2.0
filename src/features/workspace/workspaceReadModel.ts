@@ -19,6 +19,21 @@ function latestActiveImportSessionAt(offerId: string, snapshot: WorkspaceSnapsho
 function analysisFor(offerId: string, analyses: JobAnalysis[]) { return analyses.find((analysis) => analysis.offerId === offerId) ?? null }
 type VersionedAnalysisProjection = { latestVersion: AnalysisVersion | null; analysis: JobAnalysis | null; errorCode: string | null }
 
+function latestFailedQueueAttempt(offerId: string, snapshot: WorkspaceSnapshot) {
+  return snapshot.analysisQueue
+    .filter((item) => item.jobOfferId === offerId && Boolean(item.lastError) && (item.status === 'queued' || item.status === 'failed'))
+    .sort((left, right) => right.queuedAt.localeCompare(left.queuedAt))[0]
+}
+
+function failedReanalysisSupersedesAnalysis(offerId: string, latestVersion: AnalysisVersion | null, snapshot: WorkspaceSnapshot) {
+  const failedAttempt = latestFailedQueueAttempt(offerId, snapshot)
+  if (!failedAttempt) return false
+  if (!latestVersion) return true
+  const queuedAt = Date.parse(failedAttempt.queuedAt)
+  const latestCreatedAt = Date.parse(latestVersion.createdAt)
+  return failedAttempt.status === 'queued' || !Number.isFinite(queuedAt) || !Number.isFinite(latestCreatedAt) || queuedAt > latestCreatedAt
+}
+
 function latestVersionFor(offerId: string, snapshot: WorkspaceSnapshot): VersionedAnalysisProjection {
   const analyses = snapshot.workspaceAnalyses.filter((item) => item.jobOfferId === offerId)
   if (analyses.length > 1) return { latestVersion: null, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_IDENTITY_CONFLICT' }
@@ -42,8 +57,10 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
   const { latestVersion } = versionedAnalysis
   const legacyAnalysis = analysisFor(offer.id, snapshot.analyses)
   const legacyIssue = snapshot.legacyAnalysisIssues.find((issue) => issue.jobOfferId === offer.id) ?? null
-  const analysis = latestVersion || versionedAnalysis.errorCode || legacyIssue ? versionedAnalysis.analysis : legacyAnalysis
   const queueItem = activeQueueForOffer(snapshot.analysisQueue, offer.id)
+  const failedReanalysis = failedReanalysisSupersedesAnalysis(offer.id, latestVersion, snapshot)
+  const analysis = failedReanalysis ? null : latestVersion || versionedAnalysis.errorCode || legacyIssue ? versionedAnalysis.analysis : legacyAnalysis
+  const queueError = queueItem?.lastError ?? (failedReanalysis ? latestFailedQueueAttempt(offer.id, snapshot)?.lastError ?? null : null)
   const storedState = snapshot.offerUserStates.find((state) => state.jobOfferId === offer.id) ?? null
   const userState = storedState ? {
     ...storedState,
@@ -51,7 +68,7 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
         current: storedState,
         hardFilter,
         queueItem,
-        hasCurrentAnalysis: Boolean(versionedAnalysis.analysis ?? legacyAnalysis),
+        hasCurrentAnalysis: Boolean(analysis),
       possibleDuplicate: links.some((link) => link.needsReview || link.matchType === 'possible_duplicate'),
     }),
   } : null
@@ -66,7 +83,7 @@ export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: Worksp
       latestVersion,
       freshness: analysisFreshness({ latestVersion, profile: snapshot.profile, offerVersionId: offer.currentVersionId, hardFilter }),
       lastAnalysisAt: latestVersion?.createdAt ?? legacyAnalysis?.createdAt ?? null,
-      errorCode: versionedAnalysis.errorCode ?? legacyIssue?.code ?? queueItem?.lastError ?? snapshot.analysisQueue.find((item) => item.jobOfferId === offer.id && item.status === 'failed')?.lastError ?? null,
+      errorCode: versionedAnalysis.errorCode ?? legacyIssue?.code ?? queueError,
       isLegacyFallback: Boolean(!latestVersion && !versionedAnalysis.errorCode && !legacyIssue && legacyAnalysis),
     },
     activeImportCount: importSessionIds.filter((id) => active.has(id)).length,

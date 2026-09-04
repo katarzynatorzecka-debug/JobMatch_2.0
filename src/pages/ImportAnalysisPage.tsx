@@ -50,7 +50,7 @@ export function ImportAnalysisPage() {
       if (cancelled || freshBatchStartedRef.current) return
       const restored = restoreActiveWorkspaceImport(snapshot)
       if (!restored) return
-      setBatch(restored.batch); setPipeline(restored.pipeline); setProgress(restored.progress); setCounts(restored.counts)
+      setBatch(restored.batch); setPipeline(restored.pipeline); setProgress(restored.progress); setCounts(restored.counts); setPipelineError(restored.pipeline === 'partial_complete' ? 'Część ofert wymaga ponowienia analizy.' : '')
     }).catch(() => { if (!cancelled) setPipelineError('Nie udało się odtworzyć zapisanego wyniku analizy.') }).finally(() => { if (!cancelled) setRestoredWorkspaceBatch(true); setRestoringWorkspace(false) })
     return () => { cancelled = true }
   }, [batch.entries.length, mode, pipeline, restoredWorkspaceBatch, session])
@@ -132,7 +132,10 @@ export function ImportAnalysisPage() {
     setPipeline('running'); setPipelineError('')
     try {
       setCounts((current) => ({ ...current, failed: Math.max(0, current.failed - 1), queued: current.queued + 1 }))
-      await retryIntegratedOffer({ repository: workspaceRepositoryFor(mode, session?.user), mode, profile, offerId: item.workspaceOfferId, offer: item.offer, hardFilterStatus: item.hardFilterStatus ?? 'pass', allowHardFilterFail: force, onProgress: (next) => {
+      const repository = workspaceRepositoryFor(mode, session?.user)
+      const details = await repository.loadOfferDetails(item.workspaceOfferId)
+      if (details.analysisState.queueItem?.status === 'queued' && details.analysisState.queueItem.lastError) await repository.cancelQueuedAnalysis(details.analysisState.queueItem.id)
+      await retryIntegratedOffer({ repository, mode, profile, offerId: item.workspaceOfferId, offer: item.offer, hardFilterStatus: item.hardFilterStatus ?? 'pass', allowHardFilterFail: force, onProgress: (next) => {
         setProgress((current) => Object.fromEntries(Object.entries(current).map(([entryKey, entry]) => entry.workspaceOfferId === item.workspaceOfferId || entryKey === item.key ? [entryKey, { ...next, key: entryKey }] : [entryKey, entry])))
         if (next.state === 'processing') setCounts((current) => ({ ...current, queued: Math.max(0, current.queued - 1), processing: current.processing + 1 }))
         if (next.state === 'completed') setCounts((current) => ({ ...current, processing: Math.max(0, current.processing - 1), completed: current.completed + 1 }))

@@ -103,6 +103,34 @@ describe('workspace read model', () => {
     expect(item.analysisState.queueItem).toBeNull()
     expect(item.analysisState.errorCode).toBe('PROVIDER_TIMEOUT')
   })
+
+  it('does not present a previous version as current after a newer reanalysis fails', () => {
+    const previousCreatedAt = '2026-09-02T12:51:33.581Z'
+    const previous = { offerId: 'offer-1', overallScore: 95, categoryScores: { experience: { score: 80, rationale: 'ok' }, skills: { score: 100, rationale: 'ok' }, preferences: { score: 100, rationale: 'ok' }, growth: { score: 0, rationale: 'Brak danych' } }, recommendation: 'Wymaga sprawdzenia', summary: 'stary wynik', strengths: [], risks: [], missingInformation: [], hardFilterStatus: 'pass', hardFilterReasons: [], sourceQuality: 'full', modelInfo: { provider: 'openai', model: 'test', provisional: true }, createdAt: previousCreatedAt, status: 'ready', scoring: { algorithmVersion: 'jobmatch-deterministic-r8', weights: { employerFit: 80, userCompatibility: 20 }, coverage: 63, criterionConfidence: 77, reliability: 'limited', scoredCategories: ['experience', 'skills', 'preferences'] } } as never
+    const item = projectWorkspaceOffer(snapshot({
+      profile: { currentVersionId: 'profile-1' } as never,
+      workspaceAnalyses: [{ jobOfferId: 'offer-1', latestVersionId: 'analysis-version-1' } as never],
+      analysisVersions: [{ id: 'analysis-version-1', jobOfferId: 'offer-1', offerVersionId: 'offer-version-1', profileVersionId: 'profile-1', analysisData: previous, createdAt: previousCreatedAt, algorithmVersion: 'jobmatch-deterministic-r8' } as never],
+      analysisQueue: [{ jobOfferId: 'offer-1', status: 'queued', lastError: 'OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH', queuedAt: '2026-09-04T13:59:25.999Z' } as never],
+    }), offer)
+
+    expect(item.analysis).toBeNull()
+    expect(item.analysisState.errorCode).toBe('OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH')
+    expect(item.userState?.lifecycleStatus).toBe('selected_for_analysis')
+  })
+
+  it('does not carry an old queue error over a newer successful analysis', () => {
+    const currentCreatedAt = '2026-09-04T14:52:17.139Z'
+    const current = { offerId: 'offer-1', overallScore: 28, categoryScores: { experience: { score: 0, rationale: 'ok' }, skills: { score: 10, rationale: 'ok' }, preferences: { score: 60, rationale: 'ok' }, growth: { score: null, rationale: 'Brak danych' } }, recommendation: 'Nie rekomenduję', summary: 'nowy wynik', strengths: [], risks: [], missingInformation: [], hardFilterStatus: 'pass', hardFilterReasons: [], sourceQuality: 'full', modelInfo: { provider: 'openai', model: 'gpt-5.4-mini', provisional: true }, createdAt: currentCreatedAt, status: 'ready', scoring: { algorithmVersion: 'jobmatch-deterministic-r10-critical-priority', weights: { employerFit: 80, userCompatibility: 20 }, coverage: 100, criterionConfidence: 92, reliability: 'standard', scoredCategories: ['experience', 'skills', 'preferences'] } } as never
+    const item = projectWorkspaceOffer(snapshot({
+      workspaceAnalyses: [{ jobOfferId: 'offer-1', latestVersionId: 'analysis-version-2' } as never],
+      analysisVersions: [{ id: 'analysis-version-2', jobOfferId: 'offer-1', analysisData: current, createdAt: currentCreatedAt, algorithmVersion: 'jobmatch-deterministic-r10-critical-priority' } as never],
+      analysisQueue: [{ jobOfferId: 'offer-1', status: 'failed', lastError: 'OLD_PROVIDER_ERROR', queuedAt: '2026-09-02T12:51:15.896Z' } as never],
+    }), offer)
+
+    expect(item.analysis?.overallScore).toBe(28)
+    expect(item.analysisState.errorCode).toBeNull()
+  })
 })
 
 describe('historical canonical projection', () => {

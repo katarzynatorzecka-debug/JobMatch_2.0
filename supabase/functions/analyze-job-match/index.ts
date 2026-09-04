@@ -3,8 +3,8 @@ import { isAnalysisOutput } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
 import { canonicalSourceHashInput, isManifestSufficientForAnalysis, manifestFromOfferIntelligenceRubric, outputMatchesManifest } from '../_shared/analysisCriteriaManifest.ts'
-import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchema, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
-import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchema, candidateAssessmentToAnalysisOutput, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
+import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchemaForSource, offerIntelligenceProviderValidationDiagnostic, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
+import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchemaForRubric, candidateAssessmentToAnalysisOutput, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
 import { scoreScoringCriteria, SCORING_ALGORITHM_VERSION, type ScoringCriteria } from '../_shared/scoringCalibration.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
@@ -135,7 +135,8 @@ Deno.serve(async (request) => {
   if (!validPriorities(profile.priorities)) return await failQueue('WORKSPACE_PROFILE_PRIORITIES_INVALID')
   const contract = await loadOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''))
   if (contract.error) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_UNAVAILABLE')
-  let source: OfferSourceSnapshot = contract.source ?? await loadPublicOfferSource(url, authorization, offer)
+  const refreshStoredSource = shouldRefreshOfferSourceSnapshot({ hasStoredSource: Boolean(contract.source), storedContractVersion: contract.contractVersion, activeContractVersion: analysisContractVersion })
+  let source: OfferSourceSnapshot = refreshStoredSource ? await loadPublicOfferSource(url, authorization, offer) : contract.source ?? await loadPublicOfferSource(url, authorization, offer)
   let nextSourceHash = await sourceHash(source)
   let rubric: OfferIntelligenceRubric | null = contract.contractVersion === analysisContractVersion && contract.rubric?.sourceSnapshotHash === nextSourceHash ? contract.rubric : null
   if (!rubric && source.sourceQuality !== 'full' && contract.source) {
@@ -146,12 +147,21 @@ Deno.serve(async (request) => {
   if (!rubric) {
     if (source.sourceQuality !== 'full' || !source.text) return await failQueue('WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
     let intelligenceResponse: Response
-    try { intelligenceResponse = await requestOpenAi(apiKey, buildOfferIntelligencePrompt(source, nextSourceHash), offerIntelligenceJsonSchema as unknown as Record<string, unknown>, `${queueItemId}:offer-intelligence`) } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_NETWORK_ERROR') }
-    if (!intelligenceResponse.ok) { console.info(JSON.stringify({ diagnostic: 'OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR', providerStatus: intelligenceResponse.status })); return await failQueue('OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR') }
+    try { intelligenceResponse = await requestOpenAi(apiKey, buildOfferIntelligencePrompt(source, nextSourceHash), offerIntelligenceJsonSchemaForSource(source), `${queueItemId}:offer-intelligence`) } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_NETWORK_ERROR') }
+    if (!intelligenceResponse.ok) {
+      const errorBody = await intelligenceResponse.clone().json().catch(() => null) as { error?: { code?: unknown; param?: unknown } } | null
+      console.info(JSON.stringify({ diagnostic: 'OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR', providerStatus: intelligenceResponse.status, providerErrorCode: typeof errorBody?.error?.code === 'string' ? errorBody.error.code : null, providerErrorParam: typeof errorBody?.error?.param === 'string' ? errorBody.error.param : null }))
+      return await failQueue('OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR')
+    }
     let intelligencePayload: unknown
     try { intelligencePayload = await intelligenceResponse.json() } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH') }
     const parsedIntelligence = readOpenAiStructuredOutput(intelligencePayload)
-    if (!parsedIntelligence.ok || !isOfferIntelligenceProviderOutput(parsedIntelligence.value, source)) return await failQueue('OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH')
+    if (!parsedIntelligence.ok) return await failQueue(`OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH:${parsedIntelligence.code}`)
+    if (!isOfferIntelligenceProviderOutput(parsedIntelligence.value, source)) {
+      const reason = offerIntelligenceProviderValidationDiagnostic(parsedIntelligence.value, source)
+      console.info(JSON.stringify({ diagnostic: 'OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH', reason }))
+      return await failQueue(`OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH:${reason}`)
+    }
     rubric = buildOfferIntelligenceRubric(source, nextSourceHash, parsedIntelligence.value)
     if (!rubric) return await failQueue('OPENAI_OFFER_INTELLIGENCE_CONTRACT_INVALID')
   }
@@ -169,9 +179,13 @@ Deno.serve(async (request) => {
   try {
     openAiResponse = existingProviderResponseId
       ? await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(existingProviderResponseId)}`, { headers: { Authorization: `Bearer ${apiKey}` } })
-      : await requestOpenAi(apiKey, prompt, candidateAssessmentJsonSchema as unknown as Record<string, unknown>, queueItemId)
+      : await requestOpenAi(apiKey, prompt, candidateAssessmentJsonSchemaForRubric(rubric), queueItemId)
   } catch { return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_NETWORK_ERROR') }
-  if (!openAiResponse.ok) { console.info(JSON.stringify({ diagnostic: 'OPENAI_HTTP_ERROR', providerStatus: openAiResponse.status })); return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_HTTP_ERROR') }
+  if (!openAiResponse.ok) {
+    const errorBody = await openAiResponse.clone().json().catch(() => null) as { error?: { code?: unknown; param?: unknown } } | null
+    console.info(JSON.stringify({ diagnostic: 'OPENAI_HTTP_ERROR', providerStatus: openAiResponse.status, providerErrorCode: typeof errorBody?.error?.code === 'string' ? errorBody.error.code : null, providerErrorParam: typeof errorBody?.error?.param === 'string' ? errorBody.error.param : null }))
+    return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_HTTP_ERROR')
+  }
   let payload: unknown
   try { payload = await openAiResponse.json() } catch { return await failQueue('OPENAI_SCHEMA_MISMATCH') }
   const providerResponseId = typeof (payload as Record<string, unknown> | null)?.id === 'string' ? (payload as Record<string, unknown>).id as string : existingProviderResponseId

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCandidateAssessmentPrompt, candidateAssessmentToAnalysisOutput, candidateAssessmentJsonSchema, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput, type CandidateAssessmentOutput } from './candidateAssessment'
+import { buildCandidateAssessmentPrompt, candidateAssessmentToAnalysisOutput, candidateAssessmentJsonSchema, candidateAssessmentJsonSchemaForRubric, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput, type CandidateAssessmentOutput } from './candidateAssessment'
 import type { OfferIntelligenceRubric } from './offerIntelligence'
 
 const rubric: OfferIntelligenceRubric = {
@@ -58,5 +58,20 @@ describe('candidate assessment contract', () => {
     expect(prompt).toContain('Nie twórz żadnych dodatkowych kryteriów')
     expect(prompt).toContain('Jasne wymaganie bez dowodu w profilu oznacza NO_MATCH')
     expect(candidateAssessmentJsonSchema.properties.criteria).toBeDefined()
+  })
+
+  it('binds the provider schema to the exact rubric count for every category', () => {
+    const schema = candidateAssessmentJsonSchemaForRubric(rubric) as { properties: { criteria: { properties: Record<string, { minItems?: number; maxItems?: number }> } } }
+    expect(schema.properties.criteria.properties.experience).toMatchObject({ minItems: 1, maxItems: 1 })
+    expect(schema.properties.criteria.properties.skills).toMatchObject({ minItems: 1, maxItems: 1 })
+    expect(schema.properties.criteria.properties.preferences).toMatchObject({ minItems: 1, maxItems: 1 })
+    expect(schema.properties.criteria.properties.growth).toMatchObject({ minItems: 0, maxItems: 0 })
+  })
+
+  it('binds immutable criterion values to the rubric in the provider schema', () => {
+    const schema = candidateAssessmentJsonSchemaForRubric(rubric) as { properties: { criteria: { properties: Record<string, { items?: { properties?: Record<string, { enum?: string[] }> } }> } } }
+    expect(schema.properties.criteria.properties.skills.items?.properties?.id).toMatchObject({ enum: ['req:arabic-language'] })
+    expect(schema.properties.criteria.properties.skills.items?.properties?.canonicalKey).toMatchObject({ enum: ['req:arabic-language'] })
+    expect(schema.properties.criteria.properties.skills.items?.properties?.requirement).toMatchObject({ enum: ['Znajomość języka arabskiego'] })
   })
 })

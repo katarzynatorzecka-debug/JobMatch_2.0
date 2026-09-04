@@ -8,6 +8,7 @@ import reuseVersionGuard from '../../../supabase/migrations/202609011345_analysi
 import contractIdentityR7 from '../../../supabase/migrations/20260901143852_analysis_contract_identity_r7.sql?raw'
 import scoringRecoveryR8 from '../../../supabase/migrations/202609021430_scoring_recovery_r8.sql?raw'
 import scoringRecoveryR9 from '../../../supabase/migrations/20260902213911_scoring_recovery_r9_version_transition.sql?raw'
+import retryFailedQueue from '../../../supabase/migrations/20260904170000_retry_failed_analysis_queue.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -92,5 +93,11 @@ describe('analysis identity migration', () => {
     expect(scoringRecoveryR9).toContain('o.user_id = actor_id')
     expect(scoringRecoveryR9).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
     expect(scoringRecoveryR9).not.toMatch(/\b(drop|truncate|delete|update public\.analysis_versions|update public\.job_offers|update public\.profiles)\b/i)
+  })
+
+  it('does not let a queued failed attempt block a fresh provider request', () => {
+    expect(retryFailedQueue).toContain("q.status = 'processing' or (q.status = 'queued' and q.last_error is null)")
+    expect(retryFailedQueue).toContain('provider_response_id')
+    expect(retryFailedQueue).not.toMatch(/\b(drop|truncate|delete)\b/i)
   })
 })

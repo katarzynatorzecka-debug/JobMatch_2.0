@@ -53,6 +53,33 @@ export const candidateAssessmentJsonSchema = {
   },
 } as const
 
+export function candidateAssessmentJsonSchemaForRubric(rubric: OfferIntelligenceRubric): Record<string, unknown> {
+  const criteriaSchema = candidateAssessmentJsonSchema.properties.criteria as unknown as Record<string, unknown>
+  const categorySchemas = criteriaSchema.properties as Record<string, Record<string, unknown>>
+  return {
+    ...candidateAssessmentJsonSchema,
+    properties: {
+      ...candidateAssessmentJsonSchema.properties,
+      criteria: {
+        ...criteriaSchema,
+        properties: Object.fromEntries(analysisCategories.map((category) => {
+          const expected = rubric.criteria.filter((criterion) => criterion.category === category)
+          const count = expected.length
+          if (!expected.length) return [category, { ...categorySchemas[category], minItems: 0, maxItems: 0 }]
+          const immutableProperties = Object.fromEntries([
+            ['id', expected.map((criterion) => criterion.id)],
+            ['canonicalKey', expected.map((criterion) => criterion.canonicalKey)],
+            ['requirement', expected.map((criterion) => criterion.statement)],
+            ['type', expected.map((criterion) => criterion.type)],
+            ['importance', expected.map((criterion) => criterion.importance)],
+          ].map(([field, values]) => [field, { type: 'string', enum: [...new Set(values as string[])] }]))
+          return [category, { ...categorySchemas[category], minItems: count, maxItems: count, items: { ...assessmentCriterion, properties: { ...assessmentCriterion.properties, ...immutableProperties } } }]
+        })),
+      },
+    },
+  }
+}
+
 const exactKeys = new Set(['id', 'canonicalKey', 'requirement', 'type', 'importance', 'outcome', 'rationale', 'profileEvidence', 'confidence'])
 const nonEmptyText = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max
 

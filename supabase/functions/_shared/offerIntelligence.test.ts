@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, type OfferIntelligenceProviderOutput, type OfferSourceSnapshot } from './offerIntelligence'
+import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchemaForSource, offerIntelligenceProviderValidationDiagnostic, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceProviderOutput, type OfferSourceSnapshot } from './offerIntelligence'
 
 const sourceHash = 'b'.repeat(64)
 const source: OfferSourceSnapshot = {
@@ -27,6 +27,15 @@ function criterion(overrides: Partial<OfferIntelligenceProviderOutput['criteria'
 }
 
 describe('offer intelligence truth layer', () => {
+  it('refreshes a stored full snapshot when its contract is legacy', () => {
+    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-r7', activeContractVersion: 'jobmatch-analysis-contract-vnext-b' })).toBe(true)
+    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-vnext-b', activeContractVersion: 'jobmatch-analysis-contract-vnext-b' })).toBe(false)
+  })
+
+  it('reports grounded-evidence failures without exposing source text', () => {
+    expect(offerIntelligenceProviderValidationDiagnostic({ criteria: [criterion({ sourceEvidence: ['not in source'] })], rubricComplete: true, unresolvedAmbiguities: [], missingInformation: [] }, source)).toBe('criterion_0_evidence_not_grounded')
+  })
+
   it('captures the Community Moderator shape as atomic employer criteria', () => {
     const output: OfferIntelligenceProviderOutput = {
       criteria: [
@@ -98,5 +107,13 @@ describe('offer intelligence truth layer', () => {
     expect(prompt).toContain('arabski')
     expect(prompt).toContain(sourceHash)
     expect(prompt).not.toContain('Kandydat: Jan Kowalski')
+  })
+
+  it('binds source evidence to exact snapshot lines and sentences', () => {
+    const schema = offerIntelligenceJsonSchemaForSource(source) as { properties: { criteria: { items: { properties: { sourceEvidence: { items: { enum: string[] } } } } } } }
+    expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum).toContain('arabski')
+    expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum).toContain('Work with social media')
+    expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum).not.toContain('Python')
+    expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum.length).toBeLessThanOrEqual(128)
   })
 })
