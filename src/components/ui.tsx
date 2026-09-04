@@ -21,7 +21,7 @@ const categoryLabels: Record<AnalysisCategory, string> = { experience: 'Doświad
 export function formatPercentage(value: number) { return `${Math.round(value)}%` }
 export function HardFilterReason({ reasons }: { reasons: unknown[] }) {
   const labels = hardFilterReasonLabels(reasons)
-  if (!labels.length) return <p>Brak potwierdzonych konfliktów.</p>
+  if (!labels.length) return null
   return <div className="hard-filter-reasons"><strong>Powód:</strong><ul>{labels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul></div>
 }
 export function SourceQualityLabel({ value }: { value: JobAnalysis['sourceQuality'] }) { return <span className="analysis-meta__source">Zródlo: {sourceQualityLabel(value)}</span> }

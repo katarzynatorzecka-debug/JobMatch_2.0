@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildCandidateAssessmentPrompt, candidateAssessmentToAnalysisOutput, candidateAssessmentJsonSchema, candidateAssessmentJsonSchemaForRubric, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput, type CandidateAssessmentOutput } from './candidateAssessment'
+import { manifestFromOfferIntelligenceRubric, outputMatchesManifest } from './analysisCriteriaManifest'
+import { buildCandidateAssessmentPrompt, buildCandidateAssessmentRecoveryPrompt, candidateAssessmentToAnalysisOutput, candidateAssessmentJsonSchema, candidateAssessmentJsonSchemaForRubric, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput, type CandidateAssessmentOutput } from './candidateAssessment'
 import type { OfferIntelligenceRubric } from './offerIntelligence'
 
 const rubric: OfferIntelligenceRubric = {
@@ -29,6 +30,7 @@ describe('candidate assessment contract', () => {
     expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical', matchType: 'no_evidence', outcome: 'UNKNOWN' })
     expect(analysis.criteria.skills[0].offerEvidence).toEqual(['arabski'])
     expect(analysis.criteria.experience[0].offerEvidence).toEqual(['moderating social media'])
+    expect(outputMatchesManifest(analysis.criteria, manifestFromOfferIntelligenceRubric(rubric))).toBe(true)
   })
 
   it('rejects UNKNOWN for a complete rubric and rejects positive outcomes without profile evidence', () => {
@@ -75,6 +77,12 @@ describe('candidate assessment contract', () => {
     expect(prompt).toContain('Nie twórz żadnych dodatkowych kryteriów')
     expect(prompt).toContain('Jasne wymaganie bez dowodu w profilu oznacza NO_MATCH')
     expect(candidateAssessmentJsonSchema.properties.criteria).toBeDefined()
+  })
+
+  it('provides a strict recovery prompt for a manifest mismatch', () => {
+    const prompt = buildCandidateAssessmentRecoveryPrompt(rubric, { skills: ['moderation'] }, { status: 'pass' })
+    expect(prompt).toContain('RECOVERY')
+    expect(prompt).toContain('dokładnie tę samą liczbę, kolejność i wartości id')
   })
 
   it('binds the provider schema to the exact rubric count for every category', () => {

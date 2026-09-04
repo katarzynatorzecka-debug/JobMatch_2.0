@@ -15,4 +15,14 @@ describe('parseRocketJobsReport', () => {
     expect(parsed.offers).toHaveLength(2)
     expect(parsed.warnings.some((warning) => warning.code === 'duplicate')).toBe(true)
   })
+
+  it('repairs legacy report URLs before storing an offer', () => {
+    const parsed = parseRocketJobsReport(`Example Labs\nWarszawa\nSEO Specialist\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta/example-seo?utm_campaign=no-category?utm_source=mail`)
+    expect(parsed.offers[0]?.sourceUrl).toBe('https://rocketjobs.pl/oferta-pracy/example-seo?utm_campaign=no-category&utm_source=mail')
+  })
+
+  it('uses the recognized location when repairing a legacy report URL', () => {
+    const parsed = parseRocketJobsReport(`Internet Plus\nPoznań\nMłodszy Specjalista SEO\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta/internet-plus-seo-kielce-marketing-marketing`)
+    expect(parsed.offers[0]?.sourceUrl).toBe('https://rocketjobs.pl/oferta-pracy/internet-plus-seo-poznan-marketing-marketing')
+  })
 })

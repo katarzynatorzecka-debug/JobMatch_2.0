@@ -54,7 +54,8 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain('candidateAssessmentJsonSchema')
     expect(edgeSource).toContain('candidateAssessmentToAnalysisOutput')
     expect(edgeSource).toContain('scoreScoringCriteria')
-    expect(edgeSource.indexOf('requestOpenAi(apiKey, buildOfferIntelligencePrompt')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, prompt'))
+    expect(edgeSource).toContain('buildCandidateAssessmentRecoveryPrompt')
+    expect(edgeSource).toContain('requestOpenAi(apiKey, attempt === 0 ? prompt : recoveryPrompt')
   })
 
   it('passes fetched public offer text to the structured analysis prompt and keeps partial fallback explicit', () => {
@@ -68,7 +69,7 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain("WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT")
     expect(edgeSource).toContain('canonicalSourceHashInput(source)')
     expect(edgeSource).toContain("sourceQuality: 'partial'")
-    expect(edgeSource.indexOf('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, prompt'))
+    expect(edgeSource.indexOf('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, attempt === 0 ? prompt : recoveryPrompt'))
   })
 
   it('allows empty categories but never an entirely empty provider rubric', () => {

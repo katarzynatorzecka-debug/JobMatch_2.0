@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeOfferPage } from './offerSourceNormalizer'
+import { hasRunnableOfferSourceContent, normalizeOfferPage } from './offerSourceNormalizer'
 
 describe('offer source metadata normalization', () => {
   it('recovers hard-filter metadata from JobPosting structured data when the import seed is empty', () => {
@@ -21,5 +21,15 @@ describe('offer source metadata normalization', () => {
     const html = `<html><body><main><h1>Role</h1><h2>Wymagania</h2><p>Experience in employment platforms.</p><h2>Obowiązki</h2><p>Realizacja zadań.</p></main></body></html>`
     const result = normalizeOfferPage('offer-3', 'https://rocketjobs.pl/oferta-pracy/example-3', html)
     expect(result.contractType).toBeUndefined()
+  })
+
+  it('accepts a sufficiently grounded source when RocketJobs headings are missing', () => {
+    const text = 'AI Prototype Builder. ' + 'Opis stanowiska i zakres pracy. '.repeat(8) + 'Wymagamy praktycznego doświadczenia w budowaniu aplikacji webowych.'
+    expect(hasRunnableOfferSourceContent({ text, requirements: [], responsibilities: [] })).toBe(true)
+  })
+
+  it('still blocks an empty or purely generic source', () => {
+    expect(hasRunnableOfferSourceContent({ text: 'Krótki opis stanowiska.', requirements: [], responsibilities: [] })).toBe(false)
+    expect(hasRunnableOfferSourceContent({ text: 'Opis stanowiska. ' + 'Praca w zespole. '.repeat(20), requirements: [], responsibilities: [] })).toBe(false)
   })
 })

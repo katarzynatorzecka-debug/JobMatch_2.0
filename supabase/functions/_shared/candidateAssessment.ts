@@ -163,3 +163,9 @@ candidateContext: ${JSON.stringify(candidateContext)}
 hardFilter: ${JSON.stringify(hardFilter)}
 SEMANTIC MATCH TYPE RULES: Set matchType to exactly one of direct, transferable, no_evidence, contradiction. direct means a concrete, explicit profile proof; transferable means a concrete adjacent capability or project proof even when the named tool differs; no_evidence means the profile does not provide proof and is not a claim that the candidate lacks the skill; contradiction means the profile explicitly conflicts with the requirement. Missing a literal token is never contradiction. direct must use outcome MATCH, transferable PARTIAL, no_evidence and contradiction NO_MATCH. For Cursor, Claude Code and v0, Codex, OpenAI API and AI-assisted development are strong transferable evidence but never evidence that the candidate used those absent tools. For every direct or transferable result cite a concrete project, role or profile fragment. Prefer JobMatchMaker and BEN10 evidence when present for working product, MVP, UX/UI, AI-assisted development and end-to-end delivery. Preferred or nice-to-have criteria have limited influence.`
 }
+
+export function buildCandidateAssessmentRecoveryPrompt(rubric: OfferIntelligenceRubric, candidateContext: unknown, hardFilter: unknown) {
+  return `${buildCandidateAssessmentPrompt(rubric, candidateContext, hardFilter)}
+
+RECOVERY: poprzednia odpowiedź nie spełniła niezmiennego manifestu kryteriów. Wygeneruj odpowiedź od nowa. Zachowaj dokładnie tę samą liczbę, kolejność i wartości id kryteriów z rubric; nie dodawaj ani nie usuwaj elementów. Nie zmieniaj treści rubric, typu ani ważności — serwer przywróci te pola z manifestu.`
+}

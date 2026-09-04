@@ -1,5 +1,6 @@
 import type { ImportedJobOffer, ImportWarning } from '../../contracts/import'
 import { htmlToSafeText, normalizedKey, normalizeWhitespace, stableOfferId } from './importUtils'
+import { normalizeRocketJobsSourceUrl } from '../../../supabase/functions/_shared/rocketJobsSourceUrl'
 
 const sourceUrlPattern = /https?:\/\/(?:www\.)?rocketjobs\.pl\/oferta(?:-pracy)?\/[^\s)>]+/gi
 const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły)$/i
@@ -51,8 +52,12 @@ export function parseRocketJobsReport(input: string) {
   const candidates: Candidate[] = matches.map((match, index) => {
     const previousEnd = index === 0 ? Math.max(0, match.index! - 1300) : matches[index - 1].index! + matches[index - 1][0].length
     const block = text.slice(previousEnd, match.index).trim()
-    const offer = offerFromBlock(block, match[0])
-    return offer ? { offer, key: normalizedKey(match[0]) } : null
+    const initialSourceUrl = normalizeRocketJobsSourceUrl(match[0])
+    const initialOffer = offerFromBlock(block, initialSourceUrl)
+    if (!initialOffer) return null
+    const sourceUrl = normalizeRocketJobsSourceUrl(match[0], initialOffer.location)
+    const offer = sourceUrl === initialSourceUrl ? initialOffer : offerFromBlock(block, sourceUrl)
+    return offer ? { offer, key: normalizedKey(sourceUrl) } : null
   }).filter((value): value is Candidate => value !== null)
 
   const offers: ImportedJobOffer[] = []

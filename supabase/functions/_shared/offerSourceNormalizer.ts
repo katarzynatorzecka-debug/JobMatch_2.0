@@ -213,8 +213,26 @@ export function extractExplicitRequirementLines(text: string) {
     .replace(/[•●▪◦]\s*/g, '\n')
     .replace(/\s+(?=(?:you (?:have|are|can|bring|know|understand|enjoy)|candidates? must|we (?:expect|require)|wymagamy|oczekujemy|posiadasz|masz|znajomo[śs][ćc])\b)/gi, '\n')
   const fragments = expanded.split(/\n+|(?<=[.!?])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ])/u).map(compact)
-  const cue = /\b(?:wymag|oczekuj|minimum|co najmniej|do[śs]wiadczen|znajomo[śs][ćc]|umiej[ęe]tno[śs][ćc]|bieg[łl]|gotowo[śs][ćc]|must|required|requirements?|language|at least|years? of experience|you (?:have|are|can|bring|know|understand|enjoy)|we (?:expect|require)|fluent|proficien|ability to|track record)\b/i
+  const cue = /\b(?:wymag\w*|oczekuj\w*|minimum|co najmniej|do[śs]wiadczen\w*|znajomo[śs][ćc]\w*|umiej[ęe]tno[śs][ćc]\w*|bieg\w*|gotowo[śs][ćc]\w*|must|required|requirements?|language|at least|years? of experience|you (?:have|are|can|bring|know|understand|enjoy)|we (?:expect|require)|fluent|proficien\w*|ability to|track record)\b/i
   return unique(fragments.filter((value) => value.length <= 500 && cue.test(value)), 32)
+}
+
+/**
+ * A source can be safely analysed when it contains enough grounded text and
+ * at least one explicit requirement signal. The portal does not always expose
+ * stable requirement/responsibility headings, so heading arrays alone are not
+ * a reliable completeness gate.
+ */
+export function hasRunnableOfferSourceContent(source: {
+  text?: string
+  description?: string
+  requirements?: readonly string[]
+  responsibilities?: readonly string[]
+}) {
+  const text = typeof source.text === 'string' ? source.text : typeof source.description === 'string' ? source.description : ''
+  const requirements = Array.isArray(source.requirements) ? source.requirements : []
+  const responsibilities = Array.isArray(source.responsibilities) ? source.responsibilities : []
+  return text.trim().length >= 260 && (requirements.length > 0 || responsibilities.length > 0 || extractExplicitRequirementLines(text).length > 0)
 }
 
 export function normalizeOfferPage(offerId: string, sourceUrl: string, html: string, imported: Record<string, unknown> = {}): NormalizedOfferSource {

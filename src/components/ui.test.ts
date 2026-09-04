@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import type { JobAnalysis } from '../contracts/jobAnalysis'
-import { AnalysisQuality, ScoreBadge, analysisNarrativeData, formatPercentage } from './ui'
+import { AnalysisQuality, HardFilterReason, ScoreBadge, analysisNarrativeData, formatPercentage } from './ui'
 
 const analysis: JobAnalysis = {
   offerId: 'offer-1',
@@ -63,5 +63,19 @@ describe('formatPercentage', () => {
   it('rounds a coverage value to a whole percentage for display', () => {
     expect(formatPercentage(63.33333)).toBe('63%')
     expect(formatPercentage(63.5)).toBe('64%')
+  })
+})
+
+describe('HardFilterReason', () => {
+  it('renders nothing when no conflict is present', () => {
+    expect(renderToStaticMarkup(createElement(HardFilterReason, { reasons: [] }))).toBe('')
+  })
+
+  it('renders nothing when reasons do not contain a displayable conflict', () => {
+    expect(renderToStaticMarkup(createElement(HardFilterReason, { reasons: [{}] }))).toBe('')
+  })
+
+  it('renders the conflict when a reason is present', () => {
+    expect(renderToStaticMarkup(createElement(HardFilterReason, { reasons: [{ code: 'work-mode' }] }))).toContain('Tryb pracy nie odpowiada preferencjom profilu.')
   })
 })

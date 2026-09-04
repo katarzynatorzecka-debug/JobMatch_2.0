@@ -3,8 +3,10 @@ import { isAnalysisOutput } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
 import { canonicalSourceHashInput, isManifestSufficientForAnalysis, manifestFromOfferIntelligenceRubric, outputMatchesManifest } from '../_shared/analysisCriteriaManifest.ts'
+import { hasRunnableOfferSourceContent } from '../_shared/offerSourceNormalizer.ts'
+import { normalizeRocketJobsSourceUrl } from '../_shared/rocketJobsSourceUrl.ts'
 import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricRunnable, offerIntelligenceRequestSchemas, offerIntelligenceProviderValidationDiagnostic, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
-import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchemaForRubric, candidateAssessmentToAnalysisOutput, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
+import { buildCandidateAssessmentPrompt, buildCandidateAssessmentRecoveryPrompt, candidateAssessmentJsonSchemaForRubric, candidateAssessmentToAnalysisOutput, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
 import { scoreScoringCriteria, SCORING_ALGORITHM_VERSION, type ScoringCriteria } from '../_shared/scoringCalibration.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
@@ -21,7 +23,7 @@ function validPriorities(value: unknown): value is string[] {
 }
 
 async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
-  const sourceUrl = typeof offer.sourceUrl === 'string' ? offer.sourceUrl : ''
+  const sourceUrl = typeof offer.sourceUrl === 'string' ? normalizeRocketJobsSourceUrl(offer.sourceUrl, typeof offer.location === 'string' ? offer.location : undefined) : ''
   if (!sourceUrl) return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] }
   try {
     const source = await fetch(`${supabaseUrl}/functions/v1/fetch-offer-page`, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' }, body: JSON.stringify({ offerId: typeof offer.id === 'string' ? offer.id : 'workspace-offer', sourceUrl, offer }) })
@@ -44,7 +46,7 @@ function isOfferSourceSnapshot(value: unknown): value is OfferSourceSnapshot {
 }
 
 function hasRunnableSourceContent(source: OfferSourceSnapshot) {
-  return source.text.trim().length >= 260 && (source.requirements.length > 0 || source.responsibilities.length > 0)
+  return hasRunnableOfferSourceContent(source)
 }
 
 async function sha256Text(value: string) {
@@ -196,36 +198,53 @@ Deno.serve(async (request) => {
   }
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
   const prompt = buildCandidateAssessmentPrompt(rubric, candidateContext, hardFilter)
+  const recoveryPrompt = buildCandidateAssessmentRecoveryPrompt(rubric, candidateContext, hardFilter)
+  const candidateSchema = candidateAssessmentJsonSchemaForRubric(rubric)
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
-  let openAiResponse: Response
-  try {
-    openAiResponse = existingProviderResponseId
-      ? await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(existingProviderResponseId)}`, { headers: { Authorization: `Bearer ${apiKey}` } })
-      : await requestOpenAi(apiKey, prompt, candidateAssessmentJsonSchemaForRubric(rubric), queueItemId)
-  } catch { return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_NETWORK_ERROR') }
-  if (!openAiResponse.ok) {
-    const errorBody = await openAiResponse.clone().json().catch(() => null) as { error?: { code?: unknown; param?: unknown } } | null
-    console.info(JSON.stringify({ diagnostic: 'OPENAI_HTTP_ERROR', providerStatus: openAiResponse.status, providerErrorCode: typeof errorBody?.error?.code === 'string' ? errorBody.error.code : null, providerErrorParam: typeof errorBody?.error?.param === 'string' ? errorBody.error.param : null }))
-    return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_HTTP_ERROR')
+  let openAiResponse: Response | null = null
+  let providerResponseId: string | null = null
+  let parsed: ReturnType<typeof candidateAssessmentToAnalysisOutput> | null = null
+  let parsedAssessmentDiagnostics: { outputTypes: string[]; contentTypes: string[] } | null = null
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const retrievingExistingResponse = attempt === 0 && Boolean(existingProviderResponseId)
+    try {
+      openAiResponse = retrievingExistingResponse
+        ? await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(existingProviderResponseId as string)}`, { headers: { Authorization: `Bearer ${apiKey}` } })
+        : await requestOpenAi(apiKey, attempt === 0 ? prompt : recoveryPrompt, candidateSchema, attempt === 0 ? queueItemId : `${queueItemId}:manifest-recovery`)
+    } catch { return await failQueue(retrievingExistingResponse ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_NETWORK_ERROR') }
+    if (!openAiResponse.ok) {
+      const errorBody = await openAiResponse.clone().json().catch(() => null) as { error?: { code?: unknown; param?: unknown } } | null
+      console.info(JSON.stringify({ diagnostic: 'OPENAI_HTTP_ERROR', providerStatus: openAiResponse.status, providerErrorCode: typeof errorBody?.error?.code === 'string' ? errorBody.error.code : null, providerErrorParam: typeof errorBody?.error?.param === 'string' ? errorBody.error.param : null }))
+      return await failQueue(retrievingExistingResponse ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_HTTP_ERROR')
+    }
+    let payload: unknown
+    try { payload = await openAiResponse.json() } catch { return await failQueue('OPENAI_SCHEMA_MISMATCH') }
+    const responseId = typeof (payload as Record<string, unknown> | null)?.id === 'string' ? (payload as Record<string, unknown>).id as string : retrievingExistingResponse ? existingProviderResponseId : null
+    if (!responseId) return await failQueue('OPENAI_EMPTY_OUTPUT')
+    if (!retrievingExistingResponse) {
+      const { error: receiptError } = await worker.rpc('workspace_record_provider_response', { p_queue_item_id: queueItemId, p_worker_token: workerToken, p_provider_response_id: responseId })
+      if (receiptError) return await failQueue('ANALYSIS_PROVIDER_RECEIPT_SAVE_FAILED')
+    }
+    const parsedAssessment = readOpenAiStructuredOutput(payload)
+    if (!parsedAssessment.ok) { console.info(JSON.stringify({ diagnostic: parsedAssessment.code, ...parsedAssessment.diagnostics })); return await failQueue(parsedAssessment.code) }
+    if (!isCandidateAssessmentOutput(parsedAssessment.value, rubric)) {
+      const reason = candidateAssessmentValidationDiagnostic(parsedAssessment.value, rubric)
+      console.info(JSON.stringify({ diagnostic: 'OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID', reason }))
+      return await failQueue(`OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID:${reason}`)
+    }
+    const candidateAnalysis = candidateAssessmentToAnalysisOutput(parsedAssessment.value, rubric)
+    if (!isAnalysisOutput(candidateAnalysis)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
+    if (!outputMatchesManifest(candidateAnalysis.criteria, manifest)) {
+      console.info(JSON.stringify({ diagnostic: 'OPENAI_CRITERIA_MANIFEST_MISMATCH', attempt, responseId }))
+      if (attempt === 0) continue
+      return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
+    }
+    providerResponseId = responseId
+    parsed = candidateAnalysis
+    parsedAssessmentDiagnostics = parsedAssessment.diagnostics
+    break
   }
-  let payload: unknown
-  try { payload = await openAiResponse.json() } catch { return await failQueue('OPENAI_SCHEMA_MISMATCH') }
-  const providerResponseId = typeof (payload as Record<string, unknown> | null)?.id === 'string' ? (payload as Record<string, unknown>).id as string : existingProviderResponseId
-  if (!providerResponseId) return await failQueue('OPENAI_EMPTY_OUTPUT')
-  if (!existingProviderResponseId) {
-    const { error: receiptError } = await worker.rpc('workspace_record_provider_response', { p_queue_item_id: queueItemId, p_worker_token: workerToken, p_provider_response_id: providerResponseId })
-    if (receiptError) return await failQueue('ANALYSIS_PROVIDER_RECEIPT_SAVE_FAILED')
-  }
-  const parsedAssessment = readOpenAiStructuredOutput(payload)
-  if (!parsedAssessment.ok) { console.info(JSON.stringify({ diagnostic: parsedAssessment.code, ...parsedAssessment.diagnostics })); return await failQueue(parsedAssessment.code) }
-  if (!isCandidateAssessmentOutput(parsedAssessment.value, rubric)) {
-    const reason = candidateAssessmentValidationDiagnostic(parsedAssessment.value, rubric)
-    console.info(JSON.stringify({ diagnostic: 'OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID', reason }))
-    return await failQueue(`OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID:${reason}`)
-  }
-  const parsed = candidateAssessmentToAnalysisOutput(parsedAssessment.value, rubric)
-  if (!isAnalysisOutput(parsed)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
-  if (!outputMatchesManifest(parsed.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
+  if (!openAiResponse || !providerResponseId || !parsed || !parsedAssessmentDiagnostics) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
   const scoring = scoreScoringCriteria(profile.priorities, parsed.criteria as ScoringCriteria)
   const rubricIsLimited = rubric.quality.sourceCompleteness !== 'full' || rubric.quality.rubricCompleteness !== 'complete' || rubric.quality.unresolvedAmbiguityCount > 0
   const finalReliability = rubricIsLimited ? 'limited' : scoring.scoring.reliability
@@ -248,6 +267,6 @@ Deno.serve(async (request) => {
   }
   const { data: completed, error: completeError } = await worker.rpc('workspace_complete_analysis', { queue_item_id: queueItemId, worker_token: workerToken, analysis_data: finalAnalysis, model_version: model, prompt_version: promptVersion, algorithm_version: algorithmVersion, source_quality: source.sourceQuality, provider_request_id: providerResponseId })
   if (completeError || !completed) return failure('ANALYSIS_SAVE_FAILED', 502)
-  console.info(JSON.stringify({ diagnostic: 'OPENAI_SUCCESS', queueItemId, requestId: openAiResponse.headers.get('x-request-id'), responseId: providerResponseId, outputTypes: parsedAssessment.diagnostics.outputTypes, contentTypes: parsedAssessment.diagnostics.contentTypes, validation: 'passed' }))
+  console.info(JSON.stringify({ diagnostic: 'OPENAI_SUCCESS', queueItemId, requestId: openAiResponse.headers.get('x-request-id'), responseId: providerResponseId, outputTypes: parsedAssessmentDiagnostics.outputTypes, contentTypes: parsedAssessmentDiagnostics.contentTypes, validation: 'passed' }))
   return response({ status: 'completed', queueItemId })
 })
