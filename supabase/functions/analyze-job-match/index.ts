@@ -3,7 +3,7 @@ import { isAnalysisOutput } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
 import { canonicalSourceHashInput, isManifestSufficientForAnalysis, manifestFromOfferIntelligenceRubric, outputMatchesManifest } from '../_shared/analysisCriteriaManifest.ts'
-import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchemaForSource, offerIntelligenceProviderValidationDiagnostic, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
+import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricRunnable, offerIntelligenceRequestSchemas, offerIntelligenceProviderValidationDiagnostic, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
 import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchemaForRubric, candidateAssessmentToAnalysisOutput, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
 import { scoreScoringCriteria, SCORING_ALGORITHM_VERSION, type ScoringCriteria } from '../_shared/scoringCalibration.ts'
 
@@ -146,8 +146,16 @@ Deno.serve(async (request) => {
   }
   if (!rubric) {
     if (source.sourceQuality !== 'full' || !source.text) return await failQueue('WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
-    let intelligenceResponse: Response
-    try { intelligenceResponse = await requestOpenAi(apiKey, buildOfferIntelligencePrompt(source, nextSourceHash), offerIntelligenceJsonSchemaForSource(source), `${queueItemId}:offer-intelligence`) } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_NETWORK_ERROR') }
+    let intelligenceResponse: Response | null = null
+    const intelligenceSchemas = offerIntelligenceRequestSchemas(source)
+    for (let schemaIndex = 0; schemaIndex < intelligenceSchemas.length; schemaIndex += 1) {
+      try {
+        intelligenceResponse = await requestOpenAi(apiKey, buildOfferIntelligencePrompt(source, nextSourceHash), intelligenceSchemas[schemaIndex], `${queueItemId}:offer-intelligence${schemaIndex ? `:fallback-${schemaIndex}` : ''}`)
+      } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_NETWORK_ERROR') }
+      if (intelligenceResponse.ok || intelligenceResponse.status !== 400 || schemaIndex === intelligenceSchemas.length - 1) break
+      console.info(JSON.stringify({ diagnostic: 'OPENAI_OFFER_INTELLIGENCE_SCHEMA_RETRY', providerStatus: intelligenceResponse.status, schemaIndex }))
+    }
+    if (!intelligenceResponse) return await failQueue('OPENAI_OFFER_INTELLIGENCE_NETWORK_ERROR')
     if (!intelligenceResponse.ok) {
       const errorBody = await intelligenceResponse.clone().json().catch(() => null) as { error?: { code?: unknown; param?: unknown } } | null
       console.info(JSON.stringify({ diagnostic: 'OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR', providerStatus: intelligenceResponse.status, providerErrorCode: typeof errorBody?.error?.code === 'string' ? errorBody.error.code : null, providerErrorParam: typeof errorBody?.error?.param === 'string' ? errorBody.error.param : null }))
@@ -171,7 +179,7 @@ Deno.serve(async (request) => {
     : await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, rubric)
   if (!persistedContract.ok) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
   if (!await alignQueueAnalysisIdentity(worker, queueItem, workerToken, persistedContract.contractHash)) return await failQueue('WORKSPACE_ANALYSIS_IDENTITY_SAVE_FAILED')
-  if (!isOfferIntelligenceRubricSufficient(rubric) || !isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
+  if (!isOfferIntelligenceRubricRunnable(rubric) || !isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
   const prompt = buildCandidateAssessmentPrompt(rubric, candidateContext, hardFilter)
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
@@ -205,6 +213,8 @@ Deno.serve(async (request) => {
   if (!isAnalysisOutput(parsed)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
   if (!outputMatchesManifest(parsed.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
   const scoring = scoreScoringCriteria(profile.priorities, parsed.criteria as ScoringCriteria)
+  const rubricIsLimited = rubric.quality.rubricCompleteness !== 'complete' || rubric.quality.unresolvedAmbiguityCount > 0
+  const finalReliability = rubricIsLimited ? 'limited' : scoring.scoring.reliability
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {
     ...parsed,
@@ -212,7 +222,7 @@ Deno.serve(async (request) => {
     offerId: queueItem.job_offer_id,
     overallScore: scoring.overallScore,
     categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: parsed.criteria[category].map((criterion) => criterion.rationale).join(' ') || 'Brak ocenionych kryteriów w tej kategorii.' }])),
-    recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.scoring.reliability === 'limited' && scoring.overallScore > 0 ? 'Wymaga sprawdzenia' : scoring.overallScore >= 75 && scoring.scoring.coverage >= 75 && scoring.scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.overallScore >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
+    recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : finalReliability === 'limited' && scoring.overallScore > 0 ? 'Wymaga sprawdzenia' : scoring.overallScore >= 75 && scoring.scoring.coverage >= 75 && finalReliability === 'standard' ? 'Warto aplikować' : scoring.overallScore >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
     hardFilterStatus: analysisHardFilterStatus,
     hardFilterReasons: Array.isArray(hardFilter.reasons) ? hardFilter.reasons.map((reason) => typeof reason === 'object' && reason ? (reason as Record<string, unknown>).label : '').filter((label): label is string => typeof label === 'string') : [],
     sourceQuality: source.sourceQuality,
@@ -220,7 +230,7 @@ Deno.serve(async (request) => {
     createdAt: new Date().toISOString(),
     status: 'ready',
     missingInformation: [...new Set([...parsed.missingInformation, ...source.missingInformation])],
-    scoring: { ...scoring.scoring, algorithmVersion },
+    scoring: { ...scoring.scoring, reliability: finalReliability, algorithmVersion },
   }
   const { data: completed, error: completeError } = await worker.rpc('workspace_complete_analysis', { queue_item_id: queueItemId, worker_token: workerToken, analysis_data: finalAnalysis, model_version: model, prompt_version: promptVersion, algorithm_version: algorithmVersion, source_quality: source.sourceQuality, provider_request_id: providerResponseId })
   if (completeError || !completed) return failure('ANALYSIS_SAVE_FAILED', 502)

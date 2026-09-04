@@ -113,6 +113,16 @@ export function offerIntelligenceJsonSchemaForSource(source: OfferSourceSnapshot
   }
 }
 
+/**
+ * The grounded-evidence enum is useful for normal provider responses, but a
+ * large or unusual RocketJobs snapshot can still be rejected by the provider
+ * schema validator. Keep a bounded, provider-compatible fallback; evidence is
+ * still checked against the immutable snapshot after the response returns.
+ */
+export function offerIntelligenceRequestSchemas(source: OfferSourceSnapshot): Record<string, unknown>[] {
+  return [offerIntelligenceJsonSchemaForSource(source), offerIntelligenceJsonSchema]
+}
+
 const compact = (value: unknown) => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
 const normalized = (value: string) => compact(value).toLocaleLowerCase('pl-PL').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9+#.]+/g, ' ').trim().replace(/\s+/g, ' ')
 const keyPart = (value: string) => normalized(value).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 96)
@@ -205,7 +215,11 @@ export function buildOfferIntelligenceRubric(source: OfferSourceSnapshot, source
     })
   }
   const unresolvedAmbiguities = unique(output.unresolvedAmbiguities, 12)
-  const missingInformation = unique([...source.missingInformation, ...output.missingInformation], 12)
+  const missingInformation = unique([
+    ...source.missingInformation,
+    ...output.missingInformation,
+    ...output.unresolvedAmbiguities.map((item) => `Nierozstrzygnięte: ${item}`),
+  ], 12)
   const complete = output.rubricComplete && unresolvedAmbiguities.length === 0 && criteria.length > 0
   return {
     contractVersion: OFFER_INTELLIGENCE_CONTRACT_VERSION,
@@ -242,8 +256,18 @@ export function isOfferIntelligenceRubricSufficient(rubric: OfferIntelligenceRub
   return rubric.quality.sourceCompleteness === 'full' && rubric.quality.rubricCompleteness === 'complete' && rubric.quality.unresolvedAmbiguityCount === 0 && rubric.criteria.length > 0
 }
 
+/**
+ * A full, grounded source with at least one criterion is safe to assess even
+ * when the provider reported missing or ambiguous employer information. The
+ * resulting analysis must remain limited/reviewable; only an incomplete
+ * source is blocked here.
+ */
+export function isOfferIntelligenceRubricRunnable(rubric: OfferIntelligenceRubric) {
+  return rubric.quality.sourceCompleteness === 'full' && rubric.criteria.length > 0
+}
+
 export function buildOfferIntelligencePrompt(source: OfferSourceSnapshot, sourceSnapshotHash: string) {
-  return `Zbuduj wyłącznie rubrykę wymagań pracodawcy z pełnego, zamrożonego snapshotu oferty. Nie otrzymujesz profilu kandydata i nie wolno Ci go zakładać. Odczytaj znaczenie semantycznie, niezależnie od nagłówków, list i kolejności portalu. Zwróć atomic criteria: każde realne wymaganie lub capability ma jeden canonicalKey i jeden udział w score. Deduplicate sens: to samo znaczenie opisane jako skill, doświadczenie i obowiązek zwróć tylko raz. Obowiązek może utworzyć responsibility_capability, gdy wynika z niego zdolność wymagana do wykonania pracy. requiredExplicitly=true tylko dla wymagania jawnie wymaganego; capability wyprowadzona z obowiązku może być false. importance wybierz jako critical, core lub preferred na podstawie języka i znaczenia w ofercie. sourceEvidence musi być krótkim, dosłownym, niezmienionym wierszem lub zdaniem ze snapshotu; nie parafrazuj i nie łącz odległych fragmentów. Jeśli nie da się zbudować kompletnej rubryki, ustaw rubricComplete=false i opisz nierozstrzygnięcia. Nie licz score, coverage ani rekomendacji.
+  return `Zbuduj wyłącznie rubrykę wymagań pracodawcy z pełnego, zamrożonego snapshotu oferty. Nie otrzymujesz profilu kandydata i nie wolno Ci go zakładać. Odczytaj znaczenie semantycznie, niezależnie od nagłówków, list i kolejności portalu. Zwróć atomic criteria: każde realne wymaganie lub capability ma jeden canonicalKey i jeden udział w score. Deduplicate sens: to samo znaczenie opisane jako skill, doświadczenie i obowiązek zwróć tylko raz. Obowiązek może utworzyć responsibility_capability, gdy wynika z niego zdolność wymagana do wykonania pracy. requiredExplicitly=true tylko dla wymagania jawnie wymaganego; capability wyprowadzona z obowiązku może być false. importance wybierz jako critical, core lub preferred na podstawie języka i znaczenia w ofercie. sourceEvidence musi być krótkim, dosłownym, niezmienionym wierszem lub zdaniem ze snapshotu; nie parafrazuj i nie łącz odległych fragmentów. Brak benefitów, widełek, rodzaju umowy lub innych opcjonalnych danych nie jest powodem do ustawienia rubricComplete=false — wpisz to do missingInformation. unresolvedAmbiguities stosuj tylko dla sprzecznych lub rzeczywiście niejednoznacznych wymagań, nie dla zwykłego braku informacji. Jeśli źródło jest pełne i da się zbudować ugruntowane kryteria, ustaw rubricComplete=true. Nie licz score, coverage ani rekomendacji.
 sourceSnapshotHash: ${sourceSnapshotHash}
 snapshot: ${JSON.stringify(source)}`
 }

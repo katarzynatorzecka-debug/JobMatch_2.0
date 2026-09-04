@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchemaForSource, offerIntelligenceProviderValidationDiagnostic, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceProviderOutput, type OfferSourceSnapshot } from './offerIntelligence'
+import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricRunnable, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchemaForSource, offerIntelligenceProviderValidationDiagnostic, offerIntelligenceRequestSchemas, shouldRefreshOfferSourceSnapshot, type OfferIntelligenceProviderOutput, type OfferSourceSnapshot } from './offerIntelligence'
 
 const sourceHash = 'b'.repeat(64)
 const source: OfferSourceSnapshot = {
@@ -98,7 +98,16 @@ describe('offer intelligence truth layer', () => {
     const output: OfferIntelligenceProviderOutput = { criteria: [criterion()], rubricComplete: false, unresolvedAmbiguities: ['Nie wiadomo, czy język jest wymagany.'], missingInformation: [] }
     const rubric = buildOfferIntelligenceRubric(incompleteSource, sourceHash, output)
     expect(rubric?.quality.rubricCompleteness).toBe('incomplete')
+    expect(rubric && isOfferIntelligenceRubricRunnable(rubric)).toBe(false)
     expect(rubric && isOfferIntelligenceRubricSufficient(rubric)).toBe(false)
+  })
+
+  it('runs a full grounded source with unresolved information in limited mode', () => {
+    const output: OfferIntelligenceProviderOutput = { criteria: [criterion()], rubricComplete: false, unresolvedAmbiguities: ['Nie wiadomo, czy język jest wymagany.'], missingInformation: [] }
+    const rubric = buildOfferIntelligenceRubric(source, sourceHash, output)
+    expect(rubric && isOfferIntelligenceRubricRunnable(rubric)).toBe(true)
+    expect(rubric && isOfferIntelligenceRubricSufficient(rubric)).toBe(false)
+    expect(rubric?.quality.missingInformation).toContain('Nierozstrzygnięte: Nie wiadomo, czy język jest wymagany.')
   })
 
   it('builds a profile-independent prompt from the complete bounded snapshot', () => {
@@ -115,5 +124,12 @@ describe('offer intelligence truth layer', () => {
     expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum).toContain('Work with social media')
     expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum).not.toContain('Python')
     expect(schema.properties.criteria.items.properties.sourceEvidence.items.enum.length).toBeLessThanOrEqual(128)
+  })
+
+  it('provides a provider-compatible schema fallback for structured-output rejection', () => {
+    const schemas = offerIntelligenceRequestSchemas(source)
+    expect(schemas).toHaveLength(2)
+    expect((schemas[0] as any).properties.criteria.items.properties.sourceEvidence.items.enum).toContain('arabski')
+    expect((schemas[1] as any).properties.criteria.items.properties.sourceEvidence.items.enum).toBeUndefined()
   })
 })
