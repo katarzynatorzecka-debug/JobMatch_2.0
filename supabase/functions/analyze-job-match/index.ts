@@ -1,15 +1,16 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { isAnalysisOutput, jobAnalysisOutputJsonSchema } from '../_shared/jobAnalysisOutputSchema.ts'
+import { isAnalysisOutput } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
 import { canonicalSourceHashInput, isManifestSufficientForAnalysis, manifestFromOfferIntelligenceRubric, outputMatchesManifest } from '../_shared/analysisCriteriaManifest.ts'
 import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchema, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
+import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchema, candidateAssessmentToAnalysisOutput, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
-const promptVersion = 'jobmatch-job-match-v5'
+const promptVersion = 'jobmatch-job-match-v6'
 const algorithmVersion = 'jobmatch-deterministic-r9'
-const analysisContractVersion = 'jobmatch-analysis-contract-vnext-a'
+const analysisContractVersion = 'jobmatch-analysis-contract-vnext-b'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -189,14 +190,13 @@ Deno.serve(async (request) => {
   if (!await alignQueueAnalysisIdentity(worker, queueItem, workerToken, persistedContract.contractHash)) return await failQueue('WORKSPACE_ANALYSIS_IDENTITY_SAVE_FAILED')
   if (!isOfferIntelligenceRubricSufficient(rubric) || !isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
-  const manifestInstruction = `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(manifest)}`
-  const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Każda pozycja manifestu jest jawnym wymaganiem oferty i musi mieć offerEvidence. MATCH oznacza, że konkretny dowód z profilu spełnia wymaganie. PARTIAL oznacza częściowy lub transferowalny dowód z profilu. NO_MATCH oznacza, że wymaganie jest jasne, ale pełny przekazany kontekst kandydata nie zawiera wspierającego dowodu albo zawiera dowód sprzeczny; sam brak wzmianki w profilu nie jest UNKNOWN. Opisuj NO_MATCH jako brak potwierdzenia w profilu, nie jako pewność, że kandydat nie posiada kompetencji. UNKNOWN stosuj wyłącznie wtedy, gdy mimo manifestu nie da się jednoznacznie zrozumieć wymagania albo przekazany kontekst kandydata jest technicznie niewystarczający do klasyfikacji. MATCH i PARTIAL wymagają profileEvidence oraz offerEvidence. NO_MATCH wymaga offerEvidence, a profileEvidence może być puste. Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
+  const prompt = buildCandidateAssessmentPrompt(rubric, candidateContext, hardFilter)
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
   let openAiResponse: Response
   try {
     openAiResponse = existingProviderResponseId
       ? await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(existingProviderResponseId)}`, { headers: { Authorization: `Bearer ${apiKey}` } })
-      : await requestOpenAi(apiKey, prompt, jobAnalysisOutputJsonSchema as unknown as Record<string, unknown>, queueItemId)
+      : await requestOpenAi(apiKey, prompt, candidateAssessmentJsonSchema as unknown as Record<string, unknown>, queueItemId)
   } catch { return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_NETWORK_ERROR') }
   if (!openAiResponse.ok) { console.info(JSON.stringify({ diagnostic: 'OPENAI_HTTP_ERROR', providerStatus: openAiResponse.status })); return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_HTTP_ERROR') }
   let payload: unknown
@@ -207,13 +207,13 @@ Deno.serve(async (request) => {
     const { error: receiptError } = await worker.rpc('workspace_record_provider_response', { p_queue_item_id: queueItemId, p_worker_token: workerToken, p_provider_response_id: providerResponseId })
     if (receiptError) return await failQueue('ANALYSIS_PROVIDER_RECEIPT_SAVE_FAILED')
   }
-  const parsed = readOpenAiStructuredOutput(payload)
-  if (!parsed.ok) { console.info(JSON.stringify({ diagnostic: parsed.code, ...parsed.diagnostics })); return await failQueue(parsed.code) }
-  if (!isAnalysisOutput(parsed.value)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
-  if (!outputMatchesManifest(parsed.value.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
-  if (categories.some((category) => parsed.value.criteria[category].some((criterion) => !criterion.offerEvidence.length))) return await failQueue('OPENAI_OFFER_EVIDENCE_MISSING')
-  if (categories.some((category) => parsed.value.criteria[category].some((criterion) => (criterion.outcome === 'MATCH' || criterion.outcome === 'PARTIAL') && !criterion.profileEvidence.length))) return await failQueue('OPENAI_PROFILE_EVIDENCE_MISSING')
-  const scoring = deterministicScore(profile, parsed.value.criteria)
+  const parsedAssessment = readOpenAiStructuredOutput(payload)
+  if (!parsedAssessment.ok) { console.info(JSON.stringify({ diagnostic: parsedAssessment.code, ...parsedAssessment.diagnostics })); return await failQueue(parsedAssessment.code) }
+  if (!isCandidateAssessmentOutput(parsedAssessment.value, rubric)) return await failQueue('OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID')
+  const parsed = candidateAssessmentToAnalysisOutput(parsedAssessment.value, rubric)
+  if (!isAnalysisOutput(parsed)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
+  if (!outputMatchesManifest(parsed.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
+  const scoring = deterministicScore(profile, parsed.criteria)
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {
     ...parsed.value,
@@ -233,6 +233,6 @@ Deno.serve(async (request) => {
   }
   const { data: completed, error: completeError } = await worker.rpc('workspace_complete_analysis', { queue_item_id: queueItemId, worker_token: workerToken, analysis_data: finalAnalysis, model_version: model, prompt_version: promptVersion, algorithm_version: algorithmVersion, source_quality: source.sourceQuality, provider_request_id: providerResponseId })
   if (completeError || !completed) return failure('ANALYSIS_SAVE_FAILED', 502)
-  console.info(JSON.stringify({ diagnostic: 'OPENAI_SUCCESS', queueItemId, requestId: openAiResponse.headers.get('x-request-id'), responseId: providerResponseId, outputTypes: parsed.diagnostics.outputTypes, contentTypes: parsed.diagnostics.contentTypes, validation: 'passed' }))
+  console.info(JSON.stringify({ diagnostic: 'OPENAI_SUCCESS', queueItemId, requestId: openAiResponse.headers.get('x-request-id'), responseId: providerResponseId, outputTypes: parsedAssessment.diagnostics.outputTypes, contentTypes: parsedAssessment.diagnostics.contentTypes, validation: 'passed' }))
   return response({ status: 'completed', queueItemId })
 })
