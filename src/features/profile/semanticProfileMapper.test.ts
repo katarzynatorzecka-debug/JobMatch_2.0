@@ -71,6 +71,13 @@ describe('semanticMappingToDraft', () => {
     expect(draft.values.priorities).toEqual(['experience', 'skills', 'preferences', 'growth'])
   })
 
+  it('keeps project scope, stack, result and prototyping evidence as first-class profile facts', () => {
+    const mapping = base()
+    mapping.candidateFacts.projects = [fact({ name: 'JobMatchMaker', scope: 'End-to-end web application', role: 'Product builder', stack: ['OpenAI API', 'Codex', 'React'], result: 'Deployed working product', link: null, deployed: true, uxEvidence: ['Interactive flows'], prototypingEvidence: ['Clickable prototype'] })]
+    const draft = semanticMappingToDraft(mapping, 'pasted-text')
+    expect(draft.values.intelligence?.candidateFacts.projects?.[0]).toMatchObject({ name: 'JobMatchMaker', role: 'Product builder', stack: ['OpenAI API', 'Codex', 'React'], deployed: true, prototypingEvidence: ['Clickable prototype'] })
+  })
+
   it('creates a review draft without mutating an already saved profile before explicit Save', () => {
     const savedProfile = { primaryRole: 'Existing profile role', acceptedLocations: ['Kraków'], additionalMustHave: 'Existing constraint' }
     const snapshot = structuredClone(savedProfile)

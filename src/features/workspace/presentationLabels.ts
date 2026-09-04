@@ -39,6 +39,16 @@ export function criterionOutcomeLabel(value: string): string {
   }
 }
 
+export function criterionMatchTypeLabel(value: string | undefined): string | null {
+  switch (value) {
+    case 'direct': return 'Dopasowanie bezpośrednie'
+    case 'transferable': return 'Dopasowanie transferowalne'
+    case 'no_evidence': return 'Brak dowodu w profilu'
+    case 'contradiction': return 'Sprzeczność z profilem'
+    default: return null
+  }
+}
+
 export function sourceQualityLabel(value: SourceQuality | string | null | undefined): string {
   switch (value) {
     case 'full': return 'Pelne dane oferty'

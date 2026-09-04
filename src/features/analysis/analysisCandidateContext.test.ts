@@ -25,4 +25,10 @@ describe('AnalysisCandidateContext', () => {
     expect(context.experienceEntries).toEqual([expect.objectContaining({ role: 'Service Delivery Manager' })])
     expect(context.skills).toEqual([expect.objectContaining({ name: 'Stakeholder management' })])
   })
+
+  it('passes first-class project evidence to assessment without leaking unbounded fields', () => {
+    const profile = { intelligence: { schemaVersion: 2, candidateFacts: { professionalSummary: '', totalExperienceYears: 3, experienceEntries: [], projects: [{ name: 'JobMatchMaker', scope: 'End-to-end web application', role: 'Product builder', stack: ['OpenAI API', 'Codex', 'React', 'TypeScript'], result: 'Deployed working product', link: 'https://example.com', deployed: true, uxEvidence: ['Interactive user flows'], prototypingEvidence: ['Rapid clickable prototype'], evidence: [{ source: 'cv', text: 'JobMatchMaker: end-to-end application', userConfirmed: false }] }], experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] }, careerTargets: { primaryRoles: [], alternativeRoles: [], careerDirections: [] }, workPreferences: { locations: [], workModes: [], employmentTypes: [] }, constraints: {}, matchingPriorities: ['experience', 'skills', 'preferences', 'growth'] } }
+    const context = buildAnalysisCandidateContext(profile, 'AI prototype builder') as Record<string, unknown>
+    expect(context.projects).toEqual([expect.objectContaining({ name: 'JobMatchMaker', role: 'Product builder', stack: expect.arrayContaining(['Codex']), deployed: true, uxEvidence: ['Interactive user flows'] })])
+  })
 })

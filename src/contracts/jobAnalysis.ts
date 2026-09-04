@@ -5,6 +5,7 @@ export type AnalysisStatus = 'ready' | 'retry' | 'rejected'
 export type Recommendation = 'Warto aplikować' | 'Wymaga sprawdzenia' | 'Nie rekomenduję'
 export type AnalysisCategory = 'experience' | 'skills' | 'preferences' | 'growth'
 export type CriterionOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
+export type CriterionMatchType = 'direct' | 'transferable' | 'no_evidence' | 'contradiction'
 export type CriterionImportance = 'critical' | 'core' | 'preferred'
 export type CriterionType = 'required_skill' | 'required_experience' | 'language' | 'responsibility_capability' | 'employment_condition' | 'preferred_qualification'
 export interface CategoryScore { score: number | null; rationale: string }
@@ -16,6 +17,7 @@ export interface AnalysisCriterion {
   /** Employer-rubric metadata. Optional for historical/demo rows. */
   type?: CriterionType
   importance?: CriterionImportance
+  matchType?: CriterionMatchType
   outcome: CriterionOutcome
   rationale: string
   profileEvidence: string[]

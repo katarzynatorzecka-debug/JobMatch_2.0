@@ -90,6 +90,10 @@ export async function runIntegratedAnalysisBatch(input: {
   const counts: IntegratedBatchCounts = { total: input.reports.reduce((total, report) => total + report.offers.length, 0), hardFilterRejected: 0, queued: 0, processing: 0, completed: 0, failed: 0 }
   const publishCounts = () => input.onCounts({ ...counts })
   const sourceByKey = new Map<string, { offer: ImportedJobOffer; hardFilter: ReturnType<typeof evaluateOffer> }>()
+  // Source acquisition is owned by the import path (direct URL) or by the
+  // analysis worker (stored/refreshable snapshot). Do not fetch every source
+  // again here: a mixed .eml batch must not turn into N extra network calls or
+  // overwrite its parsed metadata before Hard Filter.
   for (const report of input.reports) for (const offer of report.offers) {
     const progressKey = key(report.key, offer)
     input.onOfferProgress({ key: progressKey, offer, state: 'hard_filtering' })
@@ -99,7 +103,7 @@ export async function runIntegratedAnalysisBatch(input: {
 
   const imported = [] as Array<{ report: BatchReport; sessionId: string }>
   for (const report of input.reports) {
-    const result = await input.repository.importReport(toWorkspaceImportInput(input.userId, { ...report.report, offers: report.offers }))
+    const result = await input.repository.importReport(toWorkspaceImportInput(input.userId, report.report))
     await input.repository.setActiveImportSession(result.importSessionId)
     imported.push({ report, sessionId: result.importSessionId })
   }

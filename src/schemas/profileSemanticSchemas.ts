@@ -32,9 +32,10 @@ const semanticDomain = fact({ name: z.string().min(1).max(180), yearsApprox: z.n
 const semanticLanguage = fact({ name: z.string().min(1).max(180), level: z.string().max(80).nullable() })
 const semanticCredential = fact({ name: z.string().min(1).max(300), issuer: z.string().max(160).nullable() })
 const semanticExperienceEntry = fact({ role: z.string().min(1).max(180), company: z.string().max(160).nullable(), startDate: z.string().max(40).nullable(), endDate: z.string().max(40).nullable(), duration: z.string().max(80).nullable(), responsibilities: z.array(semanticCapability).max(30), achievements: z.array(semanticAchievement).max(20), domains: z.array(semanticDomain).max(20) })
+const semanticProject = fact({ name: z.string().min(1).max(160), scope: z.string().max(500), role: z.string().min(1).max(160), stack: z.array(z.string().min(1).max(80)).max(20), result: z.string().max(500), link: z.string().max(240).nullable(), deployed: z.boolean().nullable(), uxEvidence: z.array(z.string().min(1).max(300)).max(8), prototypingEvidence: z.array(z.string().min(1).max(300)).max(8) })
 const semanticCandidateFacts = z.object({
   totalExperienceYears: z.object({ value: z.number().min(0).max(60).nullable(), evidence, confidence: z.number().min(0).max(1), status }).strict(),
-  experienceEntries: z.array(semanticExperienceEntry).max(30), experienceAreas: z.array(semanticExperienceArea).max(20), skills: z.array(semanticSkill).max(40), responsibilities: z.array(semanticCapability).max(30), domains: z.array(semanticDomain).max(20), achievements: z.array(semanticAchievement).max(20), languages: z.array(semanticLanguage).max(12), education: z.array(semanticCredential).max(12), certifications: z.array(semanticCredential).max(20),
+  experienceEntries: z.array(semanticExperienceEntry).max(30), projects: z.array(semanticProject).max(20).optional(), experienceAreas: z.array(semanticExperienceArea).max(20), skills: z.array(semanticSkill).max(40), responsibilities: z.array(semanticCapability).max(30), domains: z.array(semanticDomain).max(20), achievements: z.array(semanticAchievement).max(20), languages: z.array(semanticLanguage).max(12), education: z.array(semanticCredential).max(12), certifications: z.array(semanticCredential).max(20),
 }).strict()
 
 export const semanticProfileMappingSchema = z.object({

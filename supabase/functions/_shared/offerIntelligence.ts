@@ -257,13 +257,13 @@ export function isOfferIntelligenceRubricSufficient(rubric: OfferIntelligenceRub
 }
 
 /**
- * A full, grounded source with at least one criterion is safe to assess even
- * when the provider reported missing or ambiguous employer information. The
- * resulting analysis must remain limited/reviewable; only an incomplete
- * source is blocked here.
+ * A non-empty, grounded source with at least one criterion is safe to assess
+ * even when the provider reported missing or ambiguous employer information.
+ * Partial source remains explicitly limited/reviewable; an empty source is
+ * still blocked by the worker before rubric generation.
  */
 export function isOfferIntelligenceRubricRunnable(rubric: OfferIntelligenceRubric) {
-  return rubric.quality.sourceCompleteness === 'full' && rubric.criteria.length > 0
+  return rubric.quality.sourceCompleteness !== 'unavailable' && rubric.criteria.length > 0
 }
 
 export function buildOfferIntelligencePrompt(source: OfferSourceSnapshot, sourceSnapshotHash: string) {

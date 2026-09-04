@@ -22,7 +22,7 @@ const manualEvidence = (text: string): ProfileEvidence[] => [{ source: 'user', t
 export function emptyProfileIntelligence(): ProfileIntelligence {
   return {
     schemaVersion: 2,
-    candidateFacts: { professionalSummary: '', totalExperienceYears: null, experienceEntries: [], experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] },
+    candidateFacts: { professionalSummary: '', totalExperienceYears: null, experienceEntries: [], projects: [], experienceAreas: [], skills: [], responsibilities: [], domains: [], achievements: [], languages: [], education: [], certifications: [] },
     careerTargets: { primaryRoles: [], alternativeRoles: [], targetSeniority: ['unknown'], careerDirections: [], transitionContext: null },
     workPreferences: { locations: [], workModes: [], employmentTypes: [], minimumSalary: null, availability: null, relocation: null },
     constraints: { mustHave: [], blacklist: [] },
@@ -32,7 +32,7 @@ export function emptyProfileIntelligence(): ProfileIntelligence {
 
 /** Reads legacy profiles without inventing facts. New V2 records remain canonical. */
 export function profileIntelligenceFromLegacy(profile: UserProfile): ProfileIntelligence {
-  if (profile.intelligence?.schemaVersion === 2) return profile.intelligence
+  if (profile.intelligence?.schemaVersion === 2) return { ...profile.intelligence, candidateFacts: { ...emptyProfileIntelligence().candidateFacts, ...profile.intelligence.candidateFacts, projects: profile.intelligence.candidateFacts.projects ?? [] } }
   return {
     ...emptyProfileIntelligence(),
     candidateFacts: {
@@ -107,6 +107,7 @@ export function synchronizeProfileIntelligence(profile: UserProfile): UserProfil
   intelligence.candidateFacts.education = sanitizeFacts(intelligence.candidateFacts.education)
   intelligence.candidateFacts.certifications = sanitizeFacts(intelligence.candidateFacts.certifications)
   intelligence.candidateFacts.experienceEntries = intelligence.candidateFacts.experienceEntries.map((entry) => ({ ...entry, evidence: sanitizeEvidence(entry.evidence), responsibilities: sanitizeFacts(entry.responsibilities), achievements: sanitizeFacts(entry.achievements), domains: sanitizeFacts(entry.domains) }))
+  intelligence.candidateFacts.projects = (intelligence.candidateFacts.projects ?? []).map((project) => ({ ...project, link: project.link?.trim() || null, stack: project.stack.map((item) => item.trim()).filter(Boolean).slice(0, 20), uxEvidence: project.uxEvidence.map(sanitizeEvidenceText).filter(Boolean).slice(0, 8), prototypingEvidence: project.prototypingEvidence.map(sanitizeEvidenceText).filter(Boolean).slice(0, 8), evidence: sanitizeEvidence(project.evidence) }))
   if (intelligence.candidateFacts.experienceEntries.length) {
     const unique = <T extends { evidence: ProfileEvidence[] }>(items: T[], key: (item: T) => string) => [...new Map(items.map((item) => [key(item).toLocaleLowerCase(), item])).values()]
     intelligence.candidateFacts.responsibilities = unique(intelligence.candidateFacts.experienceEntries.flatMap((entry) => entry.responsibilities), (item) => item.capability)

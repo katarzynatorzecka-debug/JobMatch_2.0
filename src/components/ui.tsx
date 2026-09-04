@@ -4,7 +4,7 @@ import { statusMeta, type DemoOffer, type DemoStatus } from '../demo/offers'
 import type { HardFilterStatus } from '../contracts/hardFilter'
 import type { AnalysisCategory, AnalysisCriterion, JobAnalysis } from '../contracts/jobAnalysis'
 import type { WorkspaceAnalysisState } from '../contracts/workspace'
-import { analysisDateLabel, analysisStateLabel, criterionOutcomeLabel, hardFilterReasonLabels, sourceQualityLabel } from '../features/workspace/presentationLabels'
+import { analysisDateLabel, analysisStateLabel, criterionMatchTypeLabel, criterionOutcomeLabel, hardFilterReasonLabels, sourceQualityLabel } from '../features/workspace/presentationLabels'
 
 export function PageHeader({ eyebrow = 'JobMatch', title, intro, actions }: { eyebrow?: string; title: string; intro: string; actions?: ReactNode }) { return <header className="page-header"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-intro">{intro}</p>{actions}</header> }
 export function PrimaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--primary ${className}`} {...props}>{children}</button> }
@@ -91,7 +91,7 @@ export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobA
     {detailed && <div className="analysis-quality__criteria">{(['experience', 'skills', 'preferences', 'growth'] as AnalysisCategory[]).map((category) => {
       const items = criterionList(analysis, category)
       if (!items.length) return <div key={category}><strong>{categoryLabels[category]}</strong><p>Brak kryteriów szczegółowych w historycznej analizie.</p></div>
-      return <div key={category}><strong>{categoryLabels[category]}</strong><ul>{items.map((criterion) => <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome)}; pewność {criterion.confidence}%<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>Brak potwierdzających danych.</em> : <><small>Profil: {criterion.profileEvidence.join('; ') || 'brak dowodu'}</small><br /><small>Oferta: {criterion.offerEvidence.join('; ') || 'brak dowodu'}</small></>}</li>)}</ul></div>
+      return <div key={category}><strong>{categoryLabels[category]}</strong><ul>{items.map((criterion) => <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome)}{criterionMatchTypeLabel(criterion.matchType) ? ` · ${criterionMatchTypeLabel(criterion.matchType)}` : ''}; pewność {criterion.confidence}%<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>Brak potwierdzających danych.</em> : <><small>Profil: {criterion.profileEvidence.join('; ') || 'brak dowodu'}</small><br /><small>Oferta: {criterion.offerEvidence.join('; ') || 'brak dowodu'}</small></>}</li>)}</ul></div>
     })}</div>}
   </div>
 }

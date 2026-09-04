@@ -28,8 +28,8 @@ function criterion(overrides: Partial<OfferIntelligenceProviderOutput['criteria'
 
 describe('offer intelligence truth layer', () => {
   it('refreshes a stored full snapshot when its contract is legacy', () => {
-    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-r7', activeContractVersion: 'jobmatch-analysis-contract-vnext-b' })).toBe(true)
-    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-vnext-b', activeContractVersion: 'jobmatch-analysis-contract-vnext-b' })).toBe(false)
+    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-r7', activeContractVersion: 'jobmatch-analysis-contract-vnext-c' })).toBe(true)
+    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-vnext-c', activeContractVersion: 'jobmatch-analysis-contract-vnext-c' })).toBe(false)
   })
 
   it('reports grounded-evidence failures without exposing source text', () => {
@@ -93,12 +93,12 @@ describe('offer intelligence truth layer', () => {
     expect(buildOfferIntelligenceRubric(source, sourceHash, duplicate)).toBeNull()
   })
 
-  it('fails closed for incomplete source or unresolved rubric ambiguity', () => {
+  it('keeps partial source limited and fails closed only when the rubric is ambiguous', () => {
     const incompleteSource = { ...source, sourceQuality: 'partial' as const }
     const output: OfferIntelligenceProviderOutput = { criteria: [criterion()], rubricComplete: false, unresolvedAmbiguities: ['Nie wiadomo, czy język jest wymagany.'], missingInformation: [] }
     const rubric = buildOfferIntelligenceRubric(incompleteSource, sourceHash, output)
     expect(rubric?.quality.rubricCompleteness).toBe('incomplete')
-    expect(rubric && isOfferIntelligenceRubricRunnable(rubric)).toBe(false)
+    expect(rubric && isOfferIntelligenceRubricRunnable(rubric)).toBe(true)
     expect(rubric && isOfferIntelligenceRubricSufficient(rubric)).toBe(false)
   })
 

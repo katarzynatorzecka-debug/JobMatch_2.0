@@ -36,6 +36,57 @@ function decodeEntities(value: string) {
     .replace(/&([a-z]+);/gi, (match, name: string) => named[name.toLocaleLowerCase()] ?? match)
 }
 
+function structuredJobMetadata(html: string) {
+  const result: { location?: string; workMode?: string; contractType?: string; salary?: string } = {}
+  const scripts = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(decodeEntities(script[1])) as Record<string, unknown> | Array<Record<string, unknown>>
+      const candidates = Array.isArray(parsed) ? parsed : [parsed]
+      const job = candidates.find((item) => item && (item['@type'] === 'JobPosting' || (Array.isArray(item['@type']) && item['@type'].includes('JobPosting'))))
+      if (!job) continue
+      const location = job.jobLocation
+      const locationObject = Array.isArray(location) ? location[0] : location
+      const address = locationObject && typeof locationObject === 'object' ? (locationObject as Record<string, unknown>).address : null
+      const addressObject = address && typeof address === 'object' ? address as Record<string, unknown> : null
+      const locationValue = [addressObject?.addressLocality, addressObject?.addressRegion, addressObject?.addressCountry].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join(', ')
+      if (locationValue) result.location = locationValue
+      const employmentType = Array.isArray(job.employmentType)
+        ? job.employmentType.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join(', ')
+        : typeof job.employmentType === 'string' ? job.employmentType.trim() : ''
+      if (employmentType) {
+        // JSON-LD commonly exposes FULL_TIME/PART_TIME, which is work time,
+        // not a Polish legal contract. Keep it as a non-missing hint and let
+        // a visible RocketJobs contract label take precedence below.
+        const normalizedEmploymentType = employmentType.toLocaleLowerCase('en-US').replace(/[-\s]+/g, '_')
+        result.contractType = normalizedEmploymentType === 'full_time' ? 'Pełny etat' : normalizedEmploymentType === 'part_time' ? 'Część etatu' : employmentType
+      }
+      if (String(job.jobLocationType ?? '').toUpperCase() === 'TELECOMMUTE') result.workMode = 'Praca zdalna'
+      const salary = job.baseSalary
+      if (salary && typeof salary === 'object') {
+        const salaryObject = salary as Record<string, unknown>
+        const value = salaryObject.value && typeof salaryObject.value === 'object' ? salaryObject.value as Record<string, unknown> : salaryObject
+        const amount = typeof value.value === 'number' || typeof value.value === 'string' ? String(value.value) : ''
+        const currency = typeof salaryObject.currency === 'string' ? salaryObject.currency : ''
+        if (amount) result.salary = [amount, currency].filter(Boolean).join(' ')
+      }
+      break
+    } catch { /* malformed JSON-LD is not a source failure */ }
+  }
+  return result
+}
+
+function labeledMetadata(lines: string[]) {
+  const text = lines.map(withoutHeadingMarker).join('\n')
+  const find = (pattern: RegExp) => text.match(pattern)?.[1]?.trim()
+  return {
+    location: find(/(?:lokalizacja|location|miejsce pracy)\s*[:\-]\s*([^\n]{2,120})/i),
+    workMode: find(/(?:tryb pracy|work mode|model pracy)\s*[:\-]\s*([^\n]{2,80})/i) ?? text.match(/\b(praca\s+hybrydowa|hybrydowo|hybrid|praca\s+zdalna|zdalnie|remote|praca\s+stacjonarna|stacjonarnie|onsite)\b/i)?.[1],
+    contractType: find(/(?:rodzaj umowy|forma współpracy|forma zatrudnienia|employment type)\s*[:\-]\s*([^\n]{2,100})/i) ?? text.match(/\b(umowa\s+o\s+pracę|uop|b2b|umowa\s+zlecenie|freelance|kontrakt|internship|staż)\b/i)?.[1],
+    salary: find(/(?:wynagrodzenie|salary|stawka)\s*[:\-]\s*([^\n]{2,120})/i) ?? text.match(/\b\d[\d\s.,]*\s*(?:PLN|zł|EUR|USD)(?:\s*\/\s*(?:h|miesiąc|month))?\b/i)?.[0],
+  }
+}
+
 const headingMap = new Map<string, SectionHeading>([
   ['wymagania', { section: 'requirements' }],
   ['nasze wymagania', { section: 'requirements' }],
@@ -188,6 +239,11 @@ export function normalizeOfferPage(offerId: string, sourceUrl: string, html: str
   const benefits = valuesFor(lines, 'benefits')
   const sourceQuality = description.length > 260 && requirements.length > 0 && responsibilities.length > 0 ? 'full' : 'partial'
   const missingInformation = [requirements.length ? null : 'wymagania', responsibilities.length ? null : 'zakres obowiązków', benefits.length ? null : 'benefity'].filter((value): value is string => Boolean(value))
+  const structured = structuredJobMetadata(html)
+  const labeled = labeledMetadata(lines)
   const field = (name: string) => typeof imported[name] === 'string' && imported[name].trim() ? imported[name].trim() : undefined
-  return { offerId, sourceUrl, status: sourceQuality === 'full' ? 'completed' : 'partial', sourceQuality, title: title || field('title'), company: field('company'), location: field('location'), workMode: field('workMode'), contractType: field('contractType'), salary: field('salary'), description, requirements, responsibilities, benefits, missingInformation, warnings: sourceQuality === 'partial' ? ['Znaleziono tylko część znormalizowanej treści oferty.'] : [], fetchedAt: new Date().toISOString() }
+  // Visible, labelled portal metadata is more authoritative than generic
+  // JSON-LD employmentType values such as FULL_TIME.
+  const metadata = (name: keyof typeof structured) => field(name) ?? labeled[name] ?? structured[name]
+  return { offerId, sourceUrl, status: sourceQuality === 'full' ? 'completed' : 'partial', sourceQuality, title: title || field('title'), company: field('company'), location: metadata('location'), workMode: metadata('workMode'), contractType: metadata('contractType'), salary: metadata('salary'), description, requirements, responsibilities, benefits, missingInformation, warnings: sourceQuality === 'partial' ? ['Znaleziono tylko część znormalizowanej treści oferty.'] : [], fetchedAt: new Date().toISOString() }
 }

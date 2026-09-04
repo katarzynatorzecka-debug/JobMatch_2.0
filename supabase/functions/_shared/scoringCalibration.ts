@@ -3,12 +3,14 @@ import { analysisCategories } from './jobAnalysisOutputSchema.ts'
 export type ScoringCategory = (typeof analysisCategories)[number]
 export type ScoringOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
 export type ScoringImportance = 'critical' | 'core' | 'preferred'
+export type ScoringMatchType = 'direct' | 'transferable' | 'no_evidence' | 'contradiction'
 export type ScoringDimension = 'employerFit' | 'userCompatibility'
 
 export type ScoringCriterion = {
   id: string
   canonicalKey?: string
   outcome: ScoringOutcome
+  matchType?: ScoringMatchType
   confidence: number
   type?: 'required_skill' | 'required_experience' | 'language' | 'responsibility_capability' | 'employment_condition' | 'preferred_qualification'
   importance?: ScoringImportance
@@ -38,6 +40,13 @@ export const activeScoringVariantId = 'critical-priority'
 export const SCORING_CALIBRATION_STATUS = 'pending_human_scoring_gate' as const
 export const SCORING_ALGORITHM_VERSION = 'jobmatch-deterministic-r10-critical-priority'
 export const outcomePercent: Record<ScoringOutcome, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
+function effectiveOutcome(criterion: ScoringCriterion): ScoringOutcome {
+  if (criterion.matchType === 'direct') return 'MATCH'
+  if (criterion.matchType === 'transferable') return 'PARTIAL'
+  if (criterion.matchType === 'no_evidence') return 'UNKNOWN'
+  if (criterion.matchType === 'contradiction') return 'NO_MATCH'
+  return criterion.outcome
+}
 
 function variantById(variantId: string) {
   const variant = scoringWeightVariants.find((candidate) => candidate.id === variantId)
@@ -97,27 +106,30 @@ export function scoreScoringCriteria(priorities: readonly string[], criteria: Sc
   const dimensionBudgets = variant.dimensionWeights
   const scoredEntries = entries.map((entry) => ({ ...entry, weight: dimensionBudgets[entry.dimension] * entry.factor / dimensionFactorTotals[entry.dimension] }))
   const totalWeight = scoredEntries.reduce((total, entry) => total + entry.weight, 0)
-  const knownEntries = scoredEntries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
+  const knownEntries = scoredEntries.filter(({ criterion }) => effectiveOutcome(criterion) !== 'UNKNOWN')
   const knownWeight = knownEntries.reduce((total, entry) => total + entry.weight, 0)
-  const weightedPoints = knownEntries.reduce((total, entry) => total + entry.weight * (outcomePercent[entry.criterion.outcome] ?? 0), 0)
-  const score = totalWeight ? Math.round(weightedPoints / totalWeight) : 0
+  const weightedPoints = knownEntries.reduce((total, entry) => total + entry.weight * (outcomePercent[effectiveOutcome(entry.criterion)] ?? 0), 0)
+  // Unproven is not the same as contradicted: no_evidence becomes UNKNOWN and
+  // lowers coverage, but must not zero out the score of evidenced criteria.
+  const score = knownWeight ? Math.round(weightedPoints / knownWeight) : 0
   const confidenceValues = knownEntries.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const criterionConfidence = confidenceValues.length === knownEntries.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / knownWeight) : null
   const coverage = totalWeight ? Math.round((knownWeight / totalWeight) * 100) : 0
   const reliability = coverage < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
   const dimensionScore = (dimension: ScoringDimension) => {
     const dimensionEntries = scoredEntries.filter((entry) => entry.dimension === dimension)
-    const known = dimensionEntries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
+    const known = dimensionEntries.filter(({ criterion }) => effectiveOutcome(criterion) !== 'UNKNOWN')
     if (!known.length) return null
     const dimensionWeight = dimensionEntries.reduce((total, entry) => total + entry.weight, 0)
-    return Math.round(known.reduce((total, entry) => total + entry.weight * (outcomePercent[entry.criterion.outcome] ?? 0), 0) / dimensionWeight)
+    const knownWeight = known.reduce((total, entry) => total + entry.weight, 0)
+    return knownWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * (outcomePercent[effectiveOutcome(entry.criterion)] ?? 0), 0) / knownWeight) : null
   }
   const categoryScores = Object.fromEntries(analysisCategories.map((category) => {
     const categoryEntries = scoredEntries.filter((entry) => entry.category === category)
-    const known = categoryEntries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
+    const known = categoryEntries.filter(({ criterion }) => effectiveOutcome(criterion) !== 'UNKNOWN')
     if (!known.length) return [category, null]
-    const categoryWeight = categoryEntries.reduce((total, entry) => total + entry.factor, 0)
-    return [category, Math.round(known.reduce((total, entry) => total + entry.factor * (outcomePercent[entry.criterion.outcome] ?? 0), 0) / categoryWeight)]
+    const categoryWeight = known.reduce((total, entry) => total + entry.factor, 0)
+    return [category, categoryWeight ? Math.round(known.reduce((total, entry) => total + entry.factor * (outcomePercent[effectiveOutcome(entry.criterion)] ?? 0), 0) / categoryWeight) : null]
   })) as Record<ScoringCategory, number | null>
   return {
     overallScore: score,
@@ -133,7 +145,7 @@ export function scoreScoringCriteria(priorities: readonly string[], criteria: Sc
       coverage,
       criterionConfidence,
       reliability,
-      scoredCategories: analysisCategories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')),
+      scoredCategories: analysisCategories.filter((category) => (criteria[category] ?? []).some((criterion) => effectiveOutcome(criterion) !== 'UNKNOWN')),
       criterionCount: entries.length,
       knownCriterionCount: knownEntries.length,
       unknownCriterionCount: entries.length - knownEntries.length,

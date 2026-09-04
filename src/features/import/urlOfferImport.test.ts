@@ -10,9 +10,9 @@ describe('URL offer import adapter', () => {
   it('creates one report compatible with the existing import pipeline', () => {
     const url = 'https://rocketjobs.pl/oferta-pracy/example'
     const seed = createUrlOfferSeed(url)
-    const report = importedReportFromUrlSource({ offerId: seed.id, sourceUrl: url, status: 'completed', sourceQuality: 'full', title: 'Automation Specialist', company: 'Example', requirements: [], responsibilities: [], benefits: [], missingInformation: [], warnings: [], fetchedAt: '2026-08-08T10:00:00.000Z' }, url)
+    const report = importedReportFromUrlSource({ offerId: seed.id, sourceUrl: url, status: 'completed', sourceQuality: 'full', title: 'Automation Specialist', company: 'Example', location: 'Warszawa', workMode: 'hybrydowo', contractType: 'Umowa o pracę', salary: '15 000 PLN', requirements: [], responsibilities: [], benefits: [], missingInformation: [], warnings: [], fetchedAt: '2026-08-08T10:00:00.000Z' }, url)
     expect(report.source).toBe('job-url')
     expect(report.offers).toHaveLength(1)
-    expect(report.offers[0]).toMatchObject({ id: seed.id, title: 'Automation Specialist', company: 'Example', sourceUrl: url })
+    expect(report.offers[0]).toMatchObject({ id: seed.id, title: 'Automation Specialist', company: 'Example', location: 'Warszawa', workMode: 'hybrydowo', contractType: 'Umowa o pracę', salary: '15 000 PLN', sourceUrl: url })
   })
 })

@@ -11,7 +11,7 @@ const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const model = 'gpt-5.4-mini'
 const promptVersion = 'jobmatch-job-match-v6'
 const algorithmVersion = SCORING_ALGORITHM_VERSION
-const analysisContractVersion = 'jobmatch-analysis-contract-vnext-b'
+const analysisContractVersion = 'jobmatch-analysis-contract-vnext-c'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -41,6 +41,10 @@ function isOfferSourceSnapshot(value: unknown): value is OfferSourceSnapshot {
   const data = value as Record<string, unknown>
   return (data.sourceQuality === 'full' || data.sourceQuality === 'partial') && typeof data.text === 'string' && Array.isArray(data.missingInformation) && data.missingInformation.every((item) => typeof item === 'string')
     && ['requirements', 'responsibilities', 'benefits'].every((key) => data[key] === undefined || (Array.isArray(data[key]) && data[key].every((item) => typeof item === 'string')))
+}
+
+function hasRunnableSourceContent(source: OfferSourceSnapshot) {
+  return source.text.trim().length >= 260 && (source.requirements.length > 0 || source.responsibilities.length > 0)
 }
 
 async function sha256Text(value: string) {
@@ -145,7 +149,7 @@ Deno.serve(async (request) => {
     if (refreshedSource.sourceQuality === 'full') { source = refreshedSource; nextSourceHash = refreshedHash }
   }
   if (!rubric) {
-    if (source.sourceQuality !== 'full' || !source.text) return await failQueue('WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
+    if (!hasRunnableSourceContent(source)) return await failQueue('WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
     let intelligenceResponse: Response | null = null
     const intelligenceSchemas = offerIntelligenceRequestSchemas(source)
     for (let schemaIndex = 0; schemaIndex < intelligenceSchemas.length; schemaIndex += 1) {
@@ -179,7 +183,17 @@ Deno.serve(async (request) => {
     : await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, rubric)
   if (!persistedContract.ok) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
   if (!await alignQueueAnalysisIdentity(worker, queueItem, workerToken, persistedContract.contractHash)) return await failQueue('WORKSPACE_ANALYSIS_IDENTITY_SAVE_FAILED')
-  if (!isOfferIntelligenceRubricRunnable(rubric) || !isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
+  if (!isOfferIntelligenceRubricRunnable(rubric) || !isManifestSufficientForAnalysis(manifest)) {
+    console.info(JSON.stringify({
+      diagnostic: 'WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT',
+      sourceQuality: rubric.quality.sourceCompleteness,
+      rubricCompleteness: rubric.quality.rubricCompleteness,
+      criterionCount: rubric.quality.criterionCount,
+      sourceCriterionCount: manifest.quality.sourceCriterionCount,
+      omittedCriterionCount: manifest.quality.omittedCriterionCount,
+    }))
+    return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
+  }
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
   const prompt = buildCandidateAssessmentPrompt(rubric, candidateContext, hardFilter)
   const existingProviderResponseId = typeof queueItem.provider_response_id === 'string' ? queueItem.provider_response_id : null
@@ -213,7 +227,7 @@ Deno.serve(async (request) => {
   if (!isAnalysisOutput(parsed)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
   if (!outputMatchesManifest(parsed.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
   const scoring = scoreScoringCriteria(profile.priorities, parsed.criteria as ScoringCriteria)
-  const rubricIsLimited = rubric.quality.rubricCompleteness !== 'complete' || rubric.quality.unresolvedAmbiguityCount > 0
+  const rubricIsLimited = rubric.quality.sourceCompleteness !== 'full' || rubric.quality.rubricCompleteness !== 'complete' || rubric.quality.unresolvedAmbiguityCount > 0
   const finalReliability = rubricIsLimited ? 'limited' : scoring.scoring.reliability
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {

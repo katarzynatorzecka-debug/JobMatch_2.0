@@ -14,11 +14,11 @@ const rubric: OfferIntelligenceRubric = {
 }
 
 function assessment(overrides: Partial<CandidateAssessmentOutput['criteria']['skills'][number]> = {}): CandidateAssessmentOutput['criteria']['skills'][number] {
-  return { id: 'req:arabic-language', canonicalKey: 'req:arabic-language', requirement: 'Znajomość języka arabskiego', type: 'language', importance: 'critical', outcome: 'NO_MATCH', rationale: 'Profil nie zawiera potwierdzenia.', profileEvidence: [], confidence: 90, ...overrides }
+  return { id: 'req:arabic-language', matchType: 'no_evidence', outcome: 'NO_MATCH', rationale: 'Profil nie zawiera potwierdzenia.', profileEvidence: [], confidence: 90, ...overrides }
 }
 
 function output(overrides: Partial<CandidateAssessmentOutput['criteria']['skills'][number]> = {}): CandidateAssessmentOutput {
-  return { criteria: { experience: [{ id: 'req:social-media-moderation', canonicalKey: 'req:social-media-moderation', requirement: 'Doświadczenie w moderacji social media', type: 'required_experience', importance: 'core', outcome: 'PARTIAL', rationale: 'Profil pokazuje częściowo transferowalne doświadczenie.', profileEvidence: ['Moderacja społeczności w projekcie.'], confidence: 70 }], skills: [assessment(overrides)], preferences: [{ id: 'req:remote-work', canonicalKey: 'req:remote-work', requirement: 'Praca zdalna', type: 'employment_condition', importance: 'preferred', outcome: 'MATCH', rationale: 'Profil potwierdza pracę zdalną.', profileEvidence: ['Praca zdalna.'], confidence: 95 }], growth: [] }, summary: 'Ocena względem pełnej rubryki.', strengths: ['Doświadczenie transferowalne.'], risks: ['Brak potwierdzenia języka.'], missingInformation: [] }
+  return { criteria: { experience: [{ id: 'req:social-media-moderation', matchType: 'transferable', outcome: 'PARTIAL', rationale: 'Profil pokazuje częściowo transferowalne doświadczenie.', profileEvidence: ['Moderacja społeczności w projekcie.'], confidence: 70 }], skills: [assessment(overrides)], preferences: [{ id: 'req:remote-work', matchType: 'direct', outcome: 'MATCH', rationale: 'Profil potwierdza pracę zdalną.', profileEvidence: ['Praca zdalna.'], confidence: 95 }], growth: [] }, summary: 'Ocena względem pełnej rubryki.', strengths: ['Doświadczenie transferowalne.'], risks: ['Brak potwierdzenia języka.'], missingInformation: [] }
 }
 
 describe('candidate assessment contract', () => {
@@ -26,7 +26,7 @@ describe('candidate assessment contract', () => {
     const value = output()
     expect(isCandidateAssessmentOutput(value, rubric)).toBe(true)
     const analysis = candidateAssessmentToAnalysisOutput(value, rubric)
-    expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical' })
+    expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical', matchType: 'no_evidence', outcome: 'UNKNOWN' })
     expect(analysis.criteria.skills[0].offerEvidence).toEqual(['arabski'])
     expect(analysis.criteria.experience[0].offerEvidence).toEqual(['moderating social media'])
   })
@@ -36,12 +36,29 @@ describe('candidate assessment contract', () => {
     expect(isCandidateAssessmentOutput(output({ outcome: 'MATCH', profileEvidence: [] }), rubric)).toBe(false)
   })
 
-  it('rejects changing type, importance, requirement or criterion count', () => {
-    expect(isCandidateAssessmentOutput(output({ importance: 'preferred' }), rubric)).toBe(false)
-    expect(isCandidateAssessmentOutput(output({ requirement: 'Inny wymóg' }), rubric)).toBe(false)
+  it('maps transferable evidence to PARTIAL and keeps contradiction distinct from no evidence', () => {
+    const transferable = output({ outcome: 'PARTIAL', matchType: 'transferable', profileEvidence: ['BEN10: grywalne MVP webowe.'] })
+    expect(isCandidateAssessmentOutput(transferable, rubric)).toBe(true)
+    expect(candidateAssessmentToAnalysisOutput(transferable, rubric).criteria.skills[0]?.outcome).toBe('PARTIAL')
+    const contradiction = output({ outcome: 'NO_MATCH', matchType: 'contradiction', rationale: 'Profil wprost wskazuje wyłącznie pracę stacjonarną.' })
+    expect(isCandidateAssessmentOutput(contradiction, rubric)).toBe(true)
+    expect(candidateAssessmentToAnalysisOutput(contradiction, rubric).criteria.skills[0]?.outcome).toBe('NO_MATCH')
+  })
+
+  it('rejects an unknown criterion id or criterion count', () => {
+    expect(isCandidateAssessmentOutput(output({ id: 'req:unknown' }), rubric)).toBe(false)
     const missing = output()
     missing.criteria.experience = []
     expect(isCandidateAssessmentOutput(missing, rubric)).toBe(false)
+  })
+
+  it('ignores provider attempts to paraphrase rubric text because the provider no longer owns immutable fields', () => {
+    const value = output()
+    const withLegacyFields = value as unknown as { criteria: { skills: Array<Record<string, unknown>> } }
+    withLegacyFields.criteria.skills[0].requirement = 'Inny wymóg'
+    expect(isCandidateAssessmentOutput(value, rubric)).toBe(false)
+    delete withLegacyFields.criteria.skills[0].requirement
+    expect(isCandidateAssessmentOutput(value, rubric)).toBe(true)
   })
 
   it('reports only an aggregate diagnostic for invalid provider output', () => {
@@ -71,7 +88,6 @@ describe('candidate assessment contract', () => {
   it('binds immutable criterion values to the rubric in the provider schema', () => {
     const schema = candidateAssessmentJsonSchemaForRubric(rubric) as { properties: { criteria: { properties: Record<string, { items?: { properties?: Record<string, { enum?: string[] }> } }> } } }
     expect(schema.properties.criteria.properties.skills.items?.properties?.id).toMatchObject({ enum: ['req:arabic-language'] })
-    expect(schema.properties.criteria.properties.skills.items?.properties?.canonicalKey).toMatchObject({ enum: ['req:arabic-language'] })
-    expect(schema.properties.criteria.properties.skills.items?.properties?.requirement).toMatchObject({ enum: ['Znajomość języka arabskiego'] })
+    expect(schema.properties.criteria.properties.skills.items?.properties?.requirement).toBeUndefined()
   })
 })

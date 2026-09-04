@@ -27,6 +27,7 @@ export interface ProfileDomain extends ProfileFactQuality { name: string; yearsA
 export interface ProfileLanguage extends ProfileFactQuality { name: string; level: string | null; evidence: ProfileEvidence[] }
 export interface ProfileCredential extends ProfileFactQuality { name: string; issuer: string | null; evidence: ProfileEvidence[] }
 export interface ProfileExperienceEntry extends ProfileFactQuality { role: string; company: string | null; startDate: string | null; endDate: string | null; duration: string | null; responsibilities: ProfileCapability[]; achievements: ProfileCapability[]; domains: ProfileDomain[]; evidence: ProfileEvidence[] }
+export interface ProfileProject extends ProfileFactQuality { name: string; scope: string; role: string; stack: string[]; result: string; link: string | null; deployed: boolean | null; uxEvidence: string[]; prototypingEvidence: string[]; evidence: ProfileEvidence[] }
 export interface HardPreference<T extends string> { value: T; isHard: boolean; source: ProfileFactSource; userConfirmed: boolean }
 
 export interface ProfileIntelligence {
@@ -35,6 +36,8 @@ export interface ProfileIntelligence {
     professionalSummary: string
     totalExperienceYears: number | null
     experienceEntries: ProfileExperienceEntry[]
+    /** Optional at the TypeScript boundary so legacy V2 rows can be read before schema defaults are applied. */
+    projects?: ProfileProject[]
     experienceAreas: ExperienceArea[]
     skills: ProfileSkill[]
     responsibilities: ProfileCapability[]

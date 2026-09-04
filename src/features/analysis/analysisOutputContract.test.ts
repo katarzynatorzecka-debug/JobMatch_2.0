@@ -31,7 +31,7 @@ describe('AI criterion output contract', () => {
   it('separates a clear unsupported requirement from UNKNOWN and guards criterion evidence', () => {
     expect(edgeSource).toContain('buildCandidateAssessmentPrompt(rubric, candidateContext, hardFilter)')
     expect(edgeSource).toContain('isCandidateAssessmentOutput(parsedAssessment.value, rubric)')
-    expect(candidateAssessmentSource).toContain("criterion.outcome === 'MATCH' || criterion.outcome === 'PARTIAL'")
+    expect(candidateAssessmentSource).toContain("criterion.matchType === 'direct' || criterion.matchType === 'transferable'")
     expect(candidateAssessmentSource).toContain('profileEvidence.length > 0')
     expect(candidateAssessmentSource).toContain('sourceEvidence')
     expect(candidateAssessmentSource).not.toContain('profileEvidenceCeiling')
@@ -41,7 +41,7 @@ describe('AI criterion output contract', () => {
     expect(DETERMINISTIC_SCORING_VERSION).toBe(CURRENT_ANALYSIS_ALGORITHM_VERSION)
     expect(edgeSource).toContain('const algorithmVersion = SCORING_ALGORITHM_VERSION')
     expect(edgeSource).toContain(`const promptVersion = '${CURRENT_ANALYSIS_PROMPT_VERSION}'`)
-    expect(edgeSource).toContain("const analysisContractVersion = 'jobmatch-analysis-contract-vnext-b'")
+    expect(edgeSource).toContain("const analysisContractVersion = 'jobmatch-analysis-contract-vnext-c'")
     expect(edgeSource).toContain('algorithm_version: algorithmVersion')
   })
 

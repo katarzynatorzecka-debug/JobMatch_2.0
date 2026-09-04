@@ -16,9 +16,9 @@ describe('deterministic scoring', () => {
     expect(result.overallScore).toBe(69)
   })
 
-  it('keeps UNKNOWN in the denominator instead of inflating the score', () => {
+  it('keeps UNKNOWN out of the score denominator while reporting reduced coverage', () => {
     const result = calculateDeterministicScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { ...allMatch, growth: 'UNKNOWN' }, { experience: 80, skills: 80, preferences: 80 })
-    expect(result.overallScore).toBe(73)
+    expect(result.overallScore).toBe(100)
     expect(result.scoring.coverage).toBe(73)
     expect(result.scoring.reliability).toBe('limited')
     expect(result.categoryScores.growth).toBeNull()
@@ -44,7 +44,7 @@ describe('deterministic scoring', () => {
   it('calculates coverage from subcriteria without penalizing known matches for unknown criteria', () => {
     let index = 0; const criterion = (outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN', confidence = 80) => ({ id: `req:${outcome.toLocaleLowerCase()}-${++index}`, requirement: outcome, outcome, rationale: outcome, profileEvidence: outcome === 'UNKNOWN' ? [] : ['profil'], offerEvidence: outcome === 'UNKNOWN' ? [] : ['oferta'], confidence })
     const result = calculateCriterionLevelScore({ priorities: ['preferences', 'growth', 'skills', 'experience'] }, { preferences: [criterion('MATCH')], growth: [criterion('UNKNOWN')], skills: [criterion('MATCH')], experience: [criterion('MATCH')] })
-    expect(result.overallScore).toBe(73)
+    expect(result.overallScore).toBe(100)
     expect(result.scoring.coverage).toBe(73)
     expect(result.scoring.reliability).toBe('limited')
     expect(result.scoring.unknownCriterionCount).toBe(1)
@@ -98,9 +98,9 @@ describe('deterministic scoring', () => {
       preferences: [criterion('MATCH'), criterion('MATCH'), criterion('PARTIAL'), criterion('NO_MATCH'), criterion('UNKNOWN'), criterion('UNKNOWN')],
       growth: [criterion('MATCH'), criterion('PARTIAL'), criterion('UNKNOWN'), criterion('UNKNOWN')],
     })
-    expect(result.overallScore).toBe(54)
+    expect(result.overallScore).toBe(79)
     expect(result.scoring.coverage).toBe(69)
-    expect(result.categoryScores).toEqual({ experience: 73, skills: 60, preferences: 43, growth: 40 })
+    expect(result.categoryScores).toEqual({ experience: 73, skills: 90, preferences: 65, growth: 80 })
     expect(result.scoring.reliability).toBe('limited')
     expect(result.recommendation).toBe('Wymaga sprawdzenia')
   })
@@ -118,5 +118,13 @@ describe('deterministic scoring', () => {
     expect(report.cases[0].variants).toHaveLength(3)
     expect(report.cases[0].variants[1].overallScore).toBeLessThan(report.cases[0].variants[0].overallScore)
     expect(report.cases[0].variants[2].overallScore).toBeLessThan(report.cases[0].variants[1].overallScore)
+  })
+
+  it('treats transferable evidence as partial and no evidence as uncovered', () => {
+    const criterion = (matchType: 'direct' | 'transferable' | 'no_evidence' | 'contradiction', outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH') => ({ id: `req:${matchType}`, canonicalKey: `req:${matchType}`, requirement: matchType, matchType, outcome, rationale: matchType, profileEvidence: matchType === 'no_evidence' || matchType === 'contradiction' ? [] : ['JobMatchMaker'], offerEvidence: ['oferta'], confidence: 90 })
+    const result = calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { experience: [criterion('direct', 'MATCH'), criterion('transferable', 'PARTIAL'), criterion('no_evidence', 'NO_MATCH')], skills: [], preferences: [], growth: [] })
+    expect(result.overallScore).toBe(80)
+    expect(result.scoring.coverage).toBe(67)
+    expect(result.scoring.unknownCriterionCount).toBe(1)
   })
 })
