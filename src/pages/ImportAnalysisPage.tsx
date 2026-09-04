@@ -34,7 +34,7 @@ function statusLabel(progress?: IntegratedOfferProgress) {
 export function ImportAnalysisPage() {
   const { mode, session } = useAppMode(); const navigate = useNavigate()
   const sessionScope = mode === 'authenticated' && session ? `authenticated-${session.user.id}` : 'demo'
-  const inputRef = useRef<HTMLInputElement>(null); const sequenceRef = useRef(0); const analysisRunRef = useRef(false); const freshBatchStartedRef = useRef(false); const initialSession = useRef(loadIntegratedAnalysisSession(undefined, sessionScope))
+  const inputRef = useRef<HTMLInputElement>(null); const sequenceRef = useRef(0); const analysisRunRef = useRef(false); const freshBatchStartedRef = useRef(false); const loadedSession = loadIntegratedAnalysisSession(undefined, sessionScope); const initialSession = useRef(loadedSession?.pipeline === 'complete' ? null : loadedSession)
   const [batch, setBatch] = useState(() => initialSession.current?.batch ?? createImportBatchState()); const [isProcessingFiles, setIsProcessingFiles] = useState(false); const [isProcessingUrl, setIsProcessingUrl] = useState(false); const [urlInput, setUrlInput] = useState('')
   const [pipeline, setPipeline] = useState<PipelineState>(() => initialSession.current?.pipeline ?? 'idle'); const [pipelineError, setPipelineError] = useState(() => initialSession.current?.pipeline === 'partial_complete' ? 'Odświeżenie przerwało lokalne oczekiwanie na analizę. Możesz ponowić tylko nieukończoną ofertę.' : '')
   const [progress, setProgress] = useState<Record<string, IntegratedOfferProgress>>(() => initialSession.current?.progress ?? {}); const [counts, setCounts] = useState<IntegratedBatchCounts>(() => initialSession.current?.counts ?? emptyCounts); const [restoredWorkspaceBatch, setRestoredWorkspaceBatch] = useState(false)
@@ -43,7 +43,7 @@ export function ImportAnalysisPage() {
 
   useEffect(() => { saveIntegratedAnalysisSession({ batch, pipeline, progress, counts }, undefined, sessionScope) }, [batch, pipeline, progress, counts, sessionScope])
   useEffect(() => {
-    if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current, hasExplicitEmptyBatch: initialSession.current?.pipeline === 'idle' && initialSession.current.batch.entries.length === 0 })) return
+    if (!session || !shouldRestoreWorkspaceImport({ alreadyRestored: restoredWorkspaceBatch, isAuthenticated: mode === 'authenticated', hasBatchEntries: batch.entries.length > 0, pipeline, freshBatchStarted: freshBatchStartedRef.current, hasExplicitEmptyBatch: !initialSession.current || (initialSession.current.pipeline === 'idle' && initialSession.current.batch.entries.length === 0) })) return
     let cancelled = false
     setRestoringWorkspace(true)
     void workspaceRepositoryFor('authenticated', session.user).loadWorkspace().then((snapshot) => {

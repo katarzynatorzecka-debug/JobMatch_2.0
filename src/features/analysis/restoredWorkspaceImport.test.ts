@@ -14,6 +14,7 @@ describe('restoreLatestWorkspaceImport', () => {
   it('does not restore a historical batch after the user has started a fresh one', () => {
     expect(shouldRestoreWorkspaceImport({ alreadyRestored: false, isAuthenticated: true, hasBatchEntries: false, pipeline: 'idle', freshBatchStarted: false })).toBe(true)
     expect(shouldRestoreWorkspaceImport({ alreadyRestored: false, isAuthenticated: true, hasBatchEntries: true, pipeline: 'idle', freshBatchStarted: false })).toBe(false)
+    expect(shouldRestoreWorkspaceImport({ alreadyRestored: false, isAuthenticated: true, hasBatchEntries: true, pipeline: 'complete', freshBatchStarted: false })).toBe(false)
     expect(shouldRestoreWorkspaceImport({ alreadyRestored: false, isAuthenticated: true, hasBatchEntries: true, pipeline: 'partial_complete', freshBatchStarted: false })).toBe(true)
     expect(shouldRestoreWorkspaceImport({ alreadyRestored: false, isAuthenticated: true, hasBatchEntries: false, pipeline: 'idle', freshBatchStarted: true })).toBe(false)
     expect(shouldRestoreWorkspaceImport({ alreadyRestored: false, isAuthenticated: true, hasBatchEntries: false, pipeline: 'idle', freshBatchStarted: false, hasExplicitEmptyBatch: true })).toBe(false)

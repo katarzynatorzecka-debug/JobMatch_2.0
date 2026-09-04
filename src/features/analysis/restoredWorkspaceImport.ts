@@ -17,7 +17,7 @@ export function shouldRestoreWorkspaceImport(input: {
   freshBatchStarted: boolean
   hasExplicitEmptyBatch?: boolean
 }) {
-  return !input.alreadyRestored && input.isAuthenticated && !input.freshBatchStarted && !input.hasExplicitEmptyBatch && (!input.hasBatchEntries || input.pipeline === 'complete' || input.pipeline === 'partial_complete')
+  return !input.alreadyRestored && input.isAuthenticated && !input.freshBatchStarted && !input.hasExplicitEmptyBatch && input.pipeline !== 'complete' && (!input.hasBatchEntries || input.pipeline === 'partial_complete')
 }
 
 /**
