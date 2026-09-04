@@ -1,13 +1,14 @@
 import type { AnalysisFreshnessStatus, AnalysisQueueStatus } from '../../contracts/workspace'
 
-export type AnalysisReplayAction = 'initial' | 'refresh_stale' | 'current' | 'in_progress'
+export type AnalysisReplayAction = 'initial' | 'refresh_stale' | 'retry_failed' | 'current' | 'in_progress'
 
 /**
  * A current persisted result is the source of truth. It must never be turned
  * into an implicit paid reanalysis merely by pressing the primary action.
  */
-export function analysisReplayAction(input: { hasLatestVersion: boolean; freshness: AnalysisFreshnessStatus; queueStatus?: AnalysisQueueStatus | null }): AnalysisReplayAction {
-  if (input.queueStatus === 'queued' || input.queueStatus === 'processing') return 'in_progress'
+export function analysisReplayAction(input: { hasLatestVersion: boolean; freshness: AnalysisFreshnessStatus; queueStatus?: AnalysisQueueStatus | null; queueHasError?: boolean }): AnalysisReplayAction {
+  if (input.queueStatus === 'processing' || (input.queueStatus === 'queued' && !input.queueHasError)) return 'in_progress'
+  if (input.queueStatus === 'queued' && input.queueHasError) return 'retry_failed'
   if (!input.hasLatestVersion) return 'initial'
   return input.freshness === 'current' ? 'current' : 'refresh_stale'
 }

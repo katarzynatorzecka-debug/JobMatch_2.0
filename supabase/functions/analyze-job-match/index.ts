@@ -4,47 +4,20 @@ import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
 import { canonicalSourceHashInput, isManifestSufficientForAnalysis, manifestFromOfferIntelligenceRubric, outputMatchesManifest } from '../_shared/analysisCriteriaManifest.ts'
 import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchema, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
-import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchema, candidateAssessmentToAnalysisOutput, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
+import { buildCandidateAssessmentPrompt, candidateAssessmentJsonSchema, candidateAssessmentToAnalysisOutput, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput } from '../_shared/candidateAssessment.ts'
+import { scoreScoringCriteria, SCORING_ALGORITHM_VERSION, type ScoringCriteria } from '../_shared/scoringCalibration.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
 const promptVersion = 'jobmatch-job-match-v6'
-const algorithmVersion = 'jobmatch-deterministic-r9'
+const algorithmVersion = SCORING_ALGORITHM_VERSION
 const analysisContractVersion = 'jobmatch-analysis-contract-vnext-b'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
-const outcomePercent: Record<string, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
 function validPriorities(value: unknown): value is string[] {
   const allowed = ['experience', 'skills', 'preferences', 'growth']
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
-}
-function deterministicScore(profile: Record<string, unknown>, rawCriteria: Record<string, Array<{ id: string; canonicalKey?: string; requirement: string; outcome: string; confidence: number; profileEvidence?: string[]; offerEvidence?: string[] }>>) {
-  // `isAnalysisOutput` and the manifest check have already rejected duplicate,
-  // unknown or renamed requirements. Never repair conflicts by preferring MATCH.
-  const criteria = rawCriteria
-  const priority = profile.priorities as typeof categories
-  const weightsByRank = [35, 30, 20, 15]
-  const weights = Object.fromEntries(priority.map((category, index) => [category, weightsByRank[index]]))
-  const entries = categories.flatMap((category) => (criteria[category] ?? []).map((criterion) => ({ category, criterion, weight: Number(weights[category] ?? 0) / Math.max(1, criteria[category]?.length ?? 1) })))
-  const known = entries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
-  const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
-  const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
-  // UNKNOWN is visible through coverage and reliability, not treated as a
-  // negative assessment in the deterministic score.
-  const score = scoredWeight ? Math.round(known.reduce((total, entry) => total + entry.weight * Number(outcomePercent[entry.criterion.outcome] ?? 0), 0) / scoredWeight) : 0
-  const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
-  // Confidence belongs to the classification and evidence of this exact
-  // requirement. A global profile average would couple unrelated criteria.
-  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / scoredWeight) : null
-  const coverage = totalWeight ? Math.round((scoredWeight / totalWeight) * 100) : 0
-  const reliability = coverage < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
-  const categoryScores = Object.fromEntries(categories.map((category) => {
-    const categoryKnown = criteria[category] ?? []
-    const known = categoryKnown.filter((criterion) => criterion.outcome !== 'UNKNOWN')
-    return [category, known.length ? Math.round(known.reduce((total, criterion) => total + Number(outcomePercent[criterion.outcome] ?? 0), 0) / known.length) : null]
-  }))
-  return { score, weights, coverage, criterionConfidence, reliability, scoredCategories: categories.filter((category) => (criteria[category] ?? []).some((criterion) => criterion.outcome !== 'UNKNOWN')), categoryScores, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length, criteria }
 }
 
 async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
@@ -209,27 +182,31 @@ Deno.serve(async (request) => {
   }
   const parsedAssessment = readOpenAiStructuredOutput(payload)
   if (!parsedAssessment.ok) { console.info(JSON.stringify({ diagnostic: parsedAssessment.code, ...parsedAssessment.diagnostics })); return await failQueue(parsedAssessment.code) }
-  if (!isCandidateAssessmentOutput(parsedAssessment.value, rubric)) return await failQueue('OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID')
+  if (!isCandidateAssessmentOutput(parsedAssessment.value, rubric)) {
+    const reason = candidateAssessmentValidationDiagnostic(parsedAssessment.value, rubric)
+    console.info(JSON.stringify({ diagnostic: 'OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID', reason }))
+    return await failQueue(`OPENAI_CANDIDATE_ASSESSMENT_CONTRACT_INVALID:${reason}`)
+  }
   const parsed = candidateAssessmentToAnalysisOutput(parsedAssessment.value, rubric)
   if (!isAnalysisOutput(parsed)) return await failQueue('OPENAI_SCHEMA_MISMATCH')
   if (!outputMatchesManifest(parsed.criteria, manifest)) return await failQueue('OPENAI_CRITERIA_MANIFEST_MISMATCH')
-  const scoring = deterministicScore(profile, parsed.criteria)
+  const scoring = scoreScoringCriteria(profile.priorities, parsed.criteria as ScoringCriteria)
   const analysisHardFilterStatus = hardFilter.status === 'needs_review' ? 'weak' : hardFilter.status === 'fail' ? 'fail' : 'pass'
   const finalAnalysis = {
-    ...parsed.value,
-    criteria: scoring.criteria,
+    ...parsed,
+    criteria: parsed.criteria,
     offerId: queueItem.job_offer_id,
-    overallScore: scoring.score,
-    categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: scoring.criteria[category].map((criterion) => criterion.rationale).join(' ') }])),
-    recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.score >= 75 && scoring.coverage >= 75 && scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.score >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
+    overallScore: scoring.overallScore,
+    categoryScores: Object.fromEntries(categories.map((category) => [category, { score: scoring.categoryScores[category], rationale: parsed.criteria[category].map((criterion) => criterion.rationale).join(' ') || 'Brak ocenionych kryteriów w tej kategorii.' }])),
+    recommendation: analysisHardFilterStatus === 'fail' ? 'Nie rekomenduję' : scoring.scoring.reliability === 'limited' && scoring.overallScore > 0 ? 'Wymaga sprawdzenia' : scoring.overallScore >= 75 && scoring.scoring.coverage >= 75 && scoring.scoring.reliability === 'standard' ? 'Warto aplikować' : scoring.overallScore >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję',
     hardFilterStatus: analysisHardFilterStatus,
     hardFilterReasons: Array.isArray(hardFilter.reasons) ? hardFilter.reasons.map((reason) => typeof reason === 'object' && reason ? (reason as Record<string, unknown>).label : '').filter((label): label is string => typeof label === 'string') : [],
     sourceQuality: source.sourceQuality,
     modelInfo: { provider: 'openai', model, provisional: true },
     createdAt: new Date().toISOString(),
     status: 'ready',
-    missingInformation: [...new Set([...parsed.value.missingInformation, ...source.missingInformation])],
-    scoring: { algorithmVersion, weights: scoring.weights, coverage: scoring.coverage, criterionConfidence: scoring.criterionConfidence, reliability: scoring.reliability, scoredCategories: scoring.scoredCategories, criterionCount: scoring.criterionCount, knownCriterionCount: scoring.knownCriterionCount, unknownCriterionCount: scoring.unknownCriterionCount },
+    missingInformation: [...new Set([...parsed.missingInformation, ...source.missingInformation])],
+    scoring: { ...scoring.scoring, algorithmVersion },
   }
   const { data: completed, error: completeError } = await worker.rpc('workspace_complete_analysis', { queue_item_id: queueItemId, worker_token: workerToken, analysis_data: finalAnalysis, model_version: model, prompt_version: promptVersion, algorithm_version: algorithmVersion, source_quality: source.sourceQuality, provider_request_id: providerResponseId })
   if (completeError || !completed) return failure('ANALYSIS_SAVE_FAILED', 502)

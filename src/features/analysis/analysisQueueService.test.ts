@@ -16,7 +16,7 @@ describe('analysis queue service', () => {
     state.client = { functions: { invoke } }
     const repository = {
       enqueueAnalysis: vi.fn(async () => ({ queueItem: { id: 'queue-1' }, idempotent: false })),
-      loadOfferDetails: vi.fn(async () => ({ analysisState: { latestVersion: null, queueItem: { status: 'processing' } } })),
+      loadOfferDetails: vi.fn(async () => ({ analysisState: { latestVersion: null, queueItem: { id: 'queue-1', status: 'processing' } } })),
     }
 
     await expect(enqueueAndProcessAnalysis(repository as never, 'offer-1')).resolves.toMatchObject({ status: 'in_progress' })
@@ -36,9 +36,19 @@ describe('analysis queue service', () => {
     state.client = { functions: { invoke: vi.fn(async () => ({ data: { code: 'QUEUE_NOT_CLAIMABLE' }, error: null })) } }
     const repository = {
       enqueueAnalysis: vi.fn(async () => ({ queueItem: { id: 'queue-1' }, idempotent: true })),
-      loadOfferDetails: vi.fn(async () => ({ analysisState: { latestVersion: { id: 'analysis-1' }, queueItem: null } })),
+      loadOfferDetails: vi.fn(async () => ({ analysisState: { latestVersion: { id: 'analysis-1', queueItemId: 'queue-1' }, queueItem: null } })),
     }
 
     await expect(enqueueAndProcessAnalysis(repository as never, 'offer-1')).resolves.toMatchObject({ status: 'completed' })
+  })
+
+  it('does not treat an older durable result as the newly requested analysis', async () => {
+    state.client = { functions: { invoke: vi.fn(async () => ({ data: null, error: { message: 'timeout' } })) } }
+    const repository = {
+      enqueueAnalysis: vi.fn(async () => ({ queueItem: { id: 'queue-new' }, idempotent: false })),
+      loadOfferDetails: vi.fn(async () => ({ analysisState: { latestVersion: { id: 'analysis-old', queueItemId: 'queue-old' }, queueItem: null } })),
+    }
+
+    await expect(enqueueAndProcessAnalysis(repository as never, 'offer-1')).rejects.toMatchObject({ code: 'EDGE_FUNCTION_HTTP_ERROR' })
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceSnapshot } from './workspaceRepository'
-import { projectWorkspaceOffer, projectWorkspaceOfferList } from './workspaceReadModel'
+import { projectWorkspaceOffer, projectWorkspaceOfferDetails, projectWorkspaceOfferList } from './workspaceReadModel'
 
 const offer = { id: 'offer-1', currentVersionId: null } as never
 
@@ -119,6 +119,20 @@ describe('historical canonical projection', () => {
     expect(items).toHaveLength(1)
     expect(items[0].offer.id).toBe('offer-history')
     expect(items[0].isActive).toBe(false)
+  })
+
+  it('preserves r8 and r9 analysis versions as ordered history after the latest pointer advances', () => {
+    const details = projectWorkspaceOfferDetails(snapshot({
+      analysisVersions: [
+        { id: 'analysis-r8', jobOfferId: 'offer-1', algorithmVersion: 'jobmatch-deterministic-r8', createdAt: '2026-09-02T10:00:00.000Z' } as never,
+        { id: 'analysis-r9', jobOfferId: 'offer-1', algorithmVersion: 'jobmatch-deterministic-r9', createdAt: '2026-09-02T11:00:00.000Z' } as never,
+      ],
+    }), 'offer-1')
+
+    expect(details.analysisHistory.map(({ id, algorithmVersion }) => ({ id, algorithmVersion }))).toEqual([
+      { id: 'analysis-r9', algorithmVersion: 'jobmatch-deterministic-r9' },
+      { id: 'analysis-r8', algorithmVersion: 'jobmatch-deterministic-r8' },
+    ])
   })
 })
 

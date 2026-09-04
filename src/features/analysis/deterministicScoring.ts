@@ -1,67 +1,52 @@
-import type { AnalysisCategory, AnalysisCriteria, AnalysisCriterion, CriterionOutcome, Recommendation, ScoringBreakdown } from '../../contracts/jobAnalysis'
-import type { ProfilePriority, UserProfile } from '../../contracts/profile'
+import type { AnalysisCategory, AnalysisCriteria, AnalysisCriterion, CriterionOutcome, JobAnalysis, ScoringBreakdown } from '../../contracts/jobAnalysis'
+import type { UserProfile } from '../../contracts/profile'
 import { assertAtomicCriteria, deduplicateAtomicCriteria } from './atomicCriteria'
+import { activeScoringVariantId, outcomePercent, scoreScoringCriteria, scoringWeightVariants, SCORING_ALGORITHM_VERSION, type ScoringCriteria } from '../../../supabase/functions/_shared/scoringCalibration'
 
-export const DETERMINISTIC_SCORING_VERSION = 'jobmatch-deterministic-r8'
-const defaultPriorities: ProfilePriority[] = ['experience', 'skills', 'preferences', 'growth']
-export const scoringWeightsByRank = [35, 30, 20, 15] as const
-export const outcomePercent: Record<CriterionOutcome, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
+export const DETERMINISTIC_SCORING_VERSION = SCORING_ALGORITHM_VERSION
+export { activeScoringVariantId, outcomePercent, scoringWeightVariants }
 
 export type DeterministicScore = {
   overallScore: number
-  recommendation: Recommendation
+  recommendation: JobAnalysis['recommendation']
   categoryScores: Record<AnalysisCategory, number | null>
   scoring: ScoringBreakdown
 }
 
-function normalizedPriorities(priorities: ProfilePriority[]) {
-  if (priorities.length !== 4 || new Set(priorities).size !== 4 || priorities.some((priority) => !defaultPriorities.includes(priority))) throw new Error('PROFILE_PRIORITIES_INVALID')
-  return priorities
+const categories: AnalysisCategory[] = ['experience', 'skills', 'preferences', 'growth']
+
+function normalizeLegacyCriteria(criteria: AnalysisCriteria): Record<AnalysisCategory, AnalysisCriterion[]> {
+  return Object.fromEntries(categories.map((category) => {
+    const value = criteria[category]
+    return [category, Array.isArray(value) ? value : [{ id: `req:legacy-${category}`, canonicalKey: `req:legacy-${category}`, requirement: category, outcome: value.outcome, rationale: value.rationale, profileEvidence: value.evidence, offerEvidence: value.evidence, confidence: value.confidence }]]
+  })) as Record<AnalysisCategory, AnalysisCriterion[]>
 }
 
-export function weightsForPriorities(priorities: ProfilePriority[]): Record<AnalysisCategory, number> {
-  const ordered = normalizedPriorities(priorities)
-  return Object.fromEntries(ordered.map((category, index) => [category, scoringWeightsByRank[index]])) as Record<AnalysisCategory, number>
+function recommendationFor(score: number, coverage: number, reliability: 'standard' | 'limited', hardFilter?: 'pass' | 'needs_review' | 'fail'): JobAnalysis['recommendation'] {
+  if (hardFilter === 'fail') return 'Nie rekomenduję'
+  if (reliability === 'limited' && score > 0) return 'Wymaga sprawdzenia'
+  return score >= 75 && coverage >= 75 && reliability === 'standard' ? 'Warto aplikować' : score >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję'
 }
 
 export function calculateDeterministicScore(profile: Pick<UserProfile, 'priorities'>, outcomes: Record<AnalysisCategory, CriterionOutcome>, criterionConfidences?: Partial<Record<AnalysisCategory, number>>): DeterministicScore {
-  const criteria = Object.fromEntries(defaultPriorities.map((category) => [category, [{ id: `req:${category}`, requirement: category, outcome: outcomes[category], rationale: category, profileEvidence: outcomes[category] === 'UNKNOWN' ? [] : ['legacy'], offerEvidence: outcomes[category] === 'UNKNOWN' ? [] : ['legacy'], confidence: criterionConfidences?.[category] ?? 0 }]])) as AnalysisCriteria
+  const criteria = Object.fromEntries(categories.map((category) => [category, [{ id: `req:${category}`, canonicalKey: `req:${category}`, requirement: category, outcome: outcomes[category], rationale: category, profileEvidence: outcomes[category] === 'UNKNOWN' ? [] : ['legacy'], offerEvidence: outcomes[category] === 'UNKNOWN' ? [] : ['legacy'], confidence: criterionConfidences?.[category] ?? 0 }]])) as AnalysisCriteria
   return calculateCriterionLevelScore(profile, criteria)
 }
 
 export function calculateCriterionLevelScore(profile: Pick<UserProfile, 'priorities'>, criteria: AnalysisCriteria): DeterministicScore {
-  normalizedPriorities(profile.priorities)
   assertAtomicCriteria(criteria)
-  const deduplicated = deduplicateAtomicCriteria(criteria)
-  const weights = weightsForPriorities(profile.priorities)
-  const categoryCriteria = (category: AnalysisCategory): AnalysisCriterion[] => deduplicated[category]
-  const entries = defaultPriorities.flatMap((category) => categoryCriteria(category).map((criterion) => ({ category, criterion, weight: weights[category] / Math.max(1, categoryCriteria(category).length) })))
-  const known = entries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN')
-  const scoredCategories = defaultPriorities.filter((category) => categoryCriteria(category).some((criterion) => criterion.outcome !== 'UNKNOWN'))
-  const scoredWeight = known.reduce((total, entry) => total + entry.weight, 0)
-  const weightedPoints = known.reduce((total, entry) => total + entry.weight * (outcomePercent[entry.criterion.outcome] ?? 0), 0)
-  const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0)
-  // UNKNOWN is not a negative judgement. It stays visible in coverage and
-  // reliability, but does not alter the point score of known requirements.
-  const overallScore = scoredWeight ? Math.round(weightedPoints / scoredWeight) : 0
-  const coverage = totalWeight ? Math.round((scoredWeight / totalWeight) * 100) : 0
-  const confidenceValues = known.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
-  // Confidence is attached to each classified requirement and its concrete
-  // evidence. Do not cap it with an unrelated average over the whole profile.
-  const criterionConfidence = confidenceValues.length === known.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / scoredWeight) : null
-  const reliability = coverage < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
-  const recommendation: Recommendation = overallScore >= 75 && coverage >= 75 && reliability === 'standard' ? 'Warto aplikować' : overallScore >= 50 ? 'Wymaga sprawdzenia' : 'Nie rekomenduję'
+  const normalized = deduplicateAtomicCriteria(criteria)
+  const result = scoreScoringCriteria(profile.priorities, normalized as unknown as ScoringCriteria)
   return {
-    overallScore,
-    recommendation,
-    categoryScores: Object.fromEntries(defaultPriorities.map((category) => {
-      const categoryEntries = categoryCriteria(category)
-      const knownEntries = categoryEntries.filter((criterion) => criterion.outcome !== 'UNKNOWN')
-      const score = knownEntries.length ? Math.round(knownEntries.reduce((total, criterion) => total + (outcomePercent[criterion.outcome] ?? 0), 0) / knownEntries.length) : null
-      return [category, score]
-    })) as Record<AnalysisCategory, number | null>,
-    scoring: { algorithmVersion: DETERMINISTIC_SCORING_VERSION, weights, coverage, criterionConfidence, reliability, scoredCategories, criterionCount: entries.length, knownCriterionCount: known.length, unknownCriterionCount: entries.length - known.length },
+    overallScore: result.overallScore,
+    recommendation: recommendationFor(result.overallScore, result.scoring.coverage, result.scoring.reliability),
+    categoryScores: result.categoryScores,
+    scoring: result.scoring,
   }
 }
 
-export function scoreBand(score: number) { return score >= 75 ? 'wysokie dopasowanie' : score >= 50 ? 'średnie dopasowanie' : 'niskie dopasowanie' }
+export function scoreAnalysisCriteria(profile: Pick<UserProfile, 'priorities'>, criteria: AnalysisCriteria, hardFilter?: 'pass' | 'needs_review' | 'fail') {
+  const normalized = normalizeLegacyCriteria(criteria)
+  const result = scoreScoringCriteria(profile.priorities, normalized as unknown as ScoringCriteria)
+  return { ...result, recommendation: recommendationFor(result.overallScore, result.scoring.coverage, result.scoring.reliability, hardFilter) }
+}

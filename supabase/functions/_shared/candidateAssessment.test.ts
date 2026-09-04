@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCandidateAssessmentPrompt, candidateAssessmentToAnalysisOutput, candidateAssessmentJsonSchema, isCandidateAssessmentOutput, type CandidateAssessmentOutput } from './candidateAssessment'
+import { buildCandidateAssessmentPrompt, candidateAssessmentToAnalysisOutput, candidateAssessmentJsonSchema, candidateAssessmentValidationDiagnostic, isCandidateAssessmentOutput, type CandidateAssessmentOutput } from './candidateAssessment'
 import type { OfferIntelligenceRubric } from './offerIntelligence'
 
 const rubric: OfferIntelligenceRubric = {
@@ -26,6 +26,7 @@ describe('candidate assessment contract', () => {
     const value = output()
     expect(isCandidateAssessmentOutput(value, rubric)).toBe(true)
     const analysis = candidateAssessmentToAnalysisOutput(value, rubric)
+    expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical' })
     expect(analysis.criteria.skills[0].offerEvidence).toEqual(['arabski'])
     expect(analysis.criteria.experience[0].offerEvidence).toEqual(['moderating social media'])
   })
@@ -43,10 +44,18 @@ describe('candidate assessment contract', () => {
     expect(isCandidateAssessmentOutput(missing, rubric)).toBe(false)
   })
 
+  it('reports only an aggregate diagnostic for invalid provider output', () => {
+    const missing = output()
+    missing.criteria.experience = []
+    expect(candidateAssessmentValidationDiagnostic(missing, rubric)).toBe('experience_count_0_expected_1')
+  })
+
   it('uses the full rubric and bounded candidate context in the assessment prompt', () => {
     const prompt = buildCandidateAssessmentPrompt(rubric, { skills: ['moderation'] }, { status: 'pass' })
     expect(prompt).toContain('req:arabic-language')
     expect(prompt).toContain('moderation')
+    expect(prompt).toContain('experience=1, skills=1, preferences=1, growth=0')
+    expect(prompt).toContain('Nie twórz żadnych dodatkowych kryteriów')
     expect(prompt).toContain('Jasne wymaganie bez dowodu w profilu oznacza NO_MATCH')
     expect(candidateAssessmentJsonSchema.properties.criteria).toBeDefined()
   })

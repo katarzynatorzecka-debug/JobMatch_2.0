@@ -66,7 +66,7 @@ const headingMap = new Map<string, SectionHeading>([
   ['your responsibilities', { section: 'responsibilities' }],
   ['responsibilities', { section: 'responsibilities' }],
   ['your role', { section: 'responsibilities' }],
-  ['opis stanowiska', { section: 'responsibilities' }],
+  ['opis stanowiska', { section: 'ignore' }],
   ['job description', { section: 'responsibilities' }],
   ['about the role', { section: 'responsibilities' }],
   ['benefity', { section: 'benefits' }],
@@ -76,12 +76,16 @@ const headingMap = new Map<string, SectionHeading>([
   ['what we offer', { section: 'benefits' }],
   ['what makes us a great place to work', { section: 'benefits' }],
   ['why join us', { section: 'benefits' }],
+  ['you will', { section: 'responsibilities' }],
+  ['we need you', { section: 'requirements' }],
+  ['we offer', { section: 'benefits' }],
   ['o firmie', { section: 'ignore' }],
   ['about the company', { section: 'ignore' }],
   ['about us', { section: 'ignore' }],
   ['proces rekrutacji', { section: 'ignore' }],
   ['etapy rekrutacji', { section: 'ignore' }],
   ['lokalizacja', { section: 'ignore' }],
+  ['lokalizacja biura', { section: 'ignore' }],
   ['informacje o firmie', { section: 'ignore' }],
 ])
 
@@ -116,10 +120,29 @@ function valuesFor(lines: string[], target: SourceSection) {
   for (const line of lines) {
     const heading = headingFor(line)
     if (heading) { active = heading; continue }
-    if (looksLikeBoundary(line)) { active = null; continue }
+    if (looksLikeBoundary(line)) {
+      // RocketJobs uses nested h4 tags for skill chips. Preserve those values
+      // inside the active section instead of treating every unknown heading as
+      // a section boundary.
+      if (line.startsWith(headingMarker) && active?.section === target) { values.push(withoutHeadingMarker(line)); continue }
+      active = null
+      continue
+    }
     if (active?.section === target) values.push(`${active.prefix ?? ''}${withoutHeadingMarker(line)}`)
   }
   return unique(values)
+}
+
+function unsectionedLines(lines: string[]) {
+  const values: string[] = []
+  let active: SectionHeading | null = null
+  for (const line of lines) {
+    const heading = headingFor(line)
+    if (heading) { active = heading; continue }
+    if (looksLikeBoundary(line)) { active = null; continue }
+    if (!active) values.push(withoutHeadingMarker(line))
+  }
+  return values
 }
 
 export function extractExplicitRequirementLines(text: string) {
@@ -127,7 +150,7 @@ export function extractExplicitRequirementLines(text: string) {
     .replace(/[•●▪◦]\s*/g, '\n')
     .replace(/\s+(?=(?:you (?:have|are|can|bring|know|understand|enjoy)|candidates? must|we (?:expect|require)|wymagamy|oczekujemy|posiadasz|masz|znajomo[śs][ćc])\b)/gi, '\n')
   const fragments = expanded.split(/\n+|(?<=[.!?])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ])/u).map(compact)
-  const cue = /\b(?:wymag|oczekuj|minimum|co najmniej|do[śs]wiadczen|znajomo[śs][ćc]|umiej[ęe]tno[śs][ćc]|bieg[łl]|gotowo[śs][ćc]|must|required|requirements?|at least|years? of experience|you (?:have|are|can|bring|know|understand|enjoy)|we (?:expect|require)|fluent|proficien|ability to|track record)\b/i
+  const cue = /\b(?:wymag|oczekuj|minimum|co najmniej|do[śs]wiadczen|znajomo[śs][ćc]|umiej[ęe]tno[śs][ćc]|bieg[łl]|gotowo[śs][ćc]|must|required|requirements?|language|at least|years? of experience|you (?:have|are|can|bring|know|understand|enjoy)|we (?:expect|require)|fluent|proficien|ability to|track record)\b/i
   return unique(fragments.filter((value) => value.length <= 500 && cue.test(value)), 32)
 }
 
@@ -145,7 +168,8 @@ export function normalizeOfferPage(offerId: string, sourceUrl: string, html: str
   const description = lines.map(withoutHeadingMarker).join('\n').slice(0, 18_000).trim()
   if (!description) return { offerId, sourceUrl, status: 'unavailable', sourceQuality: 'unavailable', requirements: [], responsibilities: [], benefits: [], missingInformation: ['opis oferty'], warnings: [], fetchedAt: new Date().toISOString(), errorCode: 'SOURCE_EMPTY' }
   const sectionRequirements = valuesFor(lines, 'requirements')
-  const requirements = sectionRequirements.length ? sectionRequirements : extractExplicitRequirementLines(description)
+  const languageRequirements = lines.filter((line) => /^(?:language|język)\s*:/i.test(withoutHeadingMarker(line)))
+  const requirements = unique([...sectionRequirements, ...languageRequirements, ...extractExplicitRequirementLines(unsectionedLines(lines).join('\n'))])
   const responsibilities = valuesFor(lines, 'responsibilities')
   const benefits = valuesFor(lines, 'benefits')
   const sourceQuality = description.length > 260 && requirements.length > 0 && responsibilities.length > 0 ? 'full' : 'partial'

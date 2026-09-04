@@ -1,28 +1,33 @@
 import { describe, expect, it } from 'vitest'
 import type { ProfilePriority } from '../../contracts/profile'
+import { buildScoringCalibrationReport, scoringWeightVariants } from '../../../supabase/functions/_shared/scoringCalibration'
 import { calculateCriterionLevelScore, calculateDeterministicScore } from './deterministicScoring'
 
 const allMatch = { experience: 'MATCH', skills: 'MATCH', preferences: 'MATCH', growth: 'MATCH' } as const
 
 describe('deterministic scoring', () => {
-  it('maps MATCH, PARTIAL and NO_MATCH to 100, 60 and 0 with the approved weights', () => {
+  it('uses an explicit employer-fit 80/user-compatibility 20 budget', () => {
     const result = calculateDeterministicScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { experience: 'MATCH', skills: 'PARTIAL', preferences: 'NO_MATCH', growth: 'MATCH' })
-    expect(result.scoring.weights).toEqual({ experience: 35, skills: 30, preferences: 20, growth: 15 })
-    expect(result.overallScore).toBe(68)
+    expect(result.scoring.weights).toEqual({ employerFit: 80, userCompatibility: 20 })
+    expect(result.scoring.variantId).toBe('critical-priority')
+    expect(result.scoring.calibrationStatus).toBe('pending_human_scoring_gate')
+    expect(result.scoring.employerFitScore).toBe(87)
+    expect(result.scoring.userCompatibilityScore).toBe(0)
+    expect(result.overallScore).toBe(69)
   })
 
-  it('keeps UNKNOWN outside score and reports the uncovered weight as coverage', () => {
+  it('keeps UNKNOWN in the denominator instead of inflating the score', () => {
     const result = calculateDeterministicScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { ...allMatch, growth: 'UNKNOWN' }, { experience: 80, skills: 80, preferences: 80 })
-    expect(result.overallScore).toBe(100)
-    expect(result.scoring.coverage).toBe(85)
-    expect(result.scoring.reliability).toBe('standard')
+    expect(result.overallScore).toBe(73)
+    expect(result.scoring.coverage).toBe(73)
+    expect(result.scoring.reliability).toBe('limited')
     expect(result.categoryScores.growth).toBeNull()
   })
 
-  it('changes weights when the profile priority order changes', () => {
+  it('does not let profile category order replace the 80/20 dimension contract', () => {
     const result = calculateDeterministicScore({ priorities: ['growth', 'experience', 'skills', 'preferences'] }, { experience: 'NO_MATCH', skills: 'NO_MATCH', preferences: 'NO_MATCH', growth: 'MATCH' })
-    expect(result.scoring.weights.growth).toBe(35)
-    expect(result.overallScore).toBe(35)
+    expect(result.scoring.weights).toEqual({ employerFit: 80, userCompatibility: 20 })
+    expect(result.overallScore).toBe(27)
   })
 
   it('aggregates confidence only from scored criteria and guards a high recommendation with reliability', () => {
@@ -39,8 +44,8 @@ describe('deterministic scoring', () => {
   it('calculates coverage from subcriteria without penalizing known matches for unknown criteria', () => {
     let index = 0; const criterion = (outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN', confidence = 80) => ({ id: `req:${outcome.toLocaleLowerCase()}-${++index}`, requirement: outcome, outcome, rationale: outcome, profileEvidence: outcome === 'UNKNOWN' ? [] : ['profil'], offerEvidence: outcome === 'UNKNOWN' ? [] : ['oferta'], confidence })
     const result = calculateCriterionLevelScore({ priorities: ['preferences', 'growth', 'skills', 'experience'] }, { preferences: [criterion('MATCH')], growth: [criterion('UNKNOWN')], skills: [criterion('MATCH')], experience: [criterion('MATCH')] })
-    expect(result.overallScore).toBe(100)
-    expect(result.scoring.coverage).toBe(70)
+    expect(result.overallScore).toBe(73)
+    expect(result.scoring.coverage).toBe(73)
     expect(result.scoring.reliability).toBe('limited')
     expect(result.scoring.unknownCriterionCount).toBe(1)
     expect(result.recommendation).toBe('Wymaga sprawdzenia')
@@ -75,13 +80,13 @@ describe('deterministic scoring', () => {
     const profile = { priorities: ['experience', 'skills', 'preferences', 'growth'] as ProfilePriority[] }
     const all = (outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN') => ({ experience: [criterion(outcome)], skills: [criterion(outcome)], preferences: [criterion(outcome)], growth: [criterion(outcome)] })
     expect(calculateCriterionLevelScore(profile, all('MATCH')).recommendation).toBe('Warto aplikować')
-    expect(calculateCriterionLevelScore(profile, { ...all('MATCH'), skills: [criterion('PARTIAL')] }).overallScore).toBe(88)
+    expect(calculateCriterionLevelScore(profile, { ...all('MATCH'), skills: [criterion('PARTIAL')] }).overallScore).toBe(89)
     const incomplete = calculateCriterionLevelScore(profile, { ...all('MATCH'), skills: [criterion('UNKNOWN')], growth: [criterion('UNKNOWN')] })
-    expect(incomplete.scoring.coverage).toBe(55)
+    expect(incomplete.scoring.coverage).toBe(47)
     expect(incomplete.scoring.reliability).toBe('limited')
     expect(incomplete.recommendation).toBe('Wymaga sprawdzenia')
     expect(calculateCriterionLevelScore(profile, all('NO_MATCH')).recommendation).toBe('Nie rekomenduję')
-    expect(calculateCriterionLevelScore(profile, { experience: [criterion('MATCH')], skills: [criterion('MATCH'), criterion('UNKNOWN')], preferences: [criterion('MATCH')], growth: [criterion('UNKNOWN')] }).scoring.coverage).toBe(70)
+    expect(calculateCriterionLevelScore(profile, { experience: [criterion('MATCH')], skills: [criterion('MATCH'), criterion('UNKNOWN')], preferences: [criterion('MATCH')], growth: [criterion('UNKNOWN')] }).scoring.coverage).toBe(60)
   })
 
   it('calibrates the Systems & Automation Specialist report with neutral UNKNOWN values', () => {
@@ -93,10 +98,25 @@ describe('deterministic scoring', () => {
       preferences: [criterion('MATCH'), criterion('MATCH'), criterion('PARTIAL'), criterion('NO_MATCH'), criterion('UNKNOWN'), criterion('UNKNOWN')],
       growth: [criterion('MATCH'), criterion('PARTIAL'), criterion('UNKNOWN'), criterion('UNKNOWN')],
     })
-    expect(result.overallScore).toBe(77)
-    expect(result.scoring.coverage).toBe(76)
-    expect(result.categoryScores).toEqual({ experience: 73, skills: 90, preferences: 65, growth: 80 })
-    expect(result.scoring.reliability).toBe('standard')
-    expect(result.recommendation).toBe('Warto aplikować')
+    expect(result.overallScore).toBe(54)
+    expect(result.scoring.coverage).toBe(69)
+    expect(result.categoryScores).toEqual({ experience: 73, skills: 60, preferences: 43, growth: 40 })
+    expect(result.scoring.reliability).toBe('limited')
+    expect(result.recommendation).toBe('Wymaga sprawdzenia')
+  })
+
+  it('produces a calibration report for three non-final importance variants', () => {
+    let index = 0
+    const criterion = (outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN', importance: 'critical' | 'core' | 'preferred', type: 'required_skill' | 'employment_condition' = 'required_skill') => ({ id: `req:calibration-${++index}`, canonicalKey: `req:calibration-${index}`, requirement: 'wymóg', type, importance, outcome, rationale: outcome, profileEvidence: outcome === 'UNKNOWN' || outcome === 'NO_MATCH' ? [] : ['profil'], offerEvidence: ['oferta'], confidence: 80 })
+    const report = buildScoringCalibrationReport(['experience', 'skills', 'preferences', 'growth'], [{
+      id: 'critical-must-have',
+      criteria: { experience: [criterion('NO_MATCH', 'critical')], skills: [criterion('MATCH', 'preferred'), criterion('MATCH', 'preferred'), criterion('MATCH', 'preferred')], preferences: [criterion('MATCH', 'preferred', 'employment_condition')], growth: [] },
+    }])
+    expect(scoringWeightVariants).toHaveLength(3)
+    expect(report.status).toBe('pending_human_scoring_gate')
+    expect(report.activeVariantId).toBe('critical-priority')
+    expect(report.cases[0].variants).toHaveLength(3)
+    expect(report.cases[0].variants[1].overallScore).toBeLessThan(report.cases[0].variants[0].overallScore)
+    expect(report.cases[0].variants[2].overallScore).toBeLessThan(report.cases[0].variants[1].overallScore)
   })
 })

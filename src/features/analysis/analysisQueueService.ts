@@ -8,10 +8,12 @@ export class AnalysisQueueError extends Error {
 
 export type AnalysisStartResult = AnalysisEnqueueResult & { status: 'completed' | 'in_progress' }
 
-async function durableQueueStatus(repository: WorkspaceRepository, offerId: string): Promise<'completed' | 'in_progress' | null> {
+async function durableQueueStatus(repository: WorkspaceRepository, offerId: string, queueItemId: string): Promise<'completed' | 'in_progress' | null> {
   const details = await repository.loadOfferDetails(offerId)
-  if (details.analysisState.latestVersion) return 'completed'
-  if (details.analysisState.queueItem?.status === 'queued' || details.analysisState.queueItem?.status === 'processing') return 'in_progress'
+  if (details.analysisState.latestVersion?.queueItemId === queueItemId) return 'completed'
+  if (details.analysisState.queueItem?.id !== queueItemId) return null
+  if (details.analysisState.queueItem.status === 'queued' || details.analysisState.queueItem.status === 'processing') return 'in_progress'
+  if (details.analysisState.queueItem.status === 'completed') return 'completed'
   return null
 }
 
@@ -21,7 +23,7 @@ export async function enqueueAndProcessAnalysis(repository: WorkspaceRepository,
   if (!supabase) throw new AnalysisQueueError('ANALYSIS_AUTH_REQUIRED', 'Analiza AI jest dostępna po zalogowaniu.')
   const { data, error } = await supabase.functions.invoke('analyze-job-match', { body: { queueItemId: result.queueItem.id } })
   if (error || (data && typeof data === 'object' && 'code' in data)) {
-    const durableStatus = await durableQueueStatus(repository, offerId).catch(() => null)
+    const durableStatus = await durableQueueStatus(repository, offerId, result.queueItem.id).catch(() => null)
     if (durableStatus) return { ...result, status: durableStatus }
   }
   if (error) throw new AnalysisQueueError('EDGE_FUNCTION_HTTP_ERROR', 'Nie udało się uruchomić analizy AI. Możesz spróbować ponownie.')

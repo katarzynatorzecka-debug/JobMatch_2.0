@@ -7,6 +7,7 @@ import contractSnapshot from '../../../supabase/migrations/202608310910_offer_an
 import reuseVersionGuard from '../../../supabase/migrations/202609011345_analysis_reuse_version_guard.sql?raw'
 import contractIdentityR7 from '../../../supabase/migrations/20260901143852_analysis_contract_identity_r7.sql?raw'
 import scoringRecoveryR8 from '../../../supabase/migrations/202609021430_scoring_recovery_r8.sql?raw'
+import scoringRecoveryR9 from '../../../supabase/migrations/20260902213911_scoring_recovery_r9_version_transition.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -80,5 +81,16 @@ describe('analysis identity migration', () => {
     expect(scoringRecoveryR8).toContain("v.algorithm_version = 'jobmatch-deterministic-r8'")
     expect(scoringRecoveryR8).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
     expect(scoringRecoveryR8).not.toMatch(/\b(drop|truncate|delete|update public\.analysis_versions)\b/i)
+  })
+
+  it('moves ordinary replay to the current scoring identity while preserving history and the private RPC boundary', () => {
+    expect(scoringRecoveryR9).toContain("'jobmatch-job-match-v6', 'gpt-5.4-mini', 'jobmatch-deterministic-r10-critical-priority:' || coalesce(v_contract_hash, 'pending')")
+    expect(scoringRecoveryR9).toContain("v.prompt_version = 'jobmatch-job-match-v6'")
+    expect(scoringRecoveryR9).toContain("v.algorithm_version = 'jobmatch-deterministic-r10-critical-priority'")
+    expect(scoringRecoveryR9).toContain("q.status = 'completed' and q.provider_response_id is not null")
+    expect(scoringRecoveryR9).toContain('if not p_force_reanalysis and v_contract_hash is not null then')
+    expect(scoringRecoveryR9).toContain('o.user_id = actor_id')
+    expect(scoringRecoveryR9).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
+    expect(scoringRecoveryR9).not.toMatch(/\b(drop|truncate|delete|update public\.analysis_versions|update public\.job_offers|update public\.profiles)\b/i)
   })
 })

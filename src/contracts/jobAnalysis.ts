@@ -5,12 +5,17 @@ export type AnalysisStatus = 'ready' | 'retry' | 'rejected'
 export type Recommendation = 'Warto aplikować' | 'Wymaga sprawdzenia' | 'Nie rekomenduję'
 export type AnalysisCategory = 'experience' | 'skills' | 'preferences' | 'growth'
 export type CriterionOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
+export type CriterionImportance = 'critical' | 'core' | 'preferred'
+export type CriterionType = 'required_skill' | 'required_experience' | 'language' | 'responsibility_capability' | 'employment_condition' | 'preferred_qualification'
 export interface CategoryScore { score: number | null; rationale: string }
 export interface AnalysisCriterion {
   id: string
   /** Stable job-requirement identity. Kept optional so historical analysis rows remain readable. */
   canonicalKey?: string
   requirement: string
+  /** Employer-rubric metadata. Optional for historical/demo rows. */
+  type?: CriterionType
+  importance?: CriterionImportance
   outcome: CriterionOutcome
   rationale: string
   profileEvidence: string[]
@@ -21,7 +26,13 @@ export interface LegacyAnalysisCriterion { outcome: CriterionOutcome; rationale:
 export type AnalysisCriteria = Record<AnalysisCategory, AnalysisCriterion[] | LegacyAnalysisCriterion>
 export interface ScoringBreakdown {
   algorithmVersion: string
-  weights: Record<AnalysisCategory, number>
+  /** Dimension budgets. Final importance mapping remains calibration-provisional. */
+  weights: Record<string, number>
+  variantId?: string
+  calibrationStatus?: 'pending_human_scoring_gate' | 'approved'
+  employerFitScore?: number | null
+  userCompatibilityScore?: number | null
+  importanceWeights?: Record<CriterionImportance, number>
   coverage: number
   criterionConfidence: number | null
   reliability: 'standard' | 'limited'

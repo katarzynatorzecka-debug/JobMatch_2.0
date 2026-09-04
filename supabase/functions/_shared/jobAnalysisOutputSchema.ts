@@ -7,6 +7,8 @@ const criterion = {
     id: { type: 'string', pattern: '^req:[a-z0-9][a-z0-9._-]{0,115}$', maxLength: 120 },
     canonicalKey: { type: 'string', pattern: '^req:[a-z0-9][a-z0-9._-]{0,115}$', maxLength: 120 },
     requirement: shortText,
+    type: { type: 'string', enum: ['required_skill', 'required_experience', 'language', 'responsibility_capability', 'employment_condition', 'preferred_qualification'] },
+    importance: { type: 'string', enum: ['critical', 'core', 'preferred'] },
     outcome: { type: 'string', enum: ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'] },
     rationale: shortText,
     profileEvidence: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 400 } },
@@ -28,7 +30,7 @@ export const jobAnalysisOutputJsonSchema = {
 } as const
 
 export type CriterionOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
-export type AnalysisOutput = { criteria: Record<(typeof analysisCategories)[number], Array<{ id: string; canonicalKey: string; requirement: string; outcome: CriterionOutcome; rationale: string; profileEvidence: string[]; offerEvidence: string[]; confidence: number }>>; summary: string; strengths: string[]; risks: string[]; missingInformation: string[] }
+export type AnalysisOutput = { criteria: Record<(typeof analysisCategories)[number], Array<{ id: string; canonicalKey: string; requirement: string; type?: 'required_skill' | 'required_experience' | 'language' | 'responsibility_capability' | 'employment_condition' | 'preferred_qualification'; importance?: 'critical' | 'core' | 'preferred'; outcome: CriterionOutcome; rationale: string; profileEvidence: string[]; offerEvidence: string[]; confidence: number }>>; summary: string; strengths: string[]; risks: string[]; missingInformation: string[] }
 
 export function isAnalysisOutput(value: unknown): value is AnalysisOutput {
   if (!value || typeof value !== 'object') return false
@@ -44,7 +46,7 @@ export function isAnalysisOutput(value: unknown): value is AnalysisOutput {
       if (!value || typeof value.id !== 'string' || !/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(value.id) || typeof value.canonicalKey !== 'string' || !/^req:[a-z0-9][a-z0-9._-]{0,115}$/.test(value.canonicalKey) || ids.has(value.id) || canonicalKeys.has(value.canonicalKey)) return false
       ids.add(value.id)
       canonicalKeys.add(value.canonicalKey)
-      return typeof value.requirement === 'string' && value.requirement.trim().length > 0 && ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].includes(String(value.outcome)) && typeof value.rationale === 'string' && value.rationale.trim().length > 0 && Array.isArray(value.profileEvidence) && value.profileEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Array.isArray(value.offerEvidence) && value.offerEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Number.isInteger(value.confidence) && Number(value.confidence) >= 0 && Number(value.confidence) <= 100
+      return typeof value.requirement === 'string' && value.requirement.trim().length > 0 && (value.type === undefined || ['required_skill', 'required_experience', 'language', 'responsibility_capability', 'employment_condition', 'preferred_qualification'].includes(String(value.type))) && (value.importance === undefined || ['critical', 'core', 'preferred'].includes(String(value.importance))) && ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].includes(String(value.outcome)) && typeof value.rationale === 'string' && value.rationale.trim().length > 0 && Array.isArray(value.profileEvidence) && value.profileEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Array.isArray(value.offerEvidence) && value.offerEvidence.every((entry) => typeof entry === 'string' && entry.trim().length > 0) && Number.isInteger(value.confidence) && Number(value.confidence) >= 0 && Number(value.confidence) <= 100
     })
   })
   return valid && ids.size > 0

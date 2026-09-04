@@ -36,6 +36,15 @@ describe('normalizeOfferPage', () => {
     expect(result.benefits.join(' ')).not.toContain('Company description')
   })
 
+  it('recognizes RocketJobs nested skill headings and strong section labels', () => {
+    const rocketJobs = `<main><h1>Community Moderator - Social Media Moderator</h1><h3>Opis stanowiska</h3><p>We are looking for a community moderator for an international marketing communication team with a detailed public role description.</p><p><strong>Language: Arabic (native)</strong></p><p><strong>You will:</strong></p><ul><li>Work with social media</li><li>Initiate discussions in social media</li></ul><p><strong>We need you:</strong></p><ul><li>To be a social media freak</li><li>To have a knack for the written word</li></ul><p><strong>We offer:</strong></p><ul><li>Flexible timelines</li></ul><h3>Wymagane umiejętności</h3><h4>arabski</h4><h4>social media</h4><h3>Lokalizacja biura</h3></main>`
+    const result = normalizeOfferPage('offer-rocketjobs', sourceUrl, rocketJobs)
+    expect(result.sourceQuality).toBe('full')
+    expect(result.requirements).toEqual(['To be a social media freak', 'To have a knack for the written word', 'arabski', 'social media', 'Language: Arabic (native)'])
+    expect(result.responsibilities).toEqual(['Work with social media', 'Initiate discussions in social media'])
+    expect(result.benefits).toEqual(['Flexible timelines'])
+  })
+
   it('uses explicit statements from text when the page has no recognized section headings', () => {
     const result = normalizeOfferPage('offer-3', sourceUrl, '<main><p>Detailed role description for a distributed team. You have at least 4 years of experience in service delivery. You are fluent in English.</p></main>')
     expect(result.requirements).toEqual(['You have at least 4 years of experience in service delivery.', 'You are fluent in English.'])

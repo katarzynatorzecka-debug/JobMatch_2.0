@@ -12,6 +12,14 @@ describe('workspace analysis queue projection', () => {
     expect(analysisFreshness({ latestVersion: { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: CURRENT_ANALYSIS_ALGORITHM_VERSION, promptVersion: CURRENT_ANALYSIS_PROMPT_VERSION, modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'weak' } as never, profile: { currentVersionId: 'profile-v1' } as never, offerVersionId: 'offer-v1', hardFilter: { status: 'needs_review' } as never })).toBe('current')
   })
 
+  it('marks the r8 baseline stale while accepting one coherent r9 identity', () => {
+    const context = { profile: { currentVersionId: 'profile-v1' } as never, offerVersionId: 'offer-v1', hardFilter: { status: 'pass' } as never }
+    expect(CURRENT_ANALYSIS_ALGORITHM_VERSION).toBe('jobmatch-deterministic-r10-critical-priority')
+    expect(CURRENT_ANALYSIS_PROMPT_VERSION).toBe('jobmatch-job-match-v6')
+    expect(analysisFreshness({ ...context, latestVersion: { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: 'jobmatch-deterministic-r8', promptVersion: 'jobmatch-job-match-v4', modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'pass' } as never })).toBe('stale_algorithm')
+    expect(analysisFreshness({ ...context, latestVersion: version })).toBe('current')
+  })
+
   it('projects active queue work before analysis, but never above exclusion', () => {
     expect(queueLifecycle({ current: { lifecycleStatus: 'new' } as never, hardFilter: { status: 'pass' } as never, queueItem: { status: 'queued' } as never, hasCurrentAnalysis: false, possibleDuplicate: false })).toBe('selected_for_analysis')
     expect(queueLifecycle({ current: { lifecycleStatus: 'excluded' } as never, hardFilter: { status: 'pass' } as never, queueItem: { status: 'processing' } as never, hasCurrentAnalysis: true, possibleDuplicate: false })).toBe('excluded')

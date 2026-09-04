@@ -81,6 +81,41 @@ export function isCandidateAssessmentOutput(value: unknown, rubric: OfferIntelli
   })
 }
 
+/** Returns an aggregate-only reason for a contract rejection; never includes profile or offer text. */
+export function candidateAssessmentValidationDiagnostic(value: unknown, rubric: OfferIntelligenceRubric) {
+  if (!value || typeof value !== 'object') return 'top_level_invalid'
+  const output = value as Record<string, unknown>
+  if (!nonEmptyText(output.summary, 1000)) return 'summary_invalid'
+  if (!Array.isArray(output.strengths) || output.strengths.length > 8 || !output.strengths.every((item) => nonEmptyText(item, 400))) return 'strengths_invalid'
+  if (!Array.isArray(output.risks) || output.risks.length > 8 || !output.risks.every((item) => nonEmptyText(item, 400))) return 'risks_invalid'
+  if (!Array.isArray(output.missingInformation) || output.missingInformation.length > 12 || !output.missingInformation.every((item) => nonEmptyText(item, 240))) return 'missing_information_invalid'
+  if (!output.criteria || typeof output.criteria !== 'object') return 'criteria_invalid'
+  const criteria = output.criteria as Record<string, unknown>
+  const expectedByCategory = Object.fromEntries(analysisCategories.map((category) => [category, rubric.criteria.filter((criterion) => criterion.category === category)])) as Record<(typeof analysisCategories)[number], OfferIntelligenceRubric['criteria']>
+  for (const category of analysisCategories) {
+    const actual = criteria[category]
+    const expected = expectedByCategory[category]
+    if (!Array.isArray(actual)) return `${category}_not_array`
+    if (actual.length !== expected.length) return `${category}_count_${actual.length}_expected_${expected.length}`
+    for (let index = 0; index < actual.length; index += 1) {
+      const item = actual[index]
+      if (!item || typeof item !== 'object') return `${category}_${index}_item_invalid`
+      const criterion = item as Record<string, unknown>
+      const extraKeys = Object.keys(criterion).filter((key) => !exactKeys.has(key))
+      if (extraKeys.length) return `${category}_${index}_extra_fields`
+      const immutableFields = ['id', 'canonicalKey', 'requirement', 'type', 'importance'] as const
+      const mismatch = immutableFields.find((field) => !matchesImmutableFields(criterion, expected[index]) && criterion[field] !== expected[index][field as keyof typeof expected[number]])
+      if (mismatch) return `${category}_${index}_${mismatch}_changed`
+      if (!['MATCH', 'PARTIAL', 'NO_MATCH'].includes(String(criterion.outcome))) return `${category}_${index}_outcome_invalid`
+      if (!nonEmptyText(criterion.rationale, 500)) return `${category}_${index}_rationale_invalid`
+      if (!Number.isInteger(criterion.confidence) || Number(criterion.confidence) < 0 || Number(criterion.confidence) > 100) return `${category}_${index}_confidence_invalid`
+      if (!Array.isArray(criterion.profileEvidence) || criterion.profileEvidence.length > 8 || !criterion.profileEvidence.every((evidence) => nonEmptyText(evidence, 400))) return `${category}_${index}_profile_evidence_invalid`
+      if ((criterion.outcome === 'MATCH' || criterion.outcome === 'PARTIAL') && criterion.profileEvidence.length === 0) return `${category}_${index}_profile_evidence_required`
+    }
+  }
+  return 'unknown'
+}
+
 export function candidateAssessmentToAnalysisOutput(value: CandidateAssessmentOutput, rubric: OfferIntelligenceRubric): AnalysisOutput {
   const criteria = Object.fromEntries(analysisCategories.map((category) => {
     const expected = rubric.criteria.filter((criterion) => criterion.category === category)
@@ -88,6 +123,8 @@ export function candidateAssessmentToAnalysisOutput(value: CandidateAssessmentOu
       id: expected[index].id,
       canonicalKey: expected[index].canonicalKey,
       requirement: expected[index].statement,
+      type: expected[index].type,
+      importance: expected[index].importance,
       outcome: criterion.outcome,
       rationale: criterion.rationale,
       profileEvidence: criterion.profileEvidence,
@@ -99,9 +136,9 @@ export function candidateAssessmentToAnalysisOutput(value: CandidateAssessmentOu
 }
 
 export function buildCandidateAssessmentPrompt(rubric: OfferIntelligenceRubric, candidateContext: unknown, hardFilter: unknown) {
-  return `Oceń kandydata wyłącznie względem utrwalonej rubryki pracodawcy. Nie dodawaj, nie usuwaj, nie sortuj i nie zmieniaj żadnego criterion ani pól id, canonicalKey, requirement, type lub importance. Uzupełnij wyłącznie outcome, profileEvidence, rationale i confidence. Każde criterion oceń dokładnie raz. MATCH wymaga konkretnego dowodu w przekazanym profilu. PARTIAL wymaga dowodu częściowego lub transferowalnego. Jasne wymaganie bez dowodu w profilu oznacza NO_MATCH, a nie UNKNOWN. UNKNOWN nie jest dozwolone dla kompletnej rubryki; jeśli kontekst technicznie nie wystarcza, zakończ ocenę błędem zamiast zgadywać. Nie licz score ani rekomendacji. Career targets nie są doświadczeniem. Hard Filter pozostaje niezależny.
+  const counts = Object.fromEntries(analysisCategories.map((category) => [category, rubric.criteria.filter((criterion) => criterion.category === category).length]))
+  return `Oceń kandydata wyłącznie względem utrwalonej rubryki pracodawcy. Nie dodawaj, nie usuwaj, nie sortuj i nie zmieniaj żadnego criterion ani pól id, canonicalKey, requirement, type lub importance. Uzupełnij wyłącznie outcome, profileEvidence, rationale i confidence. Każde criterion oceń dokładnie raz. Zwróć dokładnie tyle elementów w każdej tablicy, ile wskazuje kontrakt: experience=${counts.experience}, skills=${counts.skills}, preferences=${counts.preferences}, growth=${counts.growth}. Nie twórz żadnych dodatkowych kryteriów nawet wtedy, gdy zauważysz dodatkowe wymaganie — rubryka jest zamrożona. MATCH wymaga konkretnego dowodu w przekazanym profilu. PARTIAL wymaga dowodu częściowego lub transferowalnego. Jasne wymaganie bez dowodu w profilu oznacza NO_MATCH, a nie UNKNOWN. UNKNOWN nie jest dozwolone dla kompletnej rubryki; jeśli kontekst technicznie nie wystarcza, zakończ ocenę błędem zamiast zgadywać. Nie licz score ani rekomendacji. Career targets nie są doświadczeniem. Hard Filter pozostaje niezależny.
 rubric: ${JSON.stringify(rubric)}
 candidateContext: ${JSON.stringify(candidateContext)}
 hardFilter: ${JSON.stringify(hardFilter)}`
 }
-

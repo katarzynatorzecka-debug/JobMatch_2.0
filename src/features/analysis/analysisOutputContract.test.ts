@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isAnalysisOutput } from '../../../supabase/functions/_shared/jobAnalysisOutputSchema'
 import edgeSource from '../../../supabase/functions/analyze-job-match/index.ts?raw'
 import candidateAssessmentSource from '../../../supabase/functions/_shared/candidateAssessment.ts?raw'
+import scoringSource from '../../../supabase/functions/_shared/scoringCalibration.ts?raw'
 import { DETERMINISTIC_SCORING_VERSION } from './deterministicScoring'
 import { CURRENT_ANALYSIS_ALGORITHM_VERSION, CURRENT_ANALYSIS_PROMPT_VERSION } from '../workspace/analysisQueue'
 
@@ -38,7 +39,7 @@ describe('AI criterion output contract', () => {
 
   it('keeps frontend, Edge and persisted freshness on the same deterministic algorithm version', () => {
     expect(DETERMINISTIC_SCORING_VERSION).toBe(CURRENT_ANALYSIS_ALGORITHM_VERSION)
-    expect(edgeSource).toContain(`const algorithmVersion = '${DETERMINISTIC_SCORING_VERSION}'`)
+    expect(edgeSource).toContain('const algorithmVersion = SCORING_ALGORITHM_VERSION')
     expect(edgeSource).toContain(`const promptVersion = '${CURRENT_ANALYSIS_PROMPT_VERSION}'`)
     expect(edgeSource).toContain("const analysisContractVersion = 'jobmatch-analysis-contract-vnext-b'")
     expect(edgeSource).toContain('algorithm_version: algorithmVersion')
@@ -52,6 +53,7 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain('buildOfferIntelligencePrompt')
     expect(edgeSource).toContain('candidateAssessmentJsonSchema')
     expect(edgeSource).toContain('candidateAssessmentToAnalysisOutput')
+    expect(edgeSource).toContain('scoreScoringCriteria')
     expect(edgeSource.indexOf('requestOpenAi(apiKey, buildOfferIntelligencePrompt')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, prompt'))
   })
 
@@ -75,9 +77,12 @@ describe('AI criterion output contract', () => {
   })
 
   it('keeps UNKNOWN outside the Edge score denominator and never resolves duplicate criteria in favour of MATCH', () => {
-    expect(edgeSource).toContain(' / scoredWeight) : 0')
-    expect(edgeSource).not.toContain('const rank: Record<string, number>')
-    expect(edgeSource).not.toContain('const preferred =')
+    expect(edgeSource).toContain('scoreScoringCriteria(profile.priorities')
+    expect(scoringSource).toContain('const totalWeight = scoredEntries.reduce')
+    expect(scoringSource).toContain('const knownWeight = knownEntries.reduce')
+    expect(scoringSource).toContain('ANALYSIS_CRITERION_DUPLICATE')
+    expect(scoringSource).not.toContain('const rank: Record<string, number>')
+    expect(scoringSource).not.toContain('const preferred =')
   })
 
   it('keeps a manually overridden Hard Filter FAIL visible and non-recommendable', () => {

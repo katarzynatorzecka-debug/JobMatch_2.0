@@ -16,4 +16,9 @@ describe('analysis replay policy', () => {
   it('keeps active queue work non-actionable', () => {
     expect(analysisReplayAction({ hasLatestVersion: false, freshness: 'missing', queueStatus: 'processing' })).toBe('in_progress')
   })
+
+  it('allows replaying a queued item that contains a failed attempt', () => {
+    expect(analysisReplayAction({ hasLatestVersion: true, freshness: 'stale_algorithm', queueStatus: 'queued', queueHasError: true })).toBe('retry_failed')
+    expect(analysisReplayLabel('retry_failed', true)).toBe('Ponów analizę')
+  })
 })
