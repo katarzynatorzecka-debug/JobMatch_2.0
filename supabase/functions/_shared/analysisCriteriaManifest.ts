@@ -1,5 +1,6 @@
 import { analysisCategories, type AnalysisOutput } from './jobAnalysisOutputSchema.ts'
 import { extractExplicitRequirementLines } from './offerSourceNormalizer.ts'
+import type { OfferIntelligenceRubric } from './offerIntelligence.ts'
 
 export const ANALYSIS_CRITERIA_CONTRACT_VERSION = 'jobmatch-offer-criteria-r2'
 
@@ -130,6 +131,29 @@ export function manifestFromAnalysis(criteria: AnalysisOutput['criteria'], sourc
   const result = Object.fromEntries(analysisCategories.map((category) => [category, criteria[category].map(({ id, canonicalKey, requirement }) => ({ id, canonicalKey, requirement }))])) as AnalysisCriteriaManifest['criteria']
   const count = analysisCategories.reduce((total, category) => total + result[category].length, 0)
   return { contractVersion: ANALYSIS_CRITERIA_CONTRACT_VERSION, sourceSnapshotHash, quality: { explicitCriterionCount: count, sourceCriterionCount: count, metadataCriterionCount: 0, omittedCriterionCount: 0, categoriesWithCriteria: analysisCategories.filter((category) => result[category].length > 0) }, criteria: result }
+}
+
+/**
+ * Temporary assessment adapter for the existing candidate-output contract.
+ * The persisted source of truth is the richer OfferIntelligenceRubric; this
+ * projection carries only the fields the pre-vNEXT assessment still accepts.
+ */
+export function manifestFromOfferIntelligenceRubric(rubric: OfferIntelligenceRubric): AnalysisCriteriaManifest {
+  const result = Object.fromEntries(analysisCategories.map((category) => [category, [] as ManifestCriterion[]])) as AnalysisCriteriaManifest['criteria']
+  for (const criterion of rubric.criteria) result[criterion.category].push({ id: criterion.id, canonicalKey: criterion.canonicalKey, requirement: criterion.statement })
+  const count = analysisCategories.reduce((total, category) => total + result[category].length, 0)
+  return {
+    contractVersion: ANALYSIS_CRITERIA_CONTRACT_VERSION,
+    sourceSnapshotHash: rubric.sourceSnapshotHash,
+    quality: {
+      explicitCriterionCount: count,
+      sourceCriterionCount: count,
+      metadataCriterionCount: 0,
+      omittedCriterionCount: 0,
+      categoriesWithCriteria: analysisCategories.filter((category) => result[category].length > 0),
+    },
+    criteria: result,
+  }
 }
 
 export function isAnalysisCriteriaManifest(value: unknown): value is AnalysisCriteriaManifest {

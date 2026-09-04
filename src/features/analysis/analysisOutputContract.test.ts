@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isAnalysisOutput } from '../../../supabase/functions/_shared/jobAnalysisOutputSchema'
 import edgeSource from '../../../supabase/functions/analyze-job-match/index.ts?raw'
 import { DETERMINISTIC_SCORING_VERSION } from './deterministicScoring'
-import { CURRENT_ANALYSIS_ALGORITHM_VERSION } from '../workspace/analysisQueue'
+import { CURRENT_ANALYSIS_ALGORITHM_VERSION, CURRENT_ANALYSIS_PROMPT_VERSION } from '../workspace/analysisQueue'
 
 const criteria = Object.fromEntries(['experience', 'skills', 'preferences', 'growth'].map((category) => [category, [{ id: `req:${category}-criterion`, canonicalKey: `req:${category}-criterion`, requirement: `Wymóg ${category}.`, outcome: 'MATCH', rationale: 'Potwierdzone konkretnymi danymi.', profileEvidence: ['Dane profilu.'], offerEvidence: ['Dane oferty.'], confidence: 80 }]]))
 
@@ -37,7 +37,18 @@ describe('AI criterion output contract', () => {
   it('keeps frontend, Edge and persisted freshness on the same deterministic algorithm version', () => {
     expect(DETERMINISTIC_SCORING_VERSION).toBe(CURRENT_ANALYSIS_ALGORITHM_VERSION)
     expect(edgeSource).toContain(`const algorithmVersion = '${DETERMINISTIC_SCORING_VERSION}'`)
+    expect(edgeSource).toContain(`const promptVersion = '${CURRENT_ANALYSIS_PROMPT_VERSION}'`)
+    expect(edgeSource).toContain("const analysisContractVersion = 'jobmatch-analysis-contract-vnext-a'")
     expect(edgeSource).toContain('algorithm_version: algorithmVersion')
+  })
+
+  it('rebuilds and persists an old offer contract before candidate assessment', () => {
+    expect(edgeSource).toContain('analysis_contract_hash,analysis_contract_version')
+    expect(edgeSource).toContain('contract.contractVersion === analysisContractVersion')
+    expect(edgeSource).toContain('analysis_contract_version: analysisContractVersion')
+    expect(edgeSource).toContain('offerIntelligenceJsonSchema')
+    expect(edgeSource).toContain('buildOfferIntelligencePrompt')
+    expect(edgeSource.indexOf('requestOpenAi(apiKey, buildOfferIntelligencePrompt')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, prompt'))
   })
 
   it('passes fetched public offer text to the structured analysis prompt and keeps partial fallback explicit', () => {
@@ -45,11 +56,11 @@ describe('AI criterion output contract', () => {
     expect(edgeSource).toContain('Trwały snapshot publicznej treści oferty')
     expect(edgeSource).toContain('analysis_source_snapshot')
     expect(edgeSource).toContain('OPENAI_CRITERIA_MANIFEST_MISMATCH')
-    expect(edgeSource).toContain('buildDeterministicOfferManifest(offer, source, nextSourceHash)')
+    expect(edgeSource).toContain('isOfferIntelligenceRubricSufficient(rubric)')
     expect(edgeSource).toContain("WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT")
     expect(edgeSource).toContain('canonicalSourceHashInput(source)')
     expect(edgeSource).toContain("sourceQuality: 'partial'")
-    expect(edgeSource.indexOf('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')).toBeLessThan(edgeSource.indexOf('https://api.openai.com/v1/responses'))
+    expect(edgeSource.indexOf('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, prompt'))
   })
 
   it('allows empty categories but never an entirely empty provider rubric', () => {

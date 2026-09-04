@@ -2,12 +2,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { isAnalysisOutput, jobAnalysisOutputJsonSchema } from '../_shared/jobAnalysisOutputSchema.ts'
 import { readOpenAiStructuredOutput } from '../_shared/openAiStructuredOutput.ts'
 import { buildAnalysisCandidateContext } from '../_shared/analysisCandidateContext.ts'
-import { buildDeterministicOfferManifest, canonicalSourceHashInput, isAnalysisCriteriaManifest, isManifestSufficientForAnalysis, outputMatchesManifest, type AnalysisCriteriaManifest } from '../_shared/analysisCriteriaManifest.ts'
+import { canonicalSourceHashInput, isManifestSufficientForAnalysis, manifestFromOfferIntelligenceRubric, outputMatchesManifest } from '../_shared/analysisCriteriaManifest.ts'
+import { buildOfferIntelligencePrompt, buildOfferIntelligenceRubric, isOfferIntelligenceProviderOutput, isOfferIntelligenceRubric, isOfferIntelligenceRubricSufficient, offerIntelligenceJsonSchema, type OfferIntelligenceRubric, type OfferSourceSnapshot } from '../_shared/offerIntelligence.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
-const promptVersion = 'jobmatch-job-match-v4'
-const algorithmVersion = 'jobmatch-deterministic-r8'
+const promptVersion = 'jobmatch-job-match-v5'
+const algorithmVersion = 'jobmatch-deterministic-r9'
+const analysisContractVersion = 'jobmatch-analysis-contract-vnext-a'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -60,8 +62,6 @@ async function loadPublicOfferSource(supabaseUrl: string, authorization: string,
   } catch { return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] } }
 }
 
-type OfferSourceSnapshot = { sourceQuality: 'full' | 'partial'; text: string; requirements: string[]; responsibilities: string[]; benefits: string[]; missingInformation: string[] }
-
 function isOfferSourceSnapshot(value: unknown): value is OfferSourceSnapshot {
   if (!value || typeof value !== 'object') return false
   const data = value as Record<string, unknown>
@@ -78,8 +78,8 @@ async function sha256Text(value: string) {
 async function digest(value: unknown) { return await sha256Text(JSON.stringify(value)) }
 
 async function sourceHash(source: OfferSourceSnapshot) { return await sha256Text(canonicalSourceHashInput(source)) }
-async function contractHash(source: OfferSourceSnapshot, manifest: AnalysisCriteriaManifest) {
-  return await digest({ source, manifest, contractVersion: 'jobmatch-analysis-contract-r7' })
+async function contractHash(source: OfferSourceSnapshot, rubric: OfferIntelligenceRubric) {
+  return await digest({ source, rubric, contractVersion: analysisContractVersion })
 }
 
 async function queueAnalysisIdentity(queueItem: Record<string, unknown>, nextContractHash: string) {
@@ -90,22 +90,23 @@ async function queueAnalysisIdentity(queueItem: Record<string, unknown>, nextCon
 }
 
 async function loadOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string) {
-  const { data, error } = await worker.from('offer_versions').select('analysis_source_snapshot,analysis_source_hash,analysis_criteria_manifest,analysis_contract_hash').eq('id', offerVersionId).eq('user_id', userId).maybeSingle()
-  if (error || !data) return { error: true as const, source: null, sourceHash: null, manifest: null, contractHash: null }
+  const { data, error } = await worker.from('offer_versions').select('analysis_source_snapshot,analysis_source_hash,analysis_criteria_manifest,analysis_contract_hash,analysis_contract_version').eq('id', offerVersionId).eq('user_id', userId).maybeSingle()
+  if (error || !data) return { error: true as const, source: null, sourceHash: null, rubric: null, contractHash: null, contractVersion: null }
   return {
     error: false as const,
     source: isOfferSourceSnapshot(data.analysis_source_snapshot) ? { ...data.analysis_source_snapshot, requirements: data.analysis_source_snapshot.requirements ?? [], responsibilities: data.analysis_source_snapshot.responsibilities ?? [], benefits: data.analysis_source_snapshot.benefits ?? [] } : null,
     sourceHash: typeof data.analysis_source_hash === 'string' ? data.analysis_source_hash : null,
-    manifest: isAnalysisCriteriaManifest(data.analysis_criteria_manifest) ? data.analysis_criteria_manifest : null,
+    rubric: isOfferIntelligenceRubric(data.analysis_criteria_manifest) ? data.analysis_criteria_manifest : null,
     contractHash: typeof data.analysis_contract_hash === 'string' ? data.analysis_contract_hash : null,
+    contractVersion: typeof data.analysis_contract_version === 'string' ? data.analysis_contract_version : null,
   }
 }
 
-async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, manifest: AnalysisCriteriaManifest) {
+async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, rubric: OfferIntelligenceRubric) {
   const nextSourceHash = await sourceHash(source)
-  if (manifest.sourceSnapshotHash !== nextSourceHash) return { ok: false, contractHash: '' }
-  const nextContractHash = await contractHash(source, manifest)
-  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: nextSourceHash, analysis_criteria_manifest: manifest, analysis_contract_hash: nextContractHash, analysis_contract_version: 'jobmatch-analysis-contract-r7' }
+  if (rubric.sourceSnapshotHash !== nextSourceHash) return { ok: false, contractHash: '' }
+  const nextContractHash = await contractHash(source, rubric)
+  const payload: Record<string, unknown> = { analysis_source_snapshot: source, analysis_source_hash: nextSourceHash, analysis_criteria_manifest: rubric, analysis_contract_hash: nextContractHash, analysis_contract_version: analysisContractVersion }
   const { error } = await worker.from('offer_versions').update(payload).eq('id', offerVersionId).eq('user_id', userId)
   return { ok: !error, contractHash: nextContractHash }
 }
@@ -114,6 +115,10 @@ async function alignQueueAnalysisIdentity(worker: ReturnType<typeof createClient
   const identity = await queueAnalysisIdentity(queueItem, nextContractHash)
   const { error } = await worker.from('analysis_queue').update({ analysis_identity: identity }).eq('id', String(queueItem.id ?? '')).eq('user_id', String(queueItem.user_id ?? '')).eq('worker_token', workerToken)
   return !error
+}
+
+async function requestOpenAi(apiKey: string, input: string, schema: Record<string, unknown>, requestId: string) {
+  return await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-Client-Request-Id': requestId }, body: JSON.stringify({ model, reasoning: { effort: 'low' }, input, text: { format: { type: 'json_schema', name: 'job_match', strict: true, schema } } }) })
 }
 
 Deno.serve(async (request) => {
@@ -158,19 +163,31 @@ Deno.serve(async (request) => {
   if (contract.error) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_UNAVAILABLE')
   let source: OfferSourceSnapshot = contract.source ?? await loadPublicOfferSource(url, authorization, offer)
   let nextSourceHash = await sourceHash(source)
-  let manifest = contract.manifest?.sourceSnapshotHash === nextSourceHash ? contract.manifest : buildDeterministicOfferManifest(offer, source, nextSourceHash)
-  if (!isManifestSufficientForAnalysis(manifest) && contract.source) {
+  let rubric: OfferIntelligenceRubric | null = contract.contractVersion === analysisContractVersion && contract.rubric?.sourceSnapshotHash === nextSourceHash ? contract.rubric : null
+  if (!rubric && source.sourceQuality !== 'full' && contract.source) {
     const refreshedSource = await loadPublicOfferSource(url, authorization, offer)
     const refreshedHash = await sourceHash(refreshedSource)
-    const refreshedManifest = buildDeterministicOfferManifest(offer, refreshedSource, refreshedHash)
-    if (isManifestSufficientForAnalysis(refreshedManifest)) { source = refreshedSource; nextSourceHash = refreshedHash; manifest = refreshedManifest }
+    if (refreshedSource.sourceQuality === 'full') { source = refreshedSource; nextSourceHash = refreshedHash }
   }
-  const persistedContract = contract.contractHash && contract.source && contract.sourceHash === nextSourceHash && contract.manifest?.sourceSnapshotHash === nextSourceHash
+  if (!rubric) {
+    if (source.sourceQuality !== 'full' || !source.text) return await failQueue('WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
+    let intelligenceResponse: Response
+    try { intelligenceResponse = await requestOpenAi(apiKey, buildOfferIntelligencePrompt(source, nextSourceHash), offerIntelligenceJsonSchema as unknown as Record<string, unknown>, `${queueItemId}:offer-intelligence`) } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_NETWORK_ERROR') }
+    if (!intelligenceResponse.ok) { console.info(JSON.stringify({ diagnostic: 'OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR', providerStatus: intelligenceResponse.status })); return await failQueue('OPENAI_OFFER_INTELLIGENCE_HTTP_ERROR') }
+    let intelligencePayload: unknown
+    try { intelligencePayload = await intelligenceResponse.json() } catch { return await failQueue('OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH') }
+    const parsedIntelligence = readOpenAiStructuredOutput(intelligencePayload)
+    if (!parsedIntelligence.ok || !isOfferIntelligenceProviderOutput(parsedIntelligence.value, source)) return await failQueue('OPENAI_OFFER_INTELLIGENCE_SCHEMA_MISMATCH')
+    rubric = buildOfferIntelligenceRubric(source, nextSourceHash, parsedIntelligence.value)
+    if (!rubric) return await failQueue('OPENAI_OFFER_INTELLIGENCE_CONTRACT_INVALID')
+  }
+  const manifest = manifestFromOfferIntelligenceRubric(rubric)
+  const persistedContract = contract.contractVersion === analysisContractVersion && contract.contractHash && contract.source && contract.sourceHash === nextSourceHash && contract.rubric?.sourceSnapshotHash === nextSourceHash
     ? { ok: true, contractHash: contract.contractHash }
-    : await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, manifest)
+    : await persistOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''), source, rubric)
   if (!persistedContract.ok) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_SAVE_FAILED')
   if (!await alignQueueAnalysisIdentity(worker, queueItem, workerToken, persistedContract.contractHash)) return await failQueue('WORKSPACE_ANALYSIS_IDENTITY_SAVE_FAILED')
-  if (!isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
+  if (!isOfferIntelligenceRubricSufficient(rubric) || !isManifestSufficientForAnalysis(manifest)) return await failQueue('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')
   const candidateContext = buildAnalysisCandidateContext(profile, `${JSON.stringify(offer)}\n${source.text}`)
   const manifestInstruction = `Użyj dokładnie poniższego, trwałego zestawu wymagań oferty. Nie dodawaj, nie usuwaj, nie zmieniaj kategorii, id, canonicalKey ani requirement; uzupełnij wyłącznie outcome, dowody, confidence i rationale.\nManifest: ${JSON.stringify(manifest)}`
   const prompt = `Oceń dopasowanie kandydata do oferty pracy, nie atrakcyjność firmy. Nie wymyślaj faktów. ${manifestInstruction} Każda pozycja manifestu jest jawnym wymaganiem oferty i musi mieć offerEvidence. MATCH oznacza, że konkretny dowód z profilu spełnia wymaganie. PARTIAL oznacza częściowy lub transferowalny dowód z profilu. NO_MATCH oznacza, że wymaganie jest jasne, ale pełny przekazany kontekst kandydata nie zawiera wspierającego dowodu albo zawiera dowód sprzeczny; sam brak wzmianki w profilu nie jest UNKNOWN. Opisuj NO_MATCH jako brak potwierdzenia w profilu, nie jako pewność, że kandydat nie posiada kompetencji. UNKNOWN stosuj wyłącznie wtedy, gdy mimo manifestu nie da się jednoznacznie zrozumieć wymagania albo przekazany kontekst kandydata jest technicznie niewystarczający do klasyfikacji. MATCH i PARTIAL wymagają profileEvidence oraz offerEvidence. NO_MATCH wymaga offerEvidence, a profileEvidence może być puste. Skills, experience areas i responsibilities mogą być dowodami tego samego kryterium, lecz nie osobnymi punktami. Career target nie jest doświadczeniem. Nie licz końcowego score ani rekomendacji. Must-have i blacklist są poza score i coverage; Hard Filter jest niezależny i wiążący.\nKontekst kandydata: ${JSON.stringify(candidateContext)}\nOferta znormalizowana: ${JSON.stringify(offer)}\nTrwały snapshot publicznej treści oferty: ${source.text || 'Niedostępna'}\nHard Filter: ${JSON.stringify(hardFilter)}`
@@ -179,7 +196,7 @@ Deno.serve(async (request) => {
   try {
     openAiResponse = existingProviderResponseId
       ? await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(existingProviderResponseId)}`, { headers: { Authorization: `Bearer ${apiKey}` } })
-      : await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'X-Client-Request-Id': queueItemId }, body: JSON.stringify({ model, reasoning: { effort: 'low' }, input: prompt, text: { format: { type: 'json_schema', name: 'job_match', strict: true, schema: jobAnalysisOutputJsonSchema } } }) })
+      : await requestOpenAi(apiKey, prompt, jobAnalysisOutputJsonSchema as unknown as Record<string, unknown>, queueItemId)
   } catch { return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_NETWORK_ERROR') }
   if (!openAiResponse.ok) { console.info(JSON.stringify({ diagnostic: 'OPENAI_HTTP_ERROR', providerStatus: openAiResponse.status })); return await failQueue(existingProviderResponseId ? 'OPENAI_RESPONSE_RETRIEVE_ERROR' : 'OPENAI_HTTP_ERROR') }
   let payload: unknown
