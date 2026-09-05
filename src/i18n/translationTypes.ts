@@ -567,6 +567,13 @@ export type TranslationParameters = {
   'import.reports.aria': undefined
   'import.file.failed': undefined
   'import.file.skipped': undefined
+  'import.file.error.select': undefined
+  'import.file.error.extension': undefined
+  'import.file.error.type': undefined
+  'import.file.error.empty': undefined
+  'import.file.error.tooLarge': undefined
+  'import.file.error.noContent': undefined
+  'import.file.error.read': undefined
   'import.report.recognized': { all: number; visible: number }
   'import.action.removeReport': undefined
   'import.offer.missing': undefined

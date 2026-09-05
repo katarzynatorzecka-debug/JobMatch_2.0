@@ -106,6 +106,8 @@ describe('DashboardPage', () => {
     expect(markup).toContain('Recommended offers')
     expect(markup).toContain('Senior Operations Manager')
     expect(markup).toContain('Acme')
+    expect(markup).toContain('Worth applying')
     expect(markup).not.toContain('Polecane oferty')
+    expect(markup).not.toContain('Warto aplikować')
   })
 })

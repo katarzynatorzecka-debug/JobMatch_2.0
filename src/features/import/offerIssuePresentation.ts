@@ -35,6 +35,21 @@ export function importWarningLabel(warning: ImportWarning, locale: Locale = 'pl'
   }
   return warning.message
 }
+
+const importFileErrorKeys = {
+  'Wybierz plik raportu.': 'import.file.error.select',
+  'Wybierz plik w formacie .eml.': 'import.file.error.extension',
+  'Ten typ pliku nie wygląda jak wiadomość EML.': 'import.file.error.type',
+  'Wybrany plik jest pusty.': 'import.file.error.empty',
+  'Plik jest zbyt duży. Maksymalny rozmiar to 10 MB.': 'import.file.error.tooLarge',
+  'Nie znaleziono treści raportu w pliku EML.': 'import.file.error.noContent',
+  'Nie udało się odczytać tego pliku EML.': 'import.file.error.read',
+} as const
+
+export function importFileErrorLabel(message: string, locale: Locale = 'pl') {
+  const key = importFileErrorKeys[message as keyof typeof importFileErrorKeys]
+  return key ? translate(locale, key) : message
+}
 import type { ImportWarning } from '../../contracts/import'
 import { translate } from '../../i18n/I18nProvider'
 import type { Locale } from '../../i18n/locale'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analysisDateLabel, analysisStateLabel, criterionOutcomeLabel, hardFilterReasonLabels, sourceQualityLabel } from './presentationLabels'
+import { analysisDateLabel, analysisFreshnessLabel, analysisStateLabel, criterionMatchTypeLabel, criterionOutcomeLabel, hardFilterReasonLabels, recommendationLabel, sourceQualityLabel } from './presentationLabels'
 
 describe('presentation labels', () => {
   it('maps a structured Hard Filter reason to its product label', () => {
@@ -19,6 +19,26 @@ describe('presentation labels', () => {
       'Częściowo spełnione',
       'Niepotwierdzone w profilu',
       'Brak wystarczających danych',
+    ])
+  })
+
+  it('localizes every recommendation and criterion evidence state', () => {
+    expect(['Warto aplikować', 'Wymaga sprawdzenia', 'Nie rekomenduję'].map((value) => recommendationLabel(value, 'en'))).toEqual([
+      'Worth applying',
+      'Needs review',
+      'Not recommended',
+    ])
+    expect(['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'].map((value) => criterionOutcomeLabel(value, 'en'))).toEqual([
+      'Met',
+      'Partially met',
+      'Not confirmed in the profile',
+      'Insufficient data',
+    ])
+    expect(['direct', 'transferable', 'no_evidence', 'contradiction'].map((value) => criterionMatchTypeLabel(value, 'en'))).toEqual([
+      'Direct match',
+      'Transferable match',
+      'No evidence in the profile',
+      'Contradicts the profile',
     ])
   })
   it('localizes domain labels without exposing legacy Polish labels in English', () => {
@@ -41,8 +61,22 @@ describe('presentation labels', () => {
     expect(analysisStateLabel({ queueStatus: null, errorCode: null, freshness: 'stale_profile' })).toBe('Wynik wymaga ponownej analizy')
   })
 
+  it('covers every queue and freshness presentation branch in both locales', () => {
+    const freshness = ['current', 'missing', 'stale_profile', 'stale_offer', 'stale_algorithm', 'stale_prompt', 'stale_model'] as const
+    for (const state of freshness) {
+      expect(analysisFreshnessLabel(state, 'pl')).not.toBe(analysisFreshnessLabel(state, 'en'))
+    }
+    expect(analysisStateLabel({ queueStatus: 'queued', errorCode: null, freshness: 'missing' }, 'en')).toBe('Waiting for analysis')
+    expect(analysisStateLabel({ queueStatus: 'processing', errorCode: null, freshness: 'missing' }, 'en')).toBe('Analysis in progress')
+    expect(analysisStateLabel({ queueStatus: 'completed', errorCode: null, freshness: 'current' }, 'en')).toBe('Analysed')
+    expect(analysisStateLabel({ queueStatus: 'failed', errorCode: 'PROVIDER_TIMEOUT', freshness: 'missing' }, 'en')).toBe('Analysis failed. Try again.')
+    expect(analysisStateLabel({ queueStatus: 'cancelled', errorCode: null, freshness: 'missing' }, 'en')).toBe('Not analysed')
+  })
+
   it('formats a useful analysis timestamp without exposing an internal identifier', () => {
     expect(analysisDateLabel('2026-08-07T12:00:00.000Z')).toContain('Analizowano:')
+    expect(analysisDateLabel('2026-08-07T12:00:00.000Z', 'en')).toContain('Analysed:')
+    expect(analysisDateLabel('2026-08-07T12:00:00.000Z', 'pl')).not.toBe(analysisDateLabel('2026-08-07T12:00:00.000Z', 'en'))
     expect(analysisDateLabel(null)).toBe('Data analizy niedostępna')
   })
 })

@@ -4,6 +4,7 @@ import type { DashboardOfferCard, DashboardViewModel } from '../features/dashboa
 import { useI18n } from '../i18n/I18nProvider'
 import type { Translate } from '../i18n/translationTypes'
 import type { Locale } from '../i18n/locale'
+import { recommendationLabel } from '../features/workspace/presentationLabels'
 
 function dateLabel(value: string, unavailable: string, locale: Locale) {
   const date = new Date(value)
@@ -18,7 +19,7 @@ function hardFilterLabel(status: DashboardOfferCard['hardFilterStatus'], t: Tran
 }
 
 function OfferPreview({ item }: { item: DashboardOfferCard }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const blocked = item.hardFilterStatus === 'fail'
   return (
     <article className="dashboard-offer-card">
@@ -35,7 +36,7 @@ function OfferPreview({ item }: { item: DashboardOfferCard }) {
         {item.reliability === 'limited' && <span>{item.coverage === null ? t('dashboard.partialScore') : t('dashboard.partialCoverage', { coverage: Math.round(item.coverage) })}</span>}
         {blocked && <span>{t('dashboard.scoreUnavailable')}</span>}
       </div>
-      {item.recommendation && !blocked && <p className="dashboard-offer-card__recommendation">{item.recommendation}</p>}
+      {item.recommendation && !blocked && <p className="dashboard-offer-card__recommendation">{recommendationLabel(item.recommendation, locale)}</p>}
       <Link className="text-link" to={item.href}>{t('dashboard.viewDetails')}</Link>
     </article>
   )

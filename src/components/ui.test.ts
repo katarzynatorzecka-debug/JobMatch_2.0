@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement, type ReactElement } from 'react'
 import type { JobAnalysis } from '../contracts/jobAnalysis'
-import { AnalysisQuality, HardFilterReason, ScoreBadge, analysisNarrativeData, formatPercentage } from './ui'
+import { AnalysisQuality, HardFilterReason, HardFilterStatusBadge, ScoreBadge, analysisNarrativeData, formatPercentage } from './ui'
 import { I18nProvider } from '../i18n/I18nProvider'
 
 const renderWithI18n = (component: ReactElement, locale: 'pl' | 'en' = 'pl') => renderToStaticMarkup(createElement(I18nProvider, { initialLocale: locale, children: component }))
@@ -87,5 +87,20 @@ describe('HardFilterReason', () => {
 
   it('renders the conflict when a reason is present', () => {
     expect(renderWithI18n(createElement(HardFilterReason, { reasons: [{ code: 'work-mode' }] }))).toContain('Tryb pracy nie odpowiada preferencjom profilu.')
+  })
+})
+
+describe('HardFilterStatusBadge', () => {
+  it('localizes every Hard Filter status in Polish and English', () => {
+    expect(['pass', 'weak', 'fail'].map((status) => renderWithI18n(createElement(HardFilterStatusBadge, { status: status as 'pass' | 'weak' | 'fail' })))).toEqual(expect.arrayContaining([
+      expect.stringContaining('Przechodzi'),
+      expect.stringContaining('Wymaga sprawdzenia'),
+      expect.stringContaining('Odrzucona'),
+    ]))
+    expect(['pass', 'weak', 'fail'].map((status) => renderWithI18n(createElement(HardFilterStatusBadge, { status: status as 'pass' | 'weak' | 'fail' }), 'en'))).toEqual(expect.arrayContaining([
+      expect.stringContaining('Passes'),
+      expect.stringContaining('Needs review'),
+      expect.stringContaining('Rejected'),
+    ]))
   })
 })

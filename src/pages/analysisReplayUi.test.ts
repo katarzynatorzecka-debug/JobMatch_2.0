@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import offersSource from './OffersPage.tsx?raw'
 import detailsSource from './OfferDetailsPage.tsx?raw'
 import importSource from './ImportAnalysisPage.tsx?raw'
+import messageSource from './MessageGeneratorPage.tsx?raw'
 
 describe('analysis replay UI', () => {
   it('keeps a current result from silently becoming a force reanalysis', () => {
@@ -36,5 +37,10 @@ describe('analysis replay UI', () => {
     expect(importSource).toContain("pipelineErrorMessage && !isReviewing && <Alert title={t('import.review.analysisErrorTitle')}")
     expect(importSource).toContain("{pipelineErrorMessage && <Alert title={t('import.review.analysisErrorTitle')}")
     expect(importSource).toContain("'key' in pipelineError ? t(pipelineError.key) : pipelineError.message")
+  })
+
+  it('localizes recommendation statuses outside the stored AI narrative', () => {
+    expect(messageSource).toContain('recommendationLabel(context.analysis.recommendation, locale)')
+    expect(messageSource).not.toContain('<span>{context.analysis.recommendation}</span>')
   })
 })
