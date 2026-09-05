@@ -29,6 +29,6 @@ describe('analysis replay UI', () => {
     expect(importSource).not.toContain('analysis.risks[0]')
     expect(detailsSource).toContain('<AnalysisQuality analysis={analysis} />')
     expect(detailsSource).not.toContain('{analysis.recommendation}</strong> — {analysis.summary}')
-    expect(detailsSource).toContain('Wynik częściowy: ${entry.analysis.overallScore}/100')
+    expect(detailsSource).toContain("t('details.history.partialScore', { score: entry.analysis.overallScore })")
   })
 })

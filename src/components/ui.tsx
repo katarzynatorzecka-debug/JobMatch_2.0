@@ -5,28 +5,32 @@ import type { HardFilterStatus } from '../contracts/hardFilter'
 import type { AnalysisCategory, AnalysisCriterion, JobAnalysis } from '../contracts/jobAnalysis'
 import type { WorkspaceAnalysisState } from '../contracts/workspace'
 import { analysisDateLabel, analysisStateLabel, criterionMatchTypeLabel, criterionOutcomeLabel, hardFilterReasonLabels, sourceQualityLabel } from '../features/workspace/presentationLabels'
+import { useI18n } from '../i18n/I18nProvider'
 
 export function PageHeader({ eyebrow = 'JobMatch', title, intro, actions }: { eyebrow?: string; title: string; intro: string; actions?: ReactNode }) { return <header className="page-header"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-intro">{intro}</p>{actions}</header> }
 export function PrimaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--primary ${className}`} {...props}>{children}</button> }
 export function SecondaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--secondary ${className}`} {...props}>{children}</button> }
 export function PrimaryLink({ to, children }: { to: string; children: ReactNode }) { return <Link className="button button--primary" to={to}>{children}</Link> }
 export function SecondaryLink({ to, children }: { to: string; children: ReactNode }) { return <Link className="button button--secondary" to={to}>{children}</Link> }
-export function StatusBadge({ status }: { status: DemoStatus }) { const meta = statusMeta[status]; return <span className={`status-badge status-badge--${status}`}><span aria-hidden="true">{meta.symbol}</span>{meta.label}</span> }
-const hardFilterMeta: Record<HardFilterStatus, { label: string; symbol: string }> = { pass: { label: 'Przechodzi', symbol: '✓' }, weak: { label: 'Wymaga sprawdzenia', symbol: '?' }, fail: { label: 'Odrzucona', symbol: '×' } }
-export function HardFilterStatusBadge({ status }: { status: HardFilterStatus }) { const meta = hardFilterMeta[status]; return <span className={`status-badge status-badge--hard-${status}`}><span aria-hidden="true">{meta.symbol}</span>{meta.label}</span> }
-export function ScoreBadge({ score, limited = false }: { score: number; limited?: boolean }) { return <span className={`score-badge${limited ? ' score-badge--limited' : ''}`} aria-label={limited ? `Wynik częściowy: ${score} na 100, wiarygodność ograniczona` : `Ocena dopasowania: ${score} na 100`}><strong>{score}</strong><span>/100</span>{limited && <small>wynik częściowy</small>}</span> }
-export function SourceBadge({ state }: { state: DemoOffer['sourceState'] }) { return <span className="source-badge"><span aria-hidden="true">▣</span>{state === 'fallback' ? 'Użyto danych zapasowych' : 'Analiza na podstawie częściowych danych'}</span> }
-export function CategoryScore({ label, score }: { label: string; score: number | null }) { if (score === null) return <div className="category-score"><div><span>{label}</span><strong>Brak danych</strong></div></div>; return <div className="category-score"><div><span>{label}</span><strong>{score}/100</strong></div><div className="progress-track" aria-label={`${label}: ${score} na 100`}><span style={{ width: `${score}%` }} /></div></div> }
-const categoryLabels: Record<AnalysisCategory, string> = { experience: 'Doświadczenie', skills: 'Umiejętności', preferences: 'Preferencje', growth: 'Rozwój' }
+const statusLabelKeys = { worth: 'ui.status.worth', review: 'ui.status.review', rejected: 'ui.status.rejected' } as const
+export function StatusBadge({ status }: { status: DemoStatus }) { const { t } = useI18n(); const meta = statusMeta[status]; return <span className={`status-badge status-badge--${status}`}><span aria-hidden="true">{meta.symbol}</span>{t(statusLabelKeys[status])}</span> }
+const hardFilterMeta: Record<HardFilterStatus, { labelKey: 'ui.hardFilter.pass' | 'ui.hardFilter.review' | 'ui.hardFilter.fail'; symbol: string }> = { pass: { labelKey: 'ui.hardFilter.pass', symbol: '✓' }, weak: { labelKey: 'ui.hardFilter.review', symbol: '?' }, fail: { labelKey: 'ui.hardFilter.fail', symbol: '×' } }
+export function HardFilterStatusBadge({ status }: { status: HardFilterStatus }) { const { t } = useI18n(); const meta = hardFilterMeta[status]; return <span className={`status-badge status-badge--hard-${status}`}><span aria-hidden="true">{meta.symbol}</span>{t(meta.labelKey)}</span> }
+export function ScoreBadge({ score, limited = false }: { score: number; limited?: boolean }) { const { t } = useI18n(); return <span className={`score-badge${limited ? ' score-badge--limited' : ''}`} aria-label={limited ? t('ui.score.partialAria', { score }) : t('ui.score.standardAria', { score })}><strong>{score}</strong><span>/100</span>{limited && <small>{t('ui.score.partialLabel')}</small>}</span> }
+export function SourceBadge({ state }: { state: DemoOffer['sourceState'] }) { const { t } = useI18n(); return <span className="source-badge"><span aria-hidden="true">▣</span>{state === 'fallback' ? t('ui.source.fallback') : t('ui.source.partial')}</span> }
+export function CategoryScore({ label, score }: { label: string; score: number | null }) { const { t } = useI18n(); if (score === null) return <div className="category-score"><div><span>{label}</span><strong>{t('ui.noData')}</strong></div></div>; return <div className="category-score"><div><span>{label}</span><strong>{score}/100</strong></div><div className="progress-track" aria-label={t('ui.score.progressAria', { label, score })}><span style={{ width: `${score}%` }} /></div></div> }
+const categoryLabelKeys = { experience: 'ui.analysis.category.experience', skills: 'ui.analysis.category.skills', preferences: 'ui.analysis.category.preferences', growth: 'ui.analysis.category.growth' } as const
 export function formatPercentage(value: number) { return `${Math.round(value)}%` }
 export function HardFilterReason({ reasons }: { reasons: unknown[] }) {
+  const { t } = useI18n()
   const labels = hardFilterReasonLabels(reasons)
   if (!labels.length) return null
-  return <div className="hard-filter-reasons"><strong>Powód:</strong><ul>{labels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul></div>
+  return <div className="hard-filter-reasons"><strong>{t('ui.hardFilter.reason')}</strong><ul>{labels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul></div>
 }
-export function SourceQualityLabel({ value }: { value: JobAnalysis['sourceQuality'] }) { return <span className="analysis-meta__source">Zródlo: {sourceQualityLabel(value)}</span> }
+export function SourceQualityLabel({ value }: { value: JobAnalysis['sourceQuality'] }) { const { t } = useI18n(); return <span className="analysis-meta__source">{t('ui.meta.source')} {sourceQualityLabel(value)}</span> }
 export function AnalysisMetadata({ analysis, state }: { analysis: JobAnalysis; state: WorkspaceAnalysisState }) {
-  return <div className="analysis-meta"><span>Stan: {analysisStateLabel({ queueStatus: state.queueItem?.status, errorCode: state.errorCode, freshness: state.freshness })}</span><span>{analysisDateLabel(state.lastAnalysisAt ?? analysis.createdAt)}</span><SourceQualityLabel value={analysis.sourceQuality} /></div>
+  const { t } = useI18n()
+  return <div className="analysis-meta"><span>{t('ui.meta.state')} {analysisStateLabel({ queueStatus: state.queueItem?.status, errorCode: state.errorCode, freshness: state.freshness })}</span><span>{analysisDateLabel(state.lastAnalysisAt ?? analysis.createdAt)}</span><SourceQualityLabel value={analysis.sourceQuality} /></div>
 }
 function criterionList(analysis: JobAnalysis, category: AnalysisCategory): AnalysisCriterion[] {
   const value = analysis.criteria?.[category]
@@ -66,19 +70,21 @@ export function analysisNarrativeData(analysis: JobAnalysis | null | undefined) 
   }
 }
 export function AnalysisNarrative({ analysis, compact = false }: { analysis: JobAnalysis; compact?: boolean }) {
+  const { t } = useI18n()
   const narrative = analysisNarrativeData(analysis)
   if (!narrative) return null
   return <div className={`analysis-narrative${compact ? ' analysis-narrative--compact' : ''}`}>
-    <p className="analysis-narrative__recommendation"><strong>Rekomendacja:</strong> {narrative.recommendation}</p>
+    <p className="analysis-narrative__recommendation"><strong>{t('ui.analysis.recommendation')}</strong> {narrative.recommendation}</p>
     <p className="analysis-narrative__summary"><strong>{narrative.headline}.</strong> {narrative.summary}</p>
-    {!compact && narrative.strengths.length > 0 && <div className="analysis-narrative__block"><h3>Silne strony kandydata</h3><ul className="check-list">{narrative.strengths.map((strength, index) => <li key={`${strength}-${index}`}>{strength}</li>)}</ul></div>}
-    {!compact && narrative.risks.length > 0 && <div className="analysis-narrative__block"><h3>Do sprawdzenia przed aplikowaniem</h3><ul className="risk-list">{narrative.risks.map((risk, index) => <li key={`${risk}-${index}`}>{risk}</li>)}</ul></div>}
-    {compact && narrative.strengths[0] && <p className="analysis-narrative__compact-line"><strong>Silna strona:</strong> {narrative.strengths[0]}</p>}
-    {compact && narrative.risks[0] && <p className="analysis-narrative__compact-line"><strong>Do sprawdzenia:</strong> {narrative.risks[0]}</p>}
+    {!compact && narrative.strengths.length > 0 && <div className="analysis-narrative__block"><h3>{t('ui.analysis.strengths')}</h3><ul className="check-list">{narrative.strengths.map((strength, index) => <li key={`${strength}-${index}`}>{strength}</li>)}</ul></div>}
+    {!compact && narrative.risks.length > 0 && <div className="analysis-narrative__block"><h3>{t('ui.analysis.checkBefore')}</h3><ul className="risk-list">{narrative.risks.map((risk, index) => <li key={`${risk}-${index}`}>{risk}</li>)}</ul></div>}
+    {compact && narrative.strengths[0] && <p className="analysis-narrative__compact-line"><strong>{t('ui.analysis.strength')}</strong> {narrative.strengths[0]}</p>}
+    {compact && narrative.risks[0] && <p className="analysis-narrative__compact-line"><strong>{t('ui.analysis.check')}</strong> {narrative.risks[0]}</p>}
     {narrative.hardFilterWarning && <p className="analysis-narrative__hard-filter"><strong>Hard Filter:</strong> {narrative.hardFilterWarning}</p>}
   </div>
 }
 export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobAnalysis; detailed?: boolean }) {
+  const { t } = useI18n()
   const scoring = analysis.scoring
   const coverage = scoring?.coverage
   const confidence = scoring?.criterionConfidence
@@ -86,12 +92,12 @@ export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobA
   if (!scoring && !analysis.criteria) return <AnalysisNarrative analysis={analysis} compact />
   return <div className={`analysis-quality${detailed ? ' analysis-quality--detailed' : ''}`}>
     {!detailed && <AnalysisNarrative analysis={analysis} />}
-    <p><strong>{limited ? `Wynik częściowy: ${analysis.overallScore}/100${typeof coverage === 'number' ? ` przy ${formatPercentage(coverage)} pokrycia` : ''}` : `${analysis.overallScore}/100`}</strong>{limited && <span className="analysis-quality__limited">Nie interpretuj jako pełnego dopasowania</span>}</p>
-    <div className="analysis-quality__metrics"><span>Pokrycie: {typeof coverage === 'number' ? formatPercentage(coverage) : 'brak danych'}</span><span>Pewność: {typeof confidence === 'number' ? `${confidence}%` : 'brak danych'}</span><span>Wiarygodność: {scoring?.reliability === 'standard' ? 'standardowa' : scoring?.reliability === 'limited' ? 'ograniczona' : 'brak danych'}</span></div>
+    <p><strong>{limited ? (typeof coverage === 'number' ? t('ui.analysis.partialWithCoverage', { score: analysis.overallScore, coverage: formatPercentage(coverage) }) : t('ui.analysis.partial', { score: analysis.overallScore })) : `${analysis.overallScore}/100`}</strong>{limited && <span className="analysis-quality__limited">{t('ui.analysis.notFull')}</span>}</p>
+    <div className="analysis-quality__metrics"><span>{t('ui.analysis.coverage', { value: typeof coverage === 'number' ? formatPercentage(coverage) : t('ui.noData') })}</span><span>{t('ui.analysis.confidence', { value: typeof confidence === 'number' ? `${confidence}%` : t('ui.noData') })}</span><span>{t('ui.analysis.reliability', { value: scoring?.reliability === 'standard' ? t('ui.analysis.reliabilityStandard') : scoring?.reliability === 'limited' ? t('ui.analysis.reliabilityLimited') : t('ui.noData') })}</span></div>
     {detailed && <div className="analysis-quality__criteria">{(['experience', 'skills', 'preferences', 'growth'] as AnalysisCategory[]).map((category) => {
       const items = criterionList(analysis, category)
-      if (!items.length) return <div key={category}><strong>{categoryLabels[category]}</strong><p>Brak kryteriów szczegółowych w historycznej analizie.</p></div>
-      return <div key={category}><strong>{categoryLabels[category]}</strong><ul>{items.map((criterion) => <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome)}{criterionMatchTypeLabel(criterion.matchType) ? ` · ${criterionMatchTypeLabel(criterion.matchType)}` : ''}; pewność {criterion.confidence}%<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>Brak potwierdzających danych.</em> : <><small>Profil: {criterion.profileEvidence.join('; ') || 'brak dowodu'}</small><br /><small>Oferta: {criterion.offerEvidence.join('; ') || 'brak dowodu'}</small></>}</li>)}</ul></div>
+      if (!items.length) return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><p>{t('ui.analysis.noHistoricalCriteria')}</p></div>
+      return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><ul>{items.map((criterion) => <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome)}{criterionMatchTypeLabel(criterion.matchType) ? ` · ${criterionMatchTypeLabel(criterion.matchType)}` : ''}; {t('ui.analysis.criterionConfidence', { confidence: criterion.confidence })}<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>{t('ui.analysis.noConfirmingData')}</em> : <><small>{t('ui.analysis.profileEvidence')} {criterion.profileEvidence.join('; ') || t('ui.analysis.noEvidence')}</small><br /><small>{t('ui.analysis.offerEvidence')} {criterion.offerEvidence.join('; ') || t('ui.analysis.noEvidence')}</small></>}</li>)}</ul></div>
     })}</div>}
   </div>
 }

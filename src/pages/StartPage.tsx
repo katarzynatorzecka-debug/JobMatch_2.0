@@ -6,28 +6,29 @@ import { selectDashboardViewModel, type DashboardViewModel } from '../features/d
 import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
 import { DashboardPage } from './DashboardPage'
 import { loadProfilePresentation } from '../features/profile/profilePresentationStorage'
-
-const flow = ['Profil', 'Raport .eml', 'Analiza', 'Wyniki', 'Wiadomość']
+import { useI18n } from '../i18n/I18nProvider'
 
 export function OnboardingStart() {
+  const { t } = useI18n()
+  const flow = [t('start.flow.profile'), t('start.flow.report'), t('start.flow.analysis'), t('start.flow.results'), t('start.flow.message')]
   return (
     <section className="page page--start">
       <div className="hero-grid">
         <div>
           <p className="eyebrow">JobMatch</p>
-          <h1>Wybieraj oferty warte Twojej uwagi.</h1>
-          <p className="page-intro">Dodaj CV, a JobMatch lokalnie przygotuje większość profilu. Odpowiesz tylko na brakujące pytania i zawsze poprawisz wynik przed zapisem.</p>
-          <div className="action-row"><PrimaryLink to="/profile?mode=cv">Dodaj CV i utwórz profil</PrimaryLink><SecondaryLink to="/profile?mode=manual">Uzupełnij profil ręcznie</SecondaryLink></div>
+          <h1>{t('start.hero.title')}</h1>
+          <p className="page-intro">{t('start.hero.intro')}</p>
+          <div className="action-row"><PrimaryLink to="/profile?mode=cv">{t('start.action.cv')}</PrimaryLink><SecondaryLink to="/profile?mode=manual">{t('start.action.manual')}</SecondaryLink></div>
         </div>
         <SectionCard className="hero-result">
-          <p className="card-kicker">Po przejściu przez flow</p>
-          <h2 className="hero-result__lead">Otrzymasz spersonalizowany PULPIT użytkownika, a wraz z nim czytelną listę wartościowych ofert.</h2>
-          <p className="hero-result__detail">Najpierw powstanie profil do sprawdzenia, a potem czytelna lista ofert z pomocniczą oceną i określonymi ryzykami.</p>
+          <p className="card-kicker">{t('start.result.kicker')}</p>
+          <h2 className="hero-result__lead">{t('start.result.lead')}</h2>
+          <p className="hero-result__detail">{t('start.result.detail')}</p>
         </SectionCard>
       </div>
-      <SectionCard title="Prosty proces, decyzja zawsze po Twojej stronie" className="flow-card">
+      <SectionCard title={t('start.flow.heading')} className="flow-card">
         <ol className="flow-steps">{flow.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol>
-        <p className="quiet-note">CV jest odczytywane lokalnie w przeglądarce. Analiza ofert rozpocznie się dopiero, gdy uruchomisz ją ręcznie.</p>
+        <p className="quiet-note">{t('start.flow.privacy')}</p>
       </SectionCard>
     </section>
   )
@@ -35,6 +36,7 @@ export function OnboardingStart() {
 
 export function StartPage() {
   const { mode, session } = useAppMode()
+  const { t } = useI18n()
   const [state, setState] = useState<StartState | 'loading' | 'error'>('loading')
   const [dashboard, setDashboard] = useState<DashboardViewModel | null>(null)
 
@@ -59,7 +61,7 @@ export function StartPage() {
     return () => { active = false }
   }, [mode, session])
 
-  if (state === 'loading') return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie zawartości strony</span></section>
-  if (state === 'error') return <section className="page page--start"><Alert title="Nie udało się odczytać stanu profilu" tone="warning">Odśwież stronę i spróbuj ponownie.</Alert></section>
+  if (state === 'loading') return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">{t('start.loading')}</span></section>
+  if (state === 'error') return <section className="page page--start"><Alert title={t('start.error.title')} tone="warning">{t('start.error.description')}</Alert></section>
   return state === 'dashboard' && dashboard ? <DashboardPage viewModel={dashboard} /> : <OnboardingStart />
 }

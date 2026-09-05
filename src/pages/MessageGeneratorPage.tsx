@@ -9,10 +9,12 @@ import { localProfileRepository, supabaseProfileRepository } from '../features/s
 import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
 import type { WorkspaceJobOffer } from '../contracts/workspace'
 import { createMessage, type MessageTone } from '../features/message/messageGenerator'
+import { useI18n } from '../i18n/I18nProvider'
 
 type GeneratorContext = { offer: WorkspaceJobOffer; profile: UserProfile; analysis: JobAnalysis | null; presentation: ProfilePresentationMetadata }
 
 export function MessageGeneratorPage() {
+  const { t } = useI18n()
   const { offerId } = useParams<{ offerId: string }>()
   const { mode, session } = useAppMode()
   const [context, setContext] = useState<GeneratorContext | null>(null)
@@ -33,27 +35,28 @@ export function MessageGeneratorPage() {
     const profileRepository = mode === 'authenticated' && session ? supabaseProfileRepository(session.user) : localProfileRepository
     void Promise.all([repository.loadOfferDetails(offerId), profileRepository.load()]).then(([details, profileResult]) => {
       if (!active) return
-      if (!details.offer || !details.listItem) throw new Error('Nie znaleziono canonical oferty.')
-      if (!profileResult.data) throw new Error(profileResult.error ?? 'Najpierw zapisz profil użytkownika.')
+      if (!details.offer || !details.listItem) throw new Error(t('message.error.offerMissing'))
+      if (!profileResult.data) throw new Error(profileResult.error ?? t('message.error.profileMissing'))
       setContext({ offer: details.offer, profile: profileResult.data, analysis: details.listItem.analysis, presentation: profileResult.presentation })
-    }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Nie udało się przygotować generatora wiadomości.') }).finally(() => { if (active) setLoading(false) })
+    }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : t('message.error.prepare')) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [mode, offerId, session])
 
-  if (loading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie generatora</span></section>
-  if (error || !context || !offerId) return <section className="page page--message"><Alert title="Nie udało się otworzyć generatora" tone="warning">{error || 'Brak canonical kontekstu oferty.'}</Alert><Link className="button button--secondary" to={offerId ? `/offers/${offerId}` : '/offers'}>Wróć do szczegółów</Link></section>
+  if (loading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">{t('message.loading')}</span></section>
+  if (error || !context || !offerId) return <section className="page page--message"><Alert title={t('message.error.openTitle')} tone="warning">{error || t('message.error.contextMissing')}</Alert><Link className="button button--secondary" to={offerId ? `/offers/${offerId}` : '/offers'}>{t('message.backDetails')}</Link></section>
 
   const generate = () => {
     try { setGenerationError(''); setMessage(createMessage(tone, context.offer, context.profile, context.analysis)); setCopyState('idle'); setHasManualEdit(false); setConfirmRegenerate(false) }
-    catch { setGenerationError('Nie udało się wygenerować wiadomości. Poprzednia treść pozostała bez zmian.') }
+    catch { setGenerationError(t('message.error.generate')) }
   }
   const requestGenerate = () => { if (message && hasManualEdit) setConfirmRegenerate(true); else generate() }
   const copy = async () => { try { if (!navigator.clipboard) throw new Error('Brak Clipboard API'); await navigator.clipboard.writeText(message); setCopyState('success') } catch { setCopyState('error') } }
 
-  return <section className="page page--message"><Link className="back-link" to={`/offers/${context.offer.id}`}>← Wróć do szczegółów</Link><PageHeader eyebrow="Wiadomość do pracodawcy" title="Napisz do pracodawcy" intro={`${context.offer.title} · ${context.offer.company}`} />
-    <SectionCard className="message-context"><strong>Oferta:</strong><span>{context.offer.title}</span><strong>Firma:</strong><span>{context.offer.company}</span>{context.analysis && <><strong>Aktualna analiza:</strong><span>{context.analysis.recommendation}</span></>}</SectionCard>
-    <SectionCard title="Wybierz ton"><fieldset className="tone-selector"><legend className="sr-only">Ton wiadomości</legend>{(['Naturalny', 'Formalny', 'Bezpośredni'] as MessageTone[]).map((option) => <label key={option}><input type="radio" name="tone" value={option} checked={tone === option} onChange={() => setTone(option)} />{option}</label>)}</fieldset><PrimaryButton onClick={requestGenerate}>{message ? 'Wygeneruj ponownie' : 'Wygeneruj wiadomość'}</PrimaryButton></SectionCard>
-    <SectionCard title="Treść wiadomości"><label className="sr-only" htmlFor="generated-message">Edytowalna treść wiadomości</label><textarea id="generated-message" className="message-editor" rows={11} value={message} onChange={(event) => { setMessage(event.target.value); setHasManualEdit(true); setCopyState('idle') }} placeholder="Wygeneruj wiadomość lub wpisz własną treść." /><div className="editor-footer"><span>{message.length} znaków</span><PrimaryButton onClick={copy} disabled={!message}>{copyState === 'success' ? 'Skopiowano' : 'Kopiuj wiadomość'}</PrimaryButton></div>{generationError && <Alert title="Błąd generowania" tone="warning">{generationError}</Alert>}{confirmRegenerate && <Alert title="Zastąpić ręczne zmiany?" tone="warning">Wprowadzone poprawki zostaną nadpisane nową treścią opartą na aktualnych danych.<div className="action-row"><SecondaryButton onClick={() => setConfirmRegenerate(false)}>Zachowaj obecną treść</SecondaryButton><PrimaryButton onClick={generate}>Zastąp wiadomość</PrimaryButton></div></Alert>}{copyState === 'success' && <Alert title="Wiadomość skopiowana" tone="success">Możesz wkleić ją w wybranym miejscu.</Alert>}{copyState === 'error' && <Alert title="Nie udało się skopiować wiadomości" tone="warning">Zaznacz i skopiuj tekst ręcznie.</Alert>}{!message && <p className="field-hint">Wpisz lub wygeneruj treść wiadomości.</p>}</SectionCard>
-    <div className="action-row"><SecondaryButton onClick={() => setMessage('')}>Wyczyść treść</SecondaryButton><Link className="button button--secondary" to="/offers">Wróć do listy ofert</Link></div>
+  const toneLabels: Record<MessageTone, string> = { Naturalny: t('message.tone.natural'), Formalny: t('message.tone.formal'), Bezpośredni: t('message.tone.direct') }
+  return <section className="page page--message"><Link className="back-link" to={`/offers/${context.offer.id}`}>← {t('message.backDetails')}</Link><PageHeader eyebrow={t('message.header.eyebrow')} title={t('message.header.title')} intro={`${context.offer.title} · ${context.offer.company}`} />
+    <SectionCard className="message-context"><strong>{t('message.field.offer')}</strong><span>{context.offer.title}</span><strong>{t('message.field.company')}</strong><span>{context.offer.company}</span>{context.analysis && <><strong>{t('message.field.currentAnalysis')}</strong><span>{context.analysis.recommendation}</span></>}</SectionCard>
+    <SectionCard title={t('message.tone.section')}><fieldset className="tone-selector"><legend className="sr-only">{t('message.tone.legend')}</legend>{(['Naturalny', 'Formalny', 'Bezpośredni'] as MessageTone[]).map((option) => <label key={option}><input type="radio" name="tone" value={option} checked={tone === option} onChange={() => setTone(option)} />{toneLabels[option]}</label>)}</fieldset><PrimaryButton onClick={requestGenerate}>{message ? t('message.action.regenerate') : t('message.action.generate')}</PrimaryButton></SectionCard>
+    <SectionCard title={t('message.content.section')}><label className="sr-only" htmlFor="generated-message">{t('message.content.label')}</label><textarea id="generated-message" className="message-editor" rows={11} value={message} onChange={(event) => { setMessage(event.target.value); setHasManualEdit(true); setCopyState('idle') }} placeholder={t('message.content.placeholder')} /><div className="editor-footer"><span>{t('message.content.characters', { count: message.length })}</span><PrimaryButton onClick={copy} disabled={!message}>{copyState === 'success' ? t('message.action.copied') : t('message.action.copy')}</PrimaryButton></div>{generationError && <Alert title={t('message.error.generationTitle')} tone="warning">{generationError}</Alert>}{confirmRegenerate && <Alert title={t('message.confirm.title')} tone="warning">{t('message.confirm.copy')}<div className="action-row"><SecondaryButton onClick={() => setConfirmRegenerate(false)}>{t('message.confirm.keep')}</SecondaryButton><PrimaryButton onClick={generate}>{t('message.confirm.replace')}</PrimaryButton></div></Alert>}{copyState === 'success' && <Alert title={t('message.copy.successTitle')} tone="success">{t('message.copy.successCopy')}</Alert>}{copyState === 'error' && <Alert title={t('message.copy.errorTitle')} tone="warning">{t('message.copy.errorCopy')}</Alert>}{!message && <p className="field-hint">{t('message.empty')}</p>}</SectionCard>
+    <div className="action-row"><SecondaryButton onClick={() => setMessage('')}>{t('message.action.clear')}</SecondaryButton><Link className="button button--secondary" to="/offers">{t('message.action.backOffers')}</Link></div>
   </section>
 }

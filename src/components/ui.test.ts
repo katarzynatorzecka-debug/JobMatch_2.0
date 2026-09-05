@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import type { JobAnalysis } from '../contracts/jobAnalysis'
 import { AnalysisQuality, HardFilterReason, ScoreBadge, analysisNarrativeData, formatPercentage } from './ui'
+import { I18nProvider } from '../i18n/I18nProvider'
+
+const renderWithI18n = (component: ReactElement, locale: 'pl' | 'en' = 'pl') => renderToStaticMarkup(createElement(I18nProvider, { initialLocale: locale, children: component }))
 
 const analysis: JobAnalysis = {
   offerId: 'offer-1',
@@ -50,12 +53,19 @@ describe('analysisNarrativeData', () => {
 
   it('never presents 100 at low coverage as a full high match', () => {
     const limited = { ...analysis, overallScore: 100, recommendation: 'Wymaga sprawdzenia' as const, scoring: { ...analysis.scoring!, coverage: 35, reliability: 'limited' as const } }
-    const quality = renderToStaticMarkup(createElement(AnalysisQuality, { analysis: limited }))
-    const badge = renderToStaticMarkup(createElement(ScoreBadge, { score: 100, limited: true }))
+    const quality = renderWithI18n(createElement(AnalysisQuality, { analysis: limited }))
+    const badge = renderWithI18n(createElement(ScoreBadge, { score: 100, limited: true }))
     expect(quality).toContain('Wynik częściowy: 100/100 przy 35% pokrycia')
     expect(quality).toContain('Nie interpretuj jako pełnego dopasowania')
     expect(quality).not.toContain('wysokie dopasowanie')
     expect(badge).toContain('wynik częściowy')
+  })
+
+  it('translates quality labels while preserving stored analysis content', () => {
+    const quality = renderWithI18n(createElement(AnalysisQuality, { analysis }), 'en')
+    expect(quality).toContain('Coverage: 80%')
+    expect(quality).toContain('Candidate strengths')
+    expect(quality).toContain('Profil odpowiada kluczowym wymaganiom oferty.')
   })
 })
 
@@ -68,14 +78,14 @@ describe('formatPercentage', () => {
 
 describe('HardFilterReason', () => {
   it('renders nothing when no conflict is present', () => {
-    expect(renderToStaticMarkup(createElement(HardFilterReason, { reasons: [] }))).toBe('')
+    expect(renderWithI18n(createElement(HardFilterReason, { reasons: [] }))).toBe('')
   })
 
   it('renders nothing when reasons do not contain a displayable conflict', () => {
-    expect(renderToStaticMarkup(createElement(HardFilterReason, { reasons: [{}] }))).toBe('')
+    expect(renderWithI18n(createElement(HardFilterReason, { reasons: [{}] }))).toBe('')
   })
 
   it('renders the conflict when a reason is present', () => {
-    expect(renderToStaticMarkup(createElement(HardFilterReason, { reasons: [{ code: 'work-mode' }] }))).toContain('Tryb pracy nie odpowiada preferencjom profilu.')
+    expect(renderWithI18n(createElement(HardFilterReason, { reasons: [{ code: 'work-mode' }] }))).toContain('Tryb pracy nie odpowiada preferencjom profilu.')
   })
 })

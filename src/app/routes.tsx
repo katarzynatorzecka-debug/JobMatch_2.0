@@ -8,9 +8,11 @@ import { ProfilePage } from '../pages/ProfilePage'
 import { StartPage } from '../pages/StartPage'
 import { AccessGate } from '../features/access/AccessGate'
 import { useAppMode } from '../features/access/AppModeProvider'
+import { useI18n } from '../i18n/I18nProvider'
 
 export function AppRoutes() {
   const { mode, loading } = useAppMode()
+  const { t } = useI18n()
   const { pathname } = useLocation()
   const pageBackground = pathname.startsWith('/offers')
     ? 'app-shell--offers'
@@ -19,7 +21,7 @@ export function AppRoutes() {
       : pathname.startsWith('/import')
         ? 'app-shell--import'
         : 'app-shell--start'
-  if (loading) return <main className={`app-shell ${pageBackground}`} aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">Ładowanie aplikacji</span></main>
+  if (loading) return <main className={`app-shell ${pageBackground}`} aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">{t('app.loading')}</span></main>
   if (!mode) return <AccessGate />
   return (
     <Routes>

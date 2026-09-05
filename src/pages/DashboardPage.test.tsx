@@ -3,6 +3,9 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { DashboardPage } from './DashboardPage'
 import type { DashboardViewModel } from '../features/dashboard/dashboardSelectors'
+import { I18nProvider } from '../i18n/I18nProvider'
+
+const renderDashboard = (viewModel: DashboardViewModel, locale: 'pl' | 'en' = 'pl') => renderToStaticMarkup(<I18nProvider initialLocale={locale}><MemoryRouter><DashboardPage viewModel={viewModel} /></MemoryRouter></I18nProvider>)
 
 const base = (): DashboardViewModel => ({
   profile: {
@@ -35,7 +38,7 @@ const card = (overrides: Partial<DashboardViewModel['offers']['recommended'][num
 
 describe('DashboardPage', () => {
   it('renders a real empty dashboard state without fixture offers', () => {
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardPage viewModel={base()} /></MemoryRouter>)
+    const markup = renderDashboard(base())
     expect(markup).toContain('data-testid="my-dashboard"')
     expect(markup).toContain('O mnie')
     expect(markup).toContain('Katarzyna Test')
@@ -54,7 +57,7 @@ describe('DashboardPage', () => {
     viewModel.offers.applied = [card({ offerId: 'offer-applied', title: 'Applied offer', href: '/offers/offer-applied' })]
     viewModel.importHistory = [{ id: 'session-1', createdAt: '2026-08-07T10:00:00.000Z', sourceType: 'rocketjobs-eml', sourceFilename: 'report.eml', newCount: 2, duplicateCount: 1, invalidCount: 0, needsReviewCount: 0 }]
     viewModel.nextStep = { key: 'review-results', title: 'Sprawdź polecane oferty', target: '/offers' }
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardPage viewModel={viewModel} /></MemoryRouter>)
+    const markup = renderDashboard(viewModel)
     expect(markup).toContain('Senior Operations Manager')
     expect(markup).toContain('/offers/offer-1')
     expect(markup).toContain('report.eml')
@@ -72,7 +75,7 @@ describe('DashboardPage', () => {
   it('leaves the name area blank when presentation metadata is unavailable', () => {
     const viewModel = base()
     viewModel.profile.fullName = null
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardPage viewModel={viewModel} /></MemoryRouter>)
+    const markup = renderDashboard(viewModel)
     expect(markup).not.toContain('Imię i nazwisko niedostępne')
     expect(markup).not.toContain('Twój profil')
   })
@@ -80,7 +83,7 @@ describe('DashboardPage', () => {
   it('does not render AI score for Hard Filter FAIL', () => {
     const viewModel = base()
     viewModel.offers.recommended = [card({ hardFilterStatus: 'fail', score: 99, recommendation: 'Warto aplikować' })]
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardPage viewModel={viewModel} /></MemoryRouter>)
+    const markup = renderDashboard(viewModel)
     expect(markup).toContain('Nie spełnia wymagań')
     expect(markup).toContain('Score niedostępny dla FAIL')
     expect(markup).not.toContain('Ocena dopasowania: 99 na 100')
@@ -89,9 +92,20 @@ describe('DashboardPage', () => {
   it('labels a low-coverage score as partial on the dashboard', () => {
     const viewModel = base()
     viewModel.offers.recentlyViewed = [card({ score: 100, reliability: 'limited', coverage: 35, recommendation: 'Wymaga sprawdzenia' })]
-    const markup = renderToStaticMarkup(<MemoryRouter><DashboardPage viewModel={viewModel} /></MemoryRouter>)
+    const markup = renderDashboard(viewModel)
     expect(markup).toContain('Wynik częściowy')
     expect(markup).toContain('pokrycie 35%')
     expect(markup).toContain('wiarygodność ograniczona')
+  })
+
+  it('translates interface labels but preserves offer and company data', () => {
+    const viewModel = base()
+    viewModel.offers.recommended = [card()]
+    const markup = renderDashboard(viewModel, 'en')
+    expect(markup).toContain('Dashboard')
+    expect(markup).toContain('Recommended offers')
+    expect(markup).toContain('Senior Operations Manager')
+    expect(markup).toContain('Acme')
+    expect(markup).not.toContain('Polecane oferty')
   })
 })
