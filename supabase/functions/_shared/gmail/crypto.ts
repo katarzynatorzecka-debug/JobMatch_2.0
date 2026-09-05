@@ -12,13 +12,13 @@ export type SecretKeyRing = {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-function bytesToBase64(bytes: Uint8Array) {
+export function bytesToBase64(bytes: Uint8Array) {
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary)
 }
 
-function base64ToBytes(value: string) {
+export function base64ToBytes(value: string) {
   let binary: string
   try {
     binary = atob(value)

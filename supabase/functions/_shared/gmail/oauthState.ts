@@ -1,4 +1,4 @@
-import { randomUrlSafe, sha256Base64Url, sha256Hex } from './crypto'
+import { randomUrlSafe, sha256Base64Url, sha256Hex } from './crypto.ts'
 
 export const GMAIL_OAUTH_STATE_TTL_MS = 10 * 60 * 1000
 export const GMAIL_RETURN_TARGETS = ['local', 'staging', 'production'] as const
