@@ -1,5 +1,6 @@
 import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
 import type { OfferSourceResult } from '../../contracts/offerSource'
+import { createImportedReport } from './importReportContract'
 
 export function normalizeOfferUrl(value: string) {
   try {
@@ -41,5 +42,5 @@ export function importedReportFromUrlSource(source: OfferSourceResult, requested
     missingFields: source.missingInformation,
     warnings: source.warnings,
   }
-  return { version: 1, source: 'job-url', fileName: sourceUrl, importedAt: new Date().toISOString(), offers: [offer], warnings: source.warnings.map((message) => ({ code: 'partial-parse' as const, message })) }
+  return createImportedReport({ reportProvider: 'rocketjobs', acquisitionChannel: 'url', fileName: sourceUrl, importedAt: new Date().toISOString(), offers: [offer], warnings: source.warnings.map((message) => ({ code: 'partial-parse' as const, message })) })
 }

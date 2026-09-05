@@ -629,5 +629,11 @@ export const plTranslations = {
   'import.error.profileRequired': 'Najpierw utwórz i zapisz profil, aby przeprowadzić analizę.',
   'import.error.profileSaveRequired': 'Najpierw zapisz profil.',
   'import.error.start': 'Nie udało się rozpocząć analizy paczki.',
+  'import.gmail.error.queryInvalid': 'Filtry wyszukiwania Gmail są nieprawidłowe.',
+  'import.gmail.error.dateRangeInvalid': 'Data końcowa musi być późniejsza niż data początkowa.',
+  'import.gmail.error.messageNotFound': 'Nie znaleziono wybranej wiadomości Gmail.',
+  'import.gmail.error.messageInvalid': 'Nie udało się bezpiecznie odczytać wybranej wiadomości Gmail.',
+  'import.gmail.error.messageTooLarge': 'Wiadomość Gmail przekracza limit 10 MB.',
+  'import.gmail.error.reportEmpty': 'W wybranej wiadomości nie znaleziono ofert RocketJobs.',
   'import.confirm.force': 'Analiza mimo odrzucenia uruchomi osobne, potencjalnie płatne wywołanie AI. Czy chcesz kontynuować?',
 } satisfies TranslationDictionary

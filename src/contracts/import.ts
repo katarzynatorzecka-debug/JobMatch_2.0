@@ -1,4 +1,6 @@
-export type OfferImportSource = 'rocketjobs-eml' | 'job-url'
+export type OfferImportSource = 'rocketjobs-eml' | 'rocketjobs-gmail' | 'job-url'
+export type ReportProvider = 'rocketjobs'
+export type ReportAcquisitionChannel = 'eml' | 'gmail' | 'url'
 
 export type ReportImportStatus = 'idle' | 'validating' | 'reading' | 'parsing' | 'success' | 'empty' | 'error' | 'review'
 
@@ -23,8 +25,10 @@ export interface ImportedJobOffer {
 }
 
 export interface ImportedReport {
-  version: 1
+  version: 2
   source: OfferImportSource
+  reportProvider: ReportProvider
+  acquisitionChannel: ReportAcquisitionChannel
   fileName: string
   importedAt: string
   offers: ImportedJobOffer[]

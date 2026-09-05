@@ -629,6 +629,12 @@ export type TranslationParameters = {
   'import.error.profileRequired': undefined
   'import.error.profileSaveRequired': undefined
   'import.error.start': undefined
+  'import.gmail.error.queryInvalid': undefined
+  'import.gmail.error.dateRangeInvalid': undefined
+  'import.gmail.error.messageNotFound': undefined
+  'import.gmail.error.messageInvalid': undefined
+  'import.gmail.error.messageTooLarge': undefined
+  'import.gmail.error.reportEmpty': undefined
   'import.confirm.force': undefined
 }
 

@@ -10,6 +10,7 @@ import { restoreActiveWorkspaceImport, shouldResetTerminalBatchForNewFiles, shou
 import { extractEmlContent } from '../features/import/emlExtractor'
 import { appendBatchEntries, createImportBatchId, createImportBatchState, hasRemovedOffers, removeBatchOffer, removeBatchReport, restoreBatchOffers, summarizeBatch, visibleOffers, type ImportBatchEntry } from '../features/import/importBatchState'
 import { validateEmlFile } from '../features/import/importUtils'
+import { createImportedReport } from '../features/import/importReportContract'
 import { parseRocketJobsReport } from '../features/import/rocketJobsReportParser'
 import { importFileErrorLabel, importWarningLabel, presentOfferIssues } from '../features/import/offerIssuePresentation'
 import { createUrlOfferSeed, importedReportFromUrlSource, normalizeOfferUrl } from '../features/import/urlOfferImport'
@@ -95,7 +96,7 @@ export function ImportAnalysisPage() {
       if (!extraction.success) { entries.push({ kind: 'file_error', id, fileName: file.name, message: extraction.error ?? t('import.error.readReport') }); continue }
       setBatch((current) => ({ ...current, status: 'parsing' })); const parsed = parseRocketJobsReport(extraction.text)
       if (!parsed.offers.length) { entries.push({ kind: 'file_error', id, fileName: file.name, message: parsed.warnings[0]?.message ?? t('import.error.noOffers') }); continue }
-      const report: ImportedReport = { version: 1, source: 'rocketjobs-eml', fileName: file.name, importedAt: new Date().toISOString(), offers: parsed.offers, warnings: [...parsed.warnings, ...parserWarnings(extraction.warnings)] }
+      const report: ImportedReport = createImportedReport({ reportProvider: 'rocketjobs', acquisitionChannel: 'eml', fileName: file.name, importedAt: new Date().toISOString(), offers: parsed.offers, warnings: [...parsed.warnings, ...parserWarnings(extraction.warnings)] })
       entries.push({ kind: 'report', id, report, removedOfferIds: [] })
     }
     setBatch((current) => appendBatchEntries(current, entries)); setIsProcessingFiles(false); if (inputRef.current) inputRef.current.value = ''

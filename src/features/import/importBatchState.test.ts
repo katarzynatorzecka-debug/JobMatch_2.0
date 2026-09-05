@@ -4,7 +4,7 @@ import { appendBatchEntries, createImportBatchState, hasRemovedOffers, markBatch
 
 function report(fileName: string, ids: string[], warning = false): ImportedReport {
   return {
-    version: 1, source: 'rocketjobs-eml', fileName, importedAt: '2026-08-06T08:00:00.000Z',
+    version: 2, source: 'rocketjobs-eml', reportProvider: 'rocketjobs', acquisitionChannel: 'eml', fileName, importedAt: '2026-08-06T08:00:00.000Z',
     warnings: warning ? [{ code: 'partial-parse', message: 'Część układu wymaga sprawdzenia.' }] : [],
     offers: ids.map((id, index) => ({ id, title: `Stanowisko ${id}`, company: `Firma ${index}`, sourceUrl: `https://rocketjobs.pl/oferta-pracy/${id}`, missingFields: index === 0 && warning ? ['wynagrodzenie'] : [], warnings: index === 0 && warning ? ['Brak danych: wynagrodzenie.'] : [] })),
   }

@@ -10,6 +10,7 @@ import { loadUserProfile, saveUserProfile } from '../profile/profileStorage'
 import { clearProfilePresentation, loadProfilePresentation, normalizeProfilePresentation, saveProfilePresentation } from '../profile/profilePresentationStorage'
 import { supabase } from './client'
 import { synchronizeProfileIntelligence } from '../profile/profileIntelligence'
+import { createImportedReport, metadataForImportSource } from '../import/importReportContract'
 
 export type RepoResult<T> = { data: T | null; error?: string }
 
@@ -107,7 +108,7 @@ export function supabaseImportSessionRepository(user: User): ImportSessionReposi
       if (!supabase) return { data: null, error: unavailableError }
       const { data, error } = await supabase.from('import_sessions').select('id, source_type, source_filename, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
       if (error) return { data: null, error: cloudError }
-      if (!data || data.source_type !== 'rocketjobs-eml') return { data: null }
+      if (!data || !['rocketjobs-eml', 'rocketjobs-gmail', 'job-url'].includes(data.source_type)) return { data: null }
       return { data: { id: data.id, source: data.source_type, fileName: data.source_filename, importedAt: data.created_at } }
     },
     async create(report) {
@@ -125,7 +126,7 @@ export function supabaseJobOfferRepository(user: User): JobOfferRepository {
       const { data, error } = await supabase.from('job_offers').select('normalized_data').eq('user_id', user.id).eq('import_session_id', sessionId).order('created_at')
       if (error) return { data: null, error: cloudError }
       const offers = (data ?? []).map((row) => row.normalized_data)
-      const candidate = { version: 1, source: 'rocketjobs-eml', fileName: 'validation.eml', importedAt: new Date().toISOString(), offers, warnings: [] }
+      const candidate = createImportedReport({ reportProvider: 'rocketjobs', acquisitionChannel: 'eml', fileName: 'validation.eml', importedAt: new Date().toISOString(), offers, warnings: [] })
       const valid = validateImportedReport(candidate)
       return valid.success ? { data: valid.data.offers } : { data: null, error: 'Zapisane oferty maja nieprawidlowy format.' }
     },
@@ -148,7 +149,8 @@ export function supabaseImportRepository(user: User): ImportRepository {
       if (session.error || !session.data) return { data: null, error: session.error }
       const storedOffers = await offers.load(session.data.id)
       if (storedOffers.error || !storedOffers.data) return { data: null, error: storedOffers.error }
-      const report = { version: 1 as const, source: session.data.source, fileName: session.data.fileName, importedAt: session.data.importedAt, offers: storedOffers.data, warnings: [] }
+      const metadata = metadataForImportSource(session.data.source)
+      const report = createImportedReport({ source: session.data.source, ...metadata, fileName: session.data.fileName, importedAt: session.data.importedAt, offers: storedOffers.data, warnings: [] })
       const valid = validateImportedReport(report)
       return valid.success ? { data: valid.data } : { data: null, error: 'Zapisany import ma nieprawidlowy format.' }
     },

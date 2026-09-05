@@ -629,5 +629,11 @@ export const enTranslations = {
   'import.error.profileRequired': 'Create and save a profile before running analysis.',
   'import.error.profileSaveRequired': 'Save your profile first.',
   'import.error.start': 'We could not start batch analysis.',
+  'import.gmail.error.queryInvalid': 'The Gmail search filters are invalid.',
+  'import.gmail.error.dateRangeInvalid': 'The end date must be later than the start date.',
+  'import.gmail.error.messageNotFound': 'The selected Gmail message could not be found.',
+  'import.gmail.error.messageInvalid': 'The selected Gmail message could not be read safely.',
+  'import.gmail.error.messageTooLarge': 'The Gmail message exceeds the 10 MB limit.',
+  'import.gmail.error.reportEmpty': 'No RocketJobs offers were found in the selected message.',
   'import.confirm.force': 'Analyzing a rejected offer triggers a separate, potentially paid AI call. Do you want to continue?',
 } satisfies TranslationDictionary

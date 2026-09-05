@@ -1,4 +1,4 @@
-import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
+import type { ImportedJobOffer, ImportedReport, ReportAcquisitionChannel, ReportProvider } from '../../contracts/import'
 import type { JobAnalysis } from '../../contracts/jobAnalysis'
 import type { UserProfile } from '../../contracts/profile'
 import type { AnalysisEnqueueResult, AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceAnalysisState, WorkspaceImportSession, WorkspaceJobAnalysis, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
@@ -18,6 +18,8 @@ export type WorkspaceImportItem = {
 
 export type WorkspaceImportInput = {
   sourceType: string
+  reportProvider: ReportProvider
+  acquisitionChannel: ReportAcquisitionChannel
   fileName: string
   importedAt: string
   parserVersion: string
@@ -137,7 +139,7 @@ export function toWorkspaceImportInput(userId: string, report: ImportedReport, p
   for (const offer of report.offers) {
     if (!offer.title.trim() || !offer.company.trim()) { invalidItems.push({ rawExternalId: offer.id, reason: 'Brak tytułu lub firmy.' }); continue }
     const data = offerContent(offer)
-    items.push({ rawExternalId: offer.id, title: offer.title.trim(), company: offer.company.trim(), location: offer.location?.trim() || null, sourceUrl: offer.sourceUrl ?? null, normalizedSourceUrl: normalizeSourceUrl(offer.sourceUrl), canonicalFingerprint: buildCanonicalFingerprint({ sourceType: report.source, company: offer.company, title: offer.title, location: offer.location }), contentHash: stableHash(JSON.stringify(data)), offerData: data })
+    items.push({ rawExternalId: offer.id, title: offer.title.trim(), company: offer.company.trim(), location: offer.location?.trim() || null, sourceUrl: offer.sourceUrl ?? null, normalizedSourceUrl: normalizeSourceUrl(offer.sourceUrl), canonicalFingerprint: buildCanonicalFingerprint({ sourceType: report.reportProvider, company: offer.company, title: offer.title, location: offer.location }), contentHash: stableHash(JSON.stringify(data)), offerData: data })
   }
-  return { sourceType: report.source, fileName: report.fileName, importedAt: report.importedAt, parserVersion, idempotencyKey: buildImportIdempotencyKey(userId, report, parserVersion), items, invalidItems, warnings: report.warnings }
+  return { sourceType: report.source, reportProvider: report.reportProvider, acquisitionChannel: report.acquisitionChannel, fileName: report.fileName, importedAt: report.importedAt, parserVersion, idempotencyKey: buildImportIdempotencyKey(userId, report, parserVersion), items, invalidItems, warnings: report.warnings }
 }

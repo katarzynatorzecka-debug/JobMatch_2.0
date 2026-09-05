@@ -6,7 +6,7 @@ import { toWorkspaceImportInput } from './workspaceRepository'
 
 class MemoryStorage { private values = new Map<string, string>(); getItem(key: string) { return this.values.get(key) ?? null }; setItem(key: string, value: string) { this.values.set(key, value) } }
 const now = '2026-08-04T10:00:00.000Z'
-const report = (fileName: string, offers: ImportedReport['offers']): ImportedReport => ({ version: 1, source: 'rocketjobs-eml', fileName, importedAt: now, offers, warnings: [] })
+const report = (fileName: string, offers: ImportedReport['offers']): ImportedReport => ({ version: 2, source: 'rocketjobs-eml', reportProvider: 'rocketjobs', acquisitionChannel: 'eml', fileName, importedAt: now, offers, warnings: [] })
 const offer = (id: string, title: string, url: string, company = 'Acme') => ({ id, title, company, location: 'Warszawa', sourceUrl: url, missingFields: [], warnings: [] })
 const profile: UserProfile = { primaryRole: 'Analyst', alternativeRoles: [], experienceSummary: 'Test', skills: [], acceptedWorkModes: [], acceptedContractTypes: [], acceptedLocations: [], minimumSalary: null, studentStatusAvailable: false, excludedContractTypes: [], excludedWorkModes: [], excludedKeywords: [], requiresStudentStatus: false, additionalMustHave: '', additionalBlacklist: '', priorities: ['preferences'] }
 

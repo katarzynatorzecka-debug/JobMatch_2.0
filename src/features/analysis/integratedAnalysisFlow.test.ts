@@ -4,7 +4,7 @@ import { defaultProfile } from '../profile/profileDefaults'
 import { retryIntegratedOffer, runIntegratedAnalysisBatch, waitForIntegratedAnalysisCompletion } from './integratedAnalysisFlow'
 
 function offer(id: string, title = 'Automation Specialist'): ImportedJobOffer { return { id, title, company: 'Example', sourceUrl: `https://example.test/${id}`, missingFields: [], warnings: [] } }
-function report(key: string, offers: ReturnType<typeof offer>[]) { return { key, report: { version: 1 as const, source: 'rocketjobs-eml' as const, fileName: `${key}.eml`, importedAt: '2026-08-06T10:00:00.000Z', offers, warnings: [] }, offers } }
+function report(key: string, offers: ReturnType<typeof offer>[]) { return { key, report: { version: 2 as const, source: 'rocketjobs-eml' as const, reportProvider: 'rocketjobs' as const, acquisitionChannel: 'eml' as const, fileName: `${key}.eml`, importedAt: '2026-08-06T10:00:00.000Z', offers, warnings: [] }, offers } }
 
 function repositoryFor(items: ReturnType<typeof report>[]) {
   const links = items.flatMap((entry, index) => entry.offers.map((entryOffer) => ({ importSessionId: `session-${index}`, rawExternalId: entryOffer.id, jobOfferId: `offer-${entryOffer.id}`, offerVersionId: `version-${entryOffer.id}` })))

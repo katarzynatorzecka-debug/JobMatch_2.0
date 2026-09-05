@@ -1,6 +1,7 @@
 import type { ImportedReport } from '../contracts/import'
 import type { UserProfile } from '../contracts/profile'
 import { demoOffers } from './offers'
+import { createImportedReport } from '../features/import/importReportContract'
 
 export const demoSampleProfile: UserProfile = {
   primaryRole: 'Process Automation Specialist',
@@ -22,9 +23,9 @@ export const demoSampleProfile: UserProfile = {
 }
 
 export function createDemoSampleReport(): ImportedReport {
-  return {
-    version: 1,
-    source: 'rocketjobs-eml',
+  return createImportedReport({
+    reportProvider: 'rocketjobs',
+    acquisitionChannel: 'eml',
     fileName: 'demo-przykladowe-oferty.eml',
     importedAt: '2026-08-01T00:00:00.000Z',
     offers: demoOffers.map((offer) => ({
@@ -41,5 +42,5 @@ export function createDemoSampleReport(): ImportedReport {
       warnings: [],
     })),
     warnings: [],
-  }
+  })
 }

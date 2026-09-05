@@ -1,4 +1,5 @@
 import type { ImportedJobOffer, ImportedReport } from '../../contracts/import'
+import { createImportedReport, metadataForImportSource } from '../import/importReportContract'
 import type { WorkspaceSnapshot } from '../workspace/workspaceRepository'
 import { projectWorkspaceOffer } from '../workspace/workspaceReadModel'
 import type { IntegratedAnalysisSession } from './integratedAnalysisSession'
@@ -70,7 +71,8 @@ export function restoreActiveWorkspaceImport(snapshot: WorkspaceSnapshot): Integ
     if (!entry) return null
     offers.push(offer); progress[key] = entry
   }
-  const report: ImportedReport = { version: 1, source: 'rocketjobs-eml', fileName: session.sourceFilename, importedAt: session.createdAt, offers, warnings: [] }
+  const source = session.sourceType === 'job-url' || session.sourceType === 'rocketjobs-gmail' ? session.sourceType : 'rocketjobs-eml'
+  const report: ImportedReport = createImportedReport({ source, ...metadataForImportSource(source), fileName: session.sourceFilename, importedAt: session.createdAt, offers, warnings: [] })
   const values = Object.values(progress); const failed = values.filter((entry) => entry.state === 'failed').length
   return { batch: { status: 'review', entries: [{ kind: 'report', id: session.id, report, removedOfferIds: [] }] }, pipeline: failed ? 'partial_complete' : 'complete', progress, counts: { total: values.length, hardFilterRejected: values.filter((entry) => entry.state === 'rejected').length, queued: 0, processing: 0, completed: values.filter((entry) => entry.state === 'completed' || entry.state === 'rejected').length, failed } }
 }
