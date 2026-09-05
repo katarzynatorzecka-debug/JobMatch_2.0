@@ -1,6 +1,7 @@
 import type { JobAnalysis } from '../../contracts/jobAnalysis'
 import type { AnalysisVersion } from '../../contracts/workspace'
 import { validateJobAnalysis } from '../../schemas/jobAnalysisSchemas'
+import { analysisSummaryForLocale } from '../analysis/analysisLocalization'
 
 export type AnalysisHistoryPresentation = {
   kind: 'current' | 'previous'
@@ -8,7 +9,7 @@ export type AnalysisHistoryPresentation = {
   analysis: Pick<JobAnalysis, 'overallScore' | 'recommendation' | 'summary' | 'scoring' | 'sourceQuality' | 'status'> | null
 }
 
-export function presentAnalysisHistory(versions: AnalysisVersion[], latestVersionId: string | null): AnalysisHistoryPresentation[] {
+export function presentAnalysisHistory(versions: AnalysisVersion[], latestVersionId: string | null, locale: 'pl' | 'en' = 'pl'): AnalysisHistoryPresentation[] {
   const orderedVersions = [...versions].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   const effectiveLatestVersionId = latestVersionId ?? orderedVersions[0]?.id ?? null
   return orderedVersions.map((version) => {
@@ -19,7 +20,7 @@ export function presentAnalysisHistory(versions: AnalysisVersion[], latestVersio
       analysis: parsed.success ? {
         overallScore: parsed.data.overallScore,
         recommendation: parsed.data.recommendation,
-        summary: parsed.data.summary,
+        summary: analysisSummaryForLocale(parsed.data, locale),
         scoring: parsed.data.scoring,
         sourceQuality: parsed.data.sourceQuality,
         status: parsed.data.status,

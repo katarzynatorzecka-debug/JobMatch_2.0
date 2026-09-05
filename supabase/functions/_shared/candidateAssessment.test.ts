@@ -15,11 +15,11 @@ const rubric: OfferIntelligenceRubric = {
 }
 
 function assessment(overrides: Partial<CandidateAssessmentOutput['criteria']['skills'][number]> = {}): CandidateAssessmentOutput['criteria']['skills'][number] {
-  return { id: 'req:arabic-language', matchType: 'no_evidence', outcome: 'NO_MATCH', rationale: 'Profil nie zawiera potwierdzenia.', profileEvidence: [], confidence: 90, ...overrides }
+  return { id: 'req:arabic-language', matchType: 'no_evidence', outcome: 'NO_MATCH', rationale: { pl: 'Profil nie zawiera potwierdzenia.', en: 'The profile contains no supporting evidence.' }, profileEvidence: [], confidence: 90, ...overrides }
 }
 
 function output(overrides: Partial<CandidateAssessmentOutput['criteria']['skills'][number]> = {}): CandidateAssessmentOutput {
-  return { criteria: { experience: [{ id: 'req:social-media-moderation', matchType: 'transferable', outcome: 'PARTIAL', rationale: 'Profil pokazuje częściowo transferowalne doświadczenie.', profileEvidence: ['Moderacja społeczności w projekcie.'], confidence: 70 }], skills: [assessment(overrides)], preferences: [{ id: 'req:remote-work', matchType: 'direct', outcome: 'MATCH', rationale: 'Profil potwierdza pracę zdalną.', profileEvidence: ['Praca zdalna.'], confidence: 95 }], growth: [] }, summary: 'Ocena względem pełnej rubryki.', strengths: ['Doświadczenie transferowalne.'], risks: ['Brak potwierdzenia języka.'], missingInformation: [] }
+  return { criteria: { experience: [{ id: 'req:social-media-moderation', matchType: 'transferable', outcome: 'PARTIAL', rationale: { pl: 'Profil pokazuje częściowo transferowalne doświadczenie.', en: 'The profile shows partially transferable experience.' }, profileEvidence: ['Moderacja społeczności w projekcie.'], confidence: 70 }], skills: [assessment(overrides)], preferences: [{ id: 'req:remote-work', matchType: 'direct', outcome: 'MATCH', rationale: { pl: 'Profil potwierdza pracę zdalną.', en: 'The profile confirms remote work.' }, profileEvidence: ['Praca zdalna.'], confidence: 95 }], growth: [] }, localizedContent: { pl: { summary: 'Ocena względem pełnej rubryki.', strengths: ['Doświadczenie transferowalne.'], risks: ['Brak potwierdzenia języka.'], missingInformation: [] }, en: { summary: 'Assessment against the complete rubric.', strengths: ['Transferable experience.'], risks: ['No language evidence.'], missingInformation: [] } } }
 }
 
 describe('candidate assessment contract', () => {
@@ -30,6 +30,8 @@ describe('candidate assessment contract', () => {
     expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical', matchType: 'no_evidence', outcome: 'UNKNOWN' })
     expect(analysis.criteria.skills[0].offerEvidence).toEqual(['arabski'])
     expect(analysis.criteria.experience[0].offerEvidence).toEqual(['moderating social media'])
+    expect(analysis.criteria.experience[0].localizedRationale?.en).toBe('The profile shows partially transferable experience.')
+    expect(analysis.localizedContent?.en.summary).toBe('Assessment against the complete rubric.')
     expect(outputMatchesManifest(analysis.criteria, manifestFromOfferIntelligenceRubric(rubric))).toBe(true)
   })
 
@@ -42,7 +44,7 @@ describe('candidate assessment contract', () => {
     const transferable = output({ outcome: 'PARTIAL', matchType: 'transferable', profileEvidence: ['BEN10: grywalne MVP webowe.'] })
     expect(isCandidateAssessmentOutput(transferable, rubric)).toBe(true)
     expect(candidateAssessmentToAnalysisOutput(transferable, rubric).criteria.skills[0]?.outcome).toBe('PARTIAL')
-    const contradiction = output({ outcome: 'NO_MATCH', matchType: 'contradiction', rationale: 'Profil wprost wskazuje wyłącznie pracę stacjonarną.' })
+    const contradiction = output({ outcome: 'NO_MATCH', matchType: 'contradiction', rationale: { pl: 'Profil wprost wskazuje wyłącznie pracę stacjonarną.', en: 'The profile explicitly states onsite-only work.' } })
     expect(isCandidateAssessmentOutput(contradiction, rubric)).toBe(true)
     expect(candidateAssessmentToAnalysisOutput(contradiction, rubric).criteria.skills[0]?.outcome).toBe('NO_MATCH')
   })
@@ -76,6 +78,8 @@ describe('candidate assessment contract', () => {
     expect(prompt).toContain('experience=1, skills=1, preferences=1, growth=0')
     expect(prompt).toContain('Nie twórz żadnych dodatkowych kryteriów')
     expect(prompt).toContain('Jasne wymaganie bez dowodu w profilu oznacza NO_MATCH')
+    expect(prompt).toContain('localizedContent.pl i localizedContent.en')
+    expect(prompt).toContain('Nie tłumacz nazw firm')
     expect(candidateAssessmentJsonSchema.properties.criteria).toBeDefined()
   })
 

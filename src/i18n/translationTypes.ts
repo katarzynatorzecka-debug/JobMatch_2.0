@@ -103,6 +103,10 @@ export type TranslationParameters = {
   'ui.analysis.profileEvidence': undefined
   'ui.analysis.offerEvidence': undefined
   'ui.analysis.noEvidence': undefined
+  'ui.analysis.localizationLoading': undefined
+  'ui.analysis.localizationFailed': undefined
+  'ui.analysis.localizationRetry': undefined
+  'ui.analysis.localizationUnavailable': undefined
   'domain.recommendation.worth': undefined
   'domain.recommendation.review': undefined
   'domain.recommendation.notRecommended': undefined

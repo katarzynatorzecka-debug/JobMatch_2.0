@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import type { AnalysisVersion } from '../../contracts/workspace'
 import { analysisFreshness, CURRENT_ANALYSIS_ALGORITHM_VERSION, CURRENT_ANALYSIS_PROMPT_VERSION, queueLifecycle } from './analysisQueue'
 
-const version = { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: CURRENT_ANALYSIS_ALGORITHM_VERSION, promptVersion: CURRENT_ANALYSIS_PROMPT_VERSION, modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'pass' } as never
+const version = { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: CURRENT_ANALYSIS_ALGORITHM_VERSION, promptVersion: CURRENT_ANALYSIS_PROMPT_VERSION, modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'pass' } as AnalysisVersion
 
 describe('workspace analysis queue projection', () => {
   it('uses a deterministic freshness priority', () => {
@@ -12,12 +13,13 @@ describe('workspace analysis queue projection', () => {
     expect(analysisFreshness({ latestVersion: { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: CURRENT_ANALYSIS_ALGORITHM_VERSION, promptVersion: CURRENT_ANALYSIS_PROMPT_VERSION, modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'weak' } as never, profile: { currentVersionId: 'profile-v1' } as never, offerVersionId: 'offer-v1', hardFilter: { status: 'needs_review' } as never })).toBe('current')
   })
 
-  it('marks the r8 baseline stale while accepting one coherent r9 identity', () => {
+  it('marks the old baseline stale while accepting the coherent bilingual identity', () => {
     const context = { profile: { currentVersionId: 'profile-v1' } as never, offerVersionId: 'offer-v1', hardFilter: { status: 'pass' } as never }
     expect(CURRENT_ANALYSIS_ALGORITHM_VERSION).toBe('jobmatch-deterministic-r10-critical-priority')
-    expect(CURRENT_ANALYSIS_PROMPT_VERSION).toBe('jobmatch-job-match-v6')
+    expect(CURRENT_ANALYSIS_PROMPT_VERSION).toBe('jobmatch-job-match-v7-bilingual')
     expect(analysisFreshness({ ...context, latestVersion: { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: 'jobmatch-deterministic-r8', promptVersion: 'jobmatch-job-match-v4', modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'pass' } as never })).toBe('stale_algorithm')
     expect(analysisFreshness({ ...context, latestVersion: version })).toBe('current')
+    expect(analysisFreshness({ ...context, latestVersion: { ...version, promptVersion: 'jobmatch-job-match-v6' } })).toBe('current')
   })
 
   it('projects active queue work before analysis, but never above exclusion', () => {

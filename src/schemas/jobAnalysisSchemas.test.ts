@@ -5,6 +5,7 @@ const valid = { offerId: 'offer-1', overallScore: 72, categoryScores: { experien
 
 describe('JobAnalysis schema', () => {
   it('accepts a complete JobAnalysis', () => expect(validateJobAnalysis(valid).success).toBe(true))
+  it('accepts bilingual narrative content while keeping legacy fields readable', () => expect(validateJobAnalysis({ ...valid, localizedContent: { pl: { summary: 'Dobre dopasowanie.', strengths: ['Automatyzacja'], risks: ['Brak widełek'], missingInformation: ['wynagrodzenie'] }, en: { summary: 'Good match.', strengths: ['Automation'], risks: ['No salary range'], missingInformation: ['salary'] } } }).success).toBe(true))
   it('rejects score outside range', () => expect(validateJobAnalysis({ ...valid, overallScore: 101 }).success).toBe(false))
   it('rejects missing category', () => expect(validateJobAnalysis({ ...valid, categoryScores: { ...valid.categoryScores, growth: undefined } }).success).toBe(false))
   it('rejects unsupported recommendation', () => expect(validateJobAnalysis({ ...valid, recommendation: 'Może' }).success).toBe(false))

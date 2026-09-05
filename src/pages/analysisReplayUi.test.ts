@@ -25,10 +25,10 @@ describe('analysis replay UI', () => {
 
   it('shows quality-aware scores without duplicating summary and risks on import or details', () => {
     expect(offersSource).toContain("limited={item.analysis.scoring?.reliability === 'limited'}")
-    expect(importSource).toContain('<AnalysisQuality analysis={analysis} />')
+    expect(importSource).toContain('<AnalysisQuality analysis={analysis} analysisVersionId={analysisVersionId} />')
     expect(importSource).not.toContain('scoreBand(analysis.overallScore)')
     expect(importSource).not.toContain('analysis.risks[0]')
-    expect(detailsSource).toContain('<AnalysisQuality analysis={analysis} />')
+    expect(detailsSource).toContain('<AnalysisQuality analysis={analysis} onLocalized={() => void load()} />')
     expect(detailsSource).not.toContain('{analysis.recommendation}</strong> — {analysis.summary}')
     expect(detailsSource).toContain("t('details.history.partialScore', { score: entry.analysis.overallScore })")
   })

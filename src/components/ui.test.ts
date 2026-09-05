@@ -21,6 +21,10 @@ const analysis: JobAnalysis = {
   strengths: ['Automatyzacja procesów', 'Doświadczenie analityczne', 'Współpraca z biznesem', 'Niewidoczna czwarta pozycja'],
   risks: ['Brak potwierdzenia znajomości domeny'],
   missingInformation: ['Nie podano modelu pracy'],
+  localizedContent: {
+    pl: { summary: 'Profil odpowiada kluczowym wymaganiom oferty.', strengths: ['Automatyzacja procesów', 'Doświadczenie analityczne', 'Współpraca z biznesem', 'Niewidoczna czwarta pozycja'], risks: ['Brak potwierdzenia znajomości domeny'], missingInformation: ['Nie podano modelu pracy'] },
+    en: { summary: 'The profile matches the key job requirements.', strengths: ['Process automation', 'Analytical experience', 'Business collaboration', 'Hidden fourth item'], risks: ['Domain knowledge is not confirmed'], missingInformation: ['The work model was not provided'] },
+  },
   hardFilterStatus: 'weak',
   hardFilterReasons: ['Forma współpracy wymaga potwierdzenia.'],
   sourceQuality: 'full',
@@ -47,7 +51,7 @@ describe('analysisNarrativeData', () => {
   })
 
   it('deduplicates the same risk repeated with a technical prefix', () => {
-    const repeated = { ...analysis, risks: ['Brak bezpośredniego doświadczenia w moderacji social media'], missingInformation: ['Ryzyko: Brak bezpośredniego doświadczenia w moderacji social media'] }
+    const repeated = { ...analysis, localizedContent: undefined, risks: ['Brak bezpośredniego doświadczenia w moderacji social media'], missingInformation: ['Ryzyko: Brak bezpośredniego doświadczenia w moderacji social media'] }
     expect(analysisNarrativeData(repeated)?.risks).toEqual(['Brak bezpośredniego doświadczenia w moderacji social media'])
   })
 
@@ -61,11 +65,30 @@ describe('analysisNarrativeData', () => {
     expect(badge).toContain('wynik częściowy')
   })
 
-  it('translates quality labels while preserving stored analysis content', () => {
+  it('switches generated narrative together with the interface without changing the score', () => {
     const quality = renderWithI18n(createElement(AnalysisQuality, { analysis }), 'en')
     expect(quality).toContain('Coverage: 80%')
     expect(quality).toContain('Candidate strengths')
-    expect(quality).toContain('Profil odpowiada kluczowym wymaganiom oferty.')
+    expect(quality).toContain('The profile matches the key job requirements.')
+    expect(quality).toContain('Process automation')
+    expect(quality).not.toContain('Preparing the English analysis')
+    expect(quality).not.toContain('Profil odpowiada kluczowym wymaganiom oferty.')
+    expect(quality).toContain('78/100')
+  })
+
+  it('never flashes Polish narrative while an English historical analysis is being localized', () => {
+    const legacy = { ...analysis, localizedContent: undefined }
+    const quality = renderWithI18n(createElement(AnalysisQuality, { analysis: legacy, analysisVersionId: 'analysis-version-1' }), 'en')
+    expect(quality).toContain('Preparing the English analysis')
+    expect(quality).not.toContain('Profil odpowiada kluczowym wymaganiom oferty.')
+    expect(quality).toContain('78/100')
+  })
+
+  it('does not expose Polish narrative for a non-versioned historical analysis in English', () => {
+    const legacy = { ...analysis, localizedContent: undefined }
+    const quality = renderWithI18n(createElement(AnalysisQuality, { analysis: legacy }), 'en')
+    expect(quality).toContain('does not have an English version')
+    expect(quality).not.toContain('Profil odpowiada kluczowym wymaganiom oferty.')
   })
 })
 

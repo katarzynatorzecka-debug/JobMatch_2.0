@@ -11,7 +11,7 @@ import { scoreScoringCriteria, SCORING_ALGORITHM_VERSION, type ScoringCriteria }
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
 const model = 'gpt-5.4-mini'
-const promptVersion = 'jobmatch-job-match-v6'
+const promptVersion = 'jobmatch-job-match-v7-bilingual'
 const algorithmVersion = SCORING_ALGORITHM_VERSION
 const analysisContractVersion = 'jobmatch-analysis-contract-vnext-c'
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }

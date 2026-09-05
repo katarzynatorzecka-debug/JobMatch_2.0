@@ -9,6 +9,7 @@ import contractIdentityR7 from '../../../supabase/migrations/20260901143852_anal
 import scoringRecoveryR8 from '../../../supabase/migrations/202609021430_scoring_recovery_r8.sql?raw'
 import scoringRecoveryR9 from '../../../supabase/migrations/20260902213911_scoring_recovery_r9_version_transition.sql?raw'
 import retryFailedQueue from '../../../supabase/migrations/20260904170000_retry_failed_analysis_queue.sql?raw'
+import bilingualQueue from '../../../supabase/migrations/20260905133731_bilingual_analysis_queue_v7.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -99,5 +100,15 @@ describe('analysis identity migration', () => {
     expect(retryFailedQueue).toContain("q.status = 'processing' or (q.status = 'queued' and q.last_error is null)")
     expect(retryFailedQueue).toContain('provider_response_id')
     expect(retryFailedQueue).not.toMatch(/\b(drop|truncate|delete)\b/i)
+  })
+
+  it('moves new and reusable queue identities to bilingual v7 without rewriting prior analysis history', () => {
+    expect(bilingualQueue).toContain("'jobmatch-job-match-v7-bilingual', 'gpt-5.4-mini', 'jobmatch-deterministic-r10-critical-priority:' || coalesce(v_contract_hash, 'pending')")
+    expect(bilingualQueue).toContain("v.prompt_version = 'jobmatch-job-match-v7-bilingual'")
+    expect(bilingualQueue).toContain("jsonb_typeof(v.analysis_data -> 'localizedContent' -> 'pl') = 'object'")
+    expect(bilingualQueue).toContain("jsonb_typeof(v.analysis_data -> 'localizedContent' -> 'en') = 'object'")
+    expect(bilingualQueue).not.toContain('jobmatch-job-match-v6')
+    expect(bilingualQueue).toContain('revoke all on function public.workspace_enqueue_analysis_internal(uuid, boolean, boolean) from public, anon, authenticated, service_role')
+    expect(bilingualQueue).not.toMatch(/\b(drop|truncate|delete|update public\.analysis_versions)\b/i)
   })
 })

@@ -8,6 +8,9 @@ export type CriterionOutcome = 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN'
 export type CriterionMatchType = 'direct' | 'transferable' | 'no_evidence' | 'contradiction'
 export type CriterionImportance = 'critical' | 'core' | 'preferred'
 export type CriterionType = 'required_skill' | 'required_experience' | 'language' | 'responsibility_capability' | 'employment_condition' | 'preferred_qualification'
+export type AnalysisLocale = 'pl' | 'en'
+export type LocalizedAnalysisText = Record<AnalysisLocale, string>
+export interface LocalizedAnalysisNarrative { summary: string; strengths: string[]; risks: string[]; missingInformation: string[] }
 export interface CategoryScore { score: number | null; rationale: string }
 export interface AnalysisCriterion {
   id: string
@@ -20,6 +23,8 @@ export interface AnalysisCriterion {
   matchType?: CriterionMatchType
   outcome: CriterionOutcome
   rationale: string
+  /** Parallel presentation copy. Source requirements and evidence remain untranslated. */
+  localizedRationale?: LocalizedAnalysisText
   profileEvidence: string[]
   offerEvidence: string[]
   confidence: number
@@ -43,5 +48,5 @@ export interface ScoringBreakdown {
   knownCriterionCount?: number
   unknownCriterionCount?: number
 }
-export interface JobAnalysis { offerId: string; overallScore: number; categoryScores: Record<AnalysisCategory, CategoryScore>; recommendation: Recommendation; summary: string; strengths: string[]; risks: string[]; missingInformation: string[]; hardFilterStatus: HardFilterStatus; hardFilterReasons: string[]; sourceQuality: SourceQuality; modelInfo: { provider: 'openai'; model: string; provisional: boolean }; createdAt: string; status: AnalysisStatus; criteria?: AnalysisCriteria; scoring?: ScoringBreakdown }
+export interface JobAnalysis { analysisVersionId?: string; offerId: string; overallScore: number; categoryScores: Record<AnalysisCategory, CategoryScore>; recommendation: Recommendation; summary: string; strengths: string[]; risks: string[]; missingInformation: string[]; localizedContent?: Record<AnalysisLocale, LocalizedAnalysisNarrative>; hardFilterStatus: HardFilterStatus; hardFilterReasons: string[]; sourceQuality: SourceQuality; modelInfo: { provider: 'openai'; model: string; provisional: boolean }; createdAt: string; status: AnalysisStatus; criteria?: AnalysisCriteria; scoring?: ScoringBreakdown }
 export interface OfferContent { text: string; sourceQuality: SourceQuality; source: OfferSourceResult; sourceErrorCode?: OfferSourceErrorCode }

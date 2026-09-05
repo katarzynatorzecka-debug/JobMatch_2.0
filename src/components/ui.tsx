@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { statusMeta, type DemoOffer, type DemoStatus } from '../demo/offers'
 import type { HardFilterStatus } from '../contracts/hardFilter'
@@ -6,6 +6,8 @@ import type { AnalysisCategory, AnalysisCriterion, JobAnalysis } from '../contra
 import type { WorkspaceAnalysisState } from '../contracts/workspace'
 import { analysisDateLabel, analysisStateLabel, criterionMatchTypeLabel, criterionOutcomeLabel, hardFilterReasonLabel, hardFilterReasonLabels, recommendationLabel, sourceQualityLabel } from '../features/workspace/presentationLabels'
 import { translate, useI18n } from '../i18n/I18nProvider'
+import { analysisNarrativeForLocale, criterionRationaleForLocale } from '../features/analysis/analysisLocalization'
+import { ensureAnalysisLocalization } from '../features/analysis/analysisLocalizationService'
 
 export function PageHeader({ eyebrow = 'JobMatch', title, intro, actions }: { eyebrow?: string; title: string; intro: string; actions?: ReactNode }) { return <header className="page-header"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-intro">{intro}</p>{actions}</header> }
 export function PrimaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--primary ${className}`} {...props}>{children}</button> }
@@ -50,6 +52,7 @@ function uniqueReadable(items: string[]) {
 }
 export function analysisNarrativeData(analysis: JobAnalysis | null | undefined, locale: 'pl' | 'en' = 'pl') {
   if (!analysis) return null
+  const localized = analysisNarrativeForLocale(analysis, locale)
   const hardFilterReason = analysis.hardFilterReasons[0]
     ? hardFilterReasonLabel(analysis.hardFilterReasons[0], locale) ?? analysis.hardFilterReasons[0]
     : null
@@ -66,9 +69,9 @@ export function analysisNarrativeData(analysis: JobAnalysis | null | undefined, 
   return {
     headline,
     recommendation: recommendationLabel(analysis.recommendation, locale),
-    summary: analysis.summary,
-    strengths: analysis.strengths.slice(0, 3),
-    risks: uniqueReadable([...analysis.risks, ...analysis.missingInformation]).slice(0, 3),
+    summary: localized.summary,
+    strengths: localized.strengths.slice(0, 3),
+    risks: uniqueReadable([...localized.risks, ...localized.missingInformation]).slice(0, 3),
     hardFilterWarning,
   }
 }
@@ -86,7 +89,35 @@ export function AnalysisNarrative({ analysis, compact = false }: { analysis: Job
     {narrative.hardFilterWarning && <p className="analysis-narrative__hard-filter"><strong>Hard Filter:</strong> {narrative.hardFilterWarning}</p>}
   </div>
 }
-export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobAnalysis; detailed?: boolean }) {
+export function AnalysisQuality({ analysis, detailed = false, analysisVersionId = null, onLocalized }: { analysis: JobAnalysis; detailed?: boolean; analysisVersionId?: string | null; onLocalized?: () => void }) {
+  const { t, locale } = useI18n()
+  const [localizedResult, setLocalizedResult] = useState<{ versionId: string; analysis: JobAnalysis } | null>(null)
+  const [localizationFailed, setLocalizationFailed] = useState(false)
+  const [localizationAttempt, setLocalizationAttempt] = useState(0)
+  const onLocalizedRef = useRef(onLocalized)
+  onLocalizedRef.current = onLocalized
+  const effectiveVersionId = analysisVersionId ?? analysis.analysisVersionId ?? null
+  const cachedLocalization = localizedResult?.versionId === effectiveVersionId ? localizedResult.analysis : null
+  const localizedAnalysis = analysis.localizedContent?.en ? analysis : cachedLocalization ?? analysis
+  const needsEnglishLocalization = locale === 'en' && !localizedAnalysis.localizedContent?.en
+  useEffect(() => {
+    if (!needsEnglishLocalization || !effectiveVersionId) return
+    let active = true
+    setLocalizationFailed(false)
+    void ensureAnalysisLocalization(effectiveVersionId)
+      .then((result) => { if (active) { setLocalizedResult({ versionId: effectiveVersionId, analysis: { ...result, analysisVersionId: effectiveVersionId } }); onLocalizedRef.current?.() } })
+      .catch(() => { if (active) setLocalizationFailed(true) })
+    return () => { active = false }
+  }, [effectiveVersionId, localizationAttempt, needsEnglishLocalization])
+  if (needsEnglishLocalization) return <div className={`analysis-quality${detailed ? ' analysis-quality--detailed' : ''}`} aria-busy={!localizationFailed}>
+    <p><strong>{analysis.overallScore}/100</strong></p>
+    <p className="field-hint" role="status">{!effectiveVersionId ? t('ui.analysis.localizationUnavailable') : localizationFailed ? t('ui.analysis.localizationFailed') : t('ui.analysis.localizationLoading')}</p>
+    {effectiveVersionId && localizationFailed && <button className="button button--secondary" type="button" onClick={() => setLocalizationAttempt((attempt) => attempt + 1)}>{t('ui.analysis.localizationRetry')}</button>}
+  </div>
+  return <AnalysisQualityContent analysis={localizedAnalysis} detailed={detailed} />
+}
+
+function AnalysisQualityContent({ analysis, detailed = false }: { analysis: JobAnalysis; detailed?: boolean }) {
   const { t, locale } = useI18n()
   const scoring = analysis.scoring
   const coverage = scoring?.coverage
@@ -100,7 +131,7 @@ export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobA
     {detailed && <div className="analysis-quality__criteria">{(['experience', 'skills', 'preferences', 'growth'] as AnalysisCategory[]).map((category) => {
       const items = criterionList(analysis, category)
       if (!items.length) return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><p>{t('ui.analysis.noHistoricalCriteria')}</p></div>
-      return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><ul>{items.map((criterion) => { const matchType = criterionMatchTypeLabel(criterion.matchType, locale); return <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome, locale)}{matchType ? ` · ${matchType}` : ''}; {t('ui.analysis.criterionConfidence', { confidence: criterion.confidence })}<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>{t('ui.analysis.noConfirmingData')}</em> : <><small>{t('ui.analysis.profileEvidence')} {criterion.profileEvidence.join('; ') || t('ui.analysis.noEvidence')}</small><br /><small>{t('ui.analysis.offerEvidence')} {criterion.offerEvidence.join('; ') || t('ui.analysis.noEvidence')}</small></>}</li> })}</ul></div>
+      return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><ul>{items.map((criterion) => { const matchType = criterionMatchTypeLabel(criterion.matchType, locale); return <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome, locale)}{matchType ? ` · ${matchType}` : ''}; {t('ui.analysis.criterionConfidence', { confidence: criterion.confidence })}<br /><span>{criterionRationaleForLocale(criterion, locale)}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>{t('ui.analysis.noConfirmingData')}</em> : <><small>{t('ui.analysis.profileEvidence')} {criterion.profileEvidence.join('; ') || t('ui.analysis.noEvidence')}</small><br /><small>{t('ui.analysis.offerEvidence')} {criterion.offerEvidence.join('; ') || t('ui.analysis.noEvidence')}</small></>}</li> })}</ul></div>
     })}</div>}
   </div>
 }

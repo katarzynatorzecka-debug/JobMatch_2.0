@@ -1,8 +1,9 @@
 import type { AnalysisFreshnessStatus, AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, OfferUserState, WorkspaceProfile } from '../../contracts/workspace'
 
 export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r10-critical-priority'
-export const CURRENT_ANALYSIS_PROMPT_VERSION = 'jobmatch-job-match-v6'
+export const CURRENT_ANALYSIS_PROMPT_VERSION = 'jobmatch-job-match-v7-bilingual'
 export const CURRENT_ANALYSIS_MODEL_VERSION = 'gpt-5.4-mini'
+const SCORE_COMPATIBLE_PROMPT_VERSIONS = new Set([CURRENT_ANALYSIS_PROMPT_VERSION, 'jobmatch-job-match-v6'])
 
 function analysisHardFilterStatus(status: HardFilterResultRecord['status']) { return status === 'needs_review' ? 'weak' : status }
 
@@ -17,7 +18,7 @@ export function analysisFreshness(input: {
   if (!input.profile?.currentVersionId || latestVersion.profileVersionId !== input.profile.currentVersionId) return 'stale_profile'
   if (!input.offerVersionId || latestVersion.offerVersionId !== input.offerVersionId) return 'stale_offer'
   if (latestVersion.algorithmVersion !== CURRENT_ANALYSIS_ALGORITHM_VERSION) return 'stale_algorithm'
-  if (latestVersion.promptVersion !== CURRENT_ANALYSIS_PROMPT_VERSION) return 'stale_prompt'
+  if (!latestVersion.promptVersion || !SCORE_COMPATIBLE_PROMPT_VERSIONS.has(latestVersion.promptVersion)) return 'stale_prompt'
   if (latestVersion.modelVersion !== CURRENT_ANALYSIS_MODEL_VERSION) return 'stale_model'
   if (input.hardFilter && latestVersion.hardFilterStatus !== analysisHardFilterStatus(input.hardFilter.status)) return 'stale_offer'
   return 'current'

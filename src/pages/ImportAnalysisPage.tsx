@@ -206,5 +206,5 @@ function AnalysisPreview({ analysis, hardFilter, freshness, analysisVersionId }:
   const { t, locale } = useI18n()
   if (hardFilter === 'fail') return <div className="analysis-preview"><strong>{t('import.preview.rejected')}</strong><span>{t('import.preview.noAi')}</span></div>
   if (!analysis) return null
-  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><AnalysisQuality analysis={analysis} />{freshness && <small>{t('import.preview.freshness')} {analysisFreshnessLabel(freshness, locale)}</small>}{analysisVersionId && <small>analysis_version_id: {analysisVersionId}</small>}</div>
+  return <div className="analysis-preview"><HardFilterStatusBadge status={hardFilter ?? analysis.hardFilterStatus} /><AnalysisQuality analysis={analysis} analysisVersionId={analysisVersionId} />{freshness && <small>{t('import.preview.freshness')} {analysisFreshnessLabel(freshness, locale)}</small>}{analysisVersionId && <small>analysis_version_id: {analysisVersionId}</small>}</div>
 }

@@ -95,6 +95,17 @@ describe('workspace read model', () => {
     expect(item.analysisState.isLegacyFallback).toBe(false)
   })
 
+  it('does not present a v7 analysis before both localized narratives are persisted', () => {
+    const analysisData = { offerId: 'offer-1', overallScore: 72, categoryScores: { experience: { score: 72, rationale: 'ok' }, skills: { score: 72, rationale: 'ok' }, preferences: { score: 72, rationale: 'ok' }, growth: { score: 72, rationale: 'ok' } }, recommendation: 'Wymaga sprawdzenia', summary: 'Polskie podsumowanie.', strengths: [], risks: [], missingInformation: [], hardFilterStatus: 'pass', hardFilterReasons: [], sourceQuality: 'full', modelInfo: { provider: 'openai', model: 'gpt-5.4-mini', provisional: true }, createdAt: '2026-09-05T12:00:00.000Z', status: 'ready' }
+    const item = projectWorkspaceOffer(snapshot({
+      workspaceAnalyses: [{ jobOfferId: 'offer-1', latestVersionId: 'analysis-version-v7' } as never],
+      analysisVersions: [{ id: 'analysis-version-v7', jobOfferId: 'offer-1', promptVersion: 'jobmatch-job-match-v7-bilingual', analysisData } as never],
+    }), offer)
+
+    expect(item.analysis).toBeNull()
+    expect(item.analysisState.errorCode).toBe('WORKSPACE_ANALYSIS_LOCALIZATION_MISSING')
+  })
+
   it('surfaces a failed queue item as a real retryable error without treating it as in progress', () => {
     const item = projectWorkspaceOffer(snapshot({
       analysisQueue: [{ jobOfferId: 'offer-1', status: 'failed', lastError: 'PROVIDER_TIMEOUT' } as never],

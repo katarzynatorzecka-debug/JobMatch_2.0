@@ -15,4 +15,12 @@ describe('analysis history presentation', () => {
     expect(entry.kind).toBe('current')
     expect(entry.createdAt).toContain('2026-08-02')
   })
+
+  it('uses the stored English summary without changing historical scores', () => {
+    const localized = version('localized', '2026-08-03T10:00:00.000Z', 79, 'Warto aplikować') as unknown as { analysisData: Record<string, unknown> }
+    localized.analysisData.localizedContent = { pl: { summary: 'Polskie podsumowanie.', strengths: [], risks: [], missingInformation: [] }, en: { summary: 'English summary.', strengths: [], risks: [], missingInformation: [] } }
+    const [entry] = presentAnalysisHistory([localized as never], 'localized', 'en')
+    expect(entry.analysis?.summary).toBe('English summary.')
+    expect(entry.analysis?.overallScore).toBe(79)
+  })
 })

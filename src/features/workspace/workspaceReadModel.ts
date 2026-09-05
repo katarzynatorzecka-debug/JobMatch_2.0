@@ -2,7 +2,7 @@ import type { JobAnalysis } from '../../contracts/jobAnalysis'
 import { validateJobAnalysis } from '../../schemas/jobAnalysisSchemas'
 import type { AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, WorkspaceImportSession, WorkspaceJobOffer } from '../../contracts/workspace'
 import type { WorkspaceOfferDetails, WorkspaceOfferListItem, WorkspaceSnapshot } from './workspaceRepository'
-import { activeQueueForOffer, analysisFreshness, queueLifecycle } from './analysisQueue'
+import { activeQueueForOffer, analysisFreshness, CURRENT_ANALYSIS_PROMPT_VERSION, queueLifecycle } from './analysisQueue'
 
 function currentVersion(offer: WorkspaceJobOffer, versions: OfferVersion[]) { return offer.currentVersionId ? versions.find((version) => version.id === offer.currentVersionId) ?? null : null }
 function currentHardFilter(offerId: string, results: HardFilterResultRecord[]) { return results.find((result) => result.jobOfferId === offerId && result.isCurrent) ?? null }
@@ -44,7 +44,8 @@ function latestVersionFor(offerId: string, snapshot: WorkspaceSnapshot): Version
   if (latestVersion.jobOfferId !== offerId) return { latestVersion, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_IDENTITY_MISMATCH' }
   const parsed = validateJobAnalysis(latestVersion.analysisData)
   if (!parsed.success || parsed.data.offerId !== offerId) return { latestVersion, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_INVALID_RESPONSE' }
-  return { latestVersion, analysis: parsed.data, errorCode: null }
+  if (latestVersion.promptVersion === CURRENT_ANALYSIS_PROMPT_VERSION && (!parsed.data.localizedContent?.pl || !parsed.data.localizedContent.en)) return { latestVersion, analysis: null, errorCode: 'WORKSPACE_ANALYSIS_LOCALIZATION_MISSING' }
+  return { latestVersion, analysis: { ...parsed.data, analysisVersionId: latestVersion.id }, errorCode: null }
 }
 
 export function projectWorkspaceOffer(snapshot: WorkspaceSnapshot, offer: WorkspaceJobOffer): WorkspaceOfferListItem {
