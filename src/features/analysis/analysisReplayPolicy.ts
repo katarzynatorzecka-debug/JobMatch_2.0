@@ -1,4 +1,6 @@
 import type { AnalysisFreshnessStatus, AnalysisQueueStatus } from '../../contracts/workspace'
+import { translate } from '../../i18n/I18nProvider'
+import type { Locale } from '../../i18n/locale'
 
 export type AnalysisReplayAction = 'initial' | 'refresh_stale' | 'retry_failed' | 'current' | 'in_progress'
 
@@ -13,9 +15,9 @@ export function analysisReplayAction(input: { hasLatestVersion: boolean; freshne
   return input.freshness === 'current' ? 'current' : 'refresh_stale'
 }
 
-export function analysisReplayLabel(action: AnalysisReplayAction, hasError = false) {
-  if (hasError) return 'Ponów analizę'
-  if (action === 'current') return 'Wynik jest aktualny'
-  if (action === 'refresh_stale') return 'Odśwież analizę'
-  return 'Analizuj ofertę'
+export function analysisReplayLabel(action: AnalysisReplayAction, hasError = false, locale: Locale = 'pl') {
+  if (hasError) return translate(locale, 'domain.analysis.replay.retry')
+  if (action === 'current') return translate(locale, 'domain.analysis.replay.current')
+  if (action === 'refresh_stale') return translate(locale, 'domain.analysis.replay.refresh')
+  return translate(locale, 'domain.analysis.replay.initial')
 }

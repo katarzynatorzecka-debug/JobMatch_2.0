@@ -3,7 +3,7 @@ import type { AnalysisVersion } from '../../contracts/workspace'
 import { validateJobAnalysis } from '../../schemas/jobAnalysisSchemas'
 
 export type AnalysisHistoryPresentation = {
-  label: 'Aktualna' | 'Poprzednia'
+  kind: 'current' | 'previous'
   createdAt: string
   analysis: Pick<JobAnalysis, 'overallScore' | 'recommendation' | 'summary' | 'scoring' | 'sourceQuality' | 'status'> | null
 }
@@ -14,7 +14,7 @@ export function presentAnalysisHistory(versions: AnalysisVersion[], latestVersio
   return orderedVersions.map((version) => {
     const parsed = validateJobAnalysis(version.analysisData)
     return {
-      label: version.id === effectiveLatestVersionId ? 'Aktualna' : 'Poprzednia',
+      kind: version.id === effectiveLatestVersionId ? 'current' : 'previous',
       createdAt: version.createdAt,
       analysis: parsed.success ? {
         overallScore: parsed.data.overallScore,

@@ -9,4 +9,7 @@ describe('offer issue presentation', () => {
   it('keeps distinct warnings once and removes repeated prefixes', () => {
     expect(presentOfferIssues({ missingFields: ['wynagrodzenie'], warnings: ['Brak danych: lokalizacja.', 'Brak danych: lokalizacja.'] })).toEqual({ missing: ['wynagrodzenie'], warnings: ['lokalizacja'] })
   })
+  it('localizes known historical issue fields in English', () => {
+    expect(presentOfferIssues({ missingFields: ['wynagrodzenie'], warnings: ['Brak danych: lokalizacja.'] }, 'en')).toEqual({ missing: ['salary'], warnings: ['location'] })
+  })
 })

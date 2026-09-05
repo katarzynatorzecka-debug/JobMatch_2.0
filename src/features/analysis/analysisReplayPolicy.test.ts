@@ -21,4 +21,10 @@ describe('analysis replay policy', () => {
     expect(analysisReplayAction({ hasLatestVersion: true, freshness: 'stale_algorithm', queueStatus: 'queued', queueHasError: true })).toBe('retry_failed')
     expect(analysisReplayLabel('retry_failed', true)).toBe('Ponów analizę')
   })
+
+  it('localizes replay actions in English', () => {
+    expect(analysisReplayLabel('current', false, 'en')).toBe('Result is up to date')
+    expect(analysisReplayLabel('retry_failed', true, 'en')).toBe('Retry analysis')
+    expect(analysisReplayLabel('refresh_stale', false, 'en')).toBe('Refresh analysis')
+  })
 })

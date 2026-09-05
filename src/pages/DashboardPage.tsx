@@ -3,10 +3,11 @@ import { SectionCard, ScoreBadge } from '../components/ui'
 import type { DashboardOfferCard, DashboardViewModel } from '../features/dashboard/dashboardSelectors'
 import { useI18n } from '../i18n/I18nProvider'
 import type { Translate } from '../i18n/translationTypes'
+import type { Locale } from '../i18n/locale'
 
-function dateLabel(value: string, unavailable: string) {
+function dateLabel(value: string, unavailable: string, locale: Locale) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? unavailable : new Intl.DateTimeFormat('pl-PL', { dateStyle: 'medium' }).format(date)
+  return Number.isNaN(date.getTime()) ? unavailable : new Intl.DateTimeFormat(locale === 'pl' ? 'pl-PL' : 'en-GB', { dateStyle: 'medium' }).format(date)
 }
 
 function hardFilterLabel(status: DashboardOfferCard['hardFilterStatus'], t: Translate) {
@@ -67,7 +68,7 @@ function ProfileAssistance({ viewModel: _viewModel }: { viewModel: DashboardView
 }
 
 export function DashboardPage({ viewModel }: { viewModel: DashboardViewModel }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { profile, offers, importHistory, nextStep, availability } = viewModel
   const displayName = profile.fullName || ''
   return (
@@ -117,7 +118,7 @@ export function DashboardPage({ viewModel }: { viewModel: DashboardViewModel }) 
           <OfferSection id="dashboard-favorites" title={t('dashboard.section.favorites')} items={offers.favorites} empty={t('dashboard.empty.favorites')} />
           <section id="dashboard-history" className="dashboard-section" aria-labelledby="dashboard-history-title">
             <div className="dashboard-section__heading"><h2 id="dashboard-history-title">{t('dashboard.section.history')}</h2><Link className="text-link" to="/import">{t('dashboard.addReport')}</Link></div>
-            {importHistory.length ? <div className="dashboard-history-list">{importHistory.slice(0, 3).map((session) => <article className="dashboard-history-card" key={session.id}><strong>{session.sourceFilename || session.sourceType}</strong><span>{dateLabel(session.createdAt, t('dashboard.dateUnavailable'))}</span><span>{t('dashboard.history.counts', { newCount: session.newCount, duplicateCount: session.duplicateCount })}</span>{(session.needsReviewCount || session.invalidCount) > 0 && <small>{t('dashboard.history.issues', { reviewCount: session.needsReviewCount, errorCount: session.invalidCount })}</small>}</article>)}</div> : <p className="dashboard-empty">{t('dashboard.empty.history')}</p>}
+            {importHistory.length ? <div className="dashboard-history-list">{importHistory.slice(0, 3).map((session) => <article className="dashboard-history-card" key={session.id}><strong>{session.sourceFilename || session.sourceType}</strong><span>{dateLabel(session.createdAt, t('dashboard.dateUnavailable'), locale)}</span><span>{t('dashboard.history.counts', { newCount: session.newCount, duplicateCount: session.duplicateCount })}</span>{(session.needsReviewCount || session.invalidCount) > 0 && <small>{t('dashboard.history.issues', { reviewCount: session.needsReviewCount, errorCount: session.invalidCount })}</small>}</article>)}</div> : <p className="dashboard-empty">{t('dashboard.empty.history')}</p>}
           </section>
           <OfferSection id="dashboard-applied" title={t('dashboard.section.applied')} items={offers.applied} empty={t('dashboard.empty.applied')} limit={3} />
           <OfferSection id="dashboard-excluded" title={t('dashboard.section.excluded')} items={offers.excluded} empty={t('dashboard.empty.excluded')} limit={2} />

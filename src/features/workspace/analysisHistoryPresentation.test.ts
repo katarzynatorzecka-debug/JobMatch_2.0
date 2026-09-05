@@ -6,13 +6,13 @@ const version = (id: string, createdAt: string, score: number, recommendation: '
 describe('analysis history presentation', () => {
   it('marks the latest pointer as current and earlier versions as previous', () => {
     const entries = presentAnalysisHistory([version('old', '2026-08-01T10:00:00.000Z', 40, 'Wymaga sprawdzenia'), version('latest', '2026-08-02T10:00:00.000Z', 80, 'Warto aplikować')], 'latest')
-    expect(entries.map((entry) => [entry.label, entry.analysis?.overallScore])).toEqual([['Aktualna', 80], ['Poprzednia', 40]])
+    expect(entries.map((entry) => [entry.kind, entry.analysis?.overallScore])).toEqual([['current', 80], ['previous', 40]])
     expect(JSON.stringify(entries)).not.toContain('internal-offer')
   })
 
   it('returns a safe unavailable entry for malformed history data', () => {
     const [entry] = presentAnalysisHistory([version('only', '2026-08-02T10:00:00.000Z', 80, 'Warto aplikować')], 'only')
-    expect(entry.label).toBe('Aktualna')
+    expect(entry.kind).toBe('current')
     expect(entry.createdAt).toContain('2026-08-02')
   })
 })

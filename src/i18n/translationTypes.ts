@@ -103,6 +103,72 @@ export type TranslationParameters = {
   'ui.analysis.profileEvidence': undefined
   'ui.analysis.offerEvidence': undefined
   'ui.analysis.noEvidence': undefined
+  'domain.recommendation.worth': undefined
+  'domain.recommendation.review': undefined
+  'domain.recommendation.notRecommended': undefined
+  'domain.hardFilter.contract': undefined
+  'domain.hardFilter.workMode': undefined
+  'domain.hardFilter.location': undefined
+  'domain.hardFilter.salary': undefined
+  'domain.hardFilter.keyword': undefined
+  'domain.hardFilter.studentStatus': undefined
+  'domain.hardFilter.mustHave': undefined
+  'domain.hardFilter.dataQuality': undefined
+  'domain.hardFilter.conflict': undefined
+  'domain.criterion.match': undefined
+  'domain.criterion.partial': undefined
+  'domain.criterion.noMatch': undefined
+  'domain.criterion.unknown': undefined
+  'domain.criterion.unavailable': undefined
+  'domain.matchType.direct': undefined
+  'domain.matchType.transferable': undefined
+  'domain.matchType.noEvidence': undefined
+  'domain.matchType.contradiction': undefined
+  'domain.source.full': undefined
+  'domain.source.partial': undefined
+  'domain.source.unavailable': undefined
+  'domain.source.fixture': undefined
+  'domain.source.unknown': undefined
+  'domain.analysis.current': undefined
+  'domain.analysis.missing': undefined
+  'domain.analysis.stale': undefined
+  'domain.analysis.failed': undefined
+  'domain.analysis.queued': undefined
+  'domain.analysis.processing': undefined
+  'domain.analysis.date': { date: string }
+  'domain.analysis.dateUnavailable': undefined
+  'domain.analysis.replay.retry': undefined
+  'domain.analysis.replay.current': undefined
+  'domain.analysis.replay.refresh': undefined
+  'domain.analysis.replay.initial': undefined
+  'domain.analysis.status.ready': undefined
+  'domain.analysis.status.retry': undefined
+  'domain.analysis.status.rejected': undefined
+  'domain.history.current': undefined
+  'domain.history.previous': undefined
+  'domain.narrative.match': undefined
+  'domain.narrative.reject': undefined
+  'domain.narrative.review': undefined
+  'domain.narrative.confirm': { reason: string }
+  'domain.narrative.conflict': { reason: string }
+  'domain.issue.location': undefined
+  'domain.issue.workMode': undefined
+  'domain.issue.contract': undefined
+  'domain.issue.salary': undefined
+  'domain.import.duplicate': { offer: string }
+  'domain.import.unsupportedLayout': undefined
+  'domain.profile.question.workModes.title': undefined
+  'domain.profile.question.workModes.description': undefined
+  'domain.profile.question.contracts.title': undefined
+  'domain.profile.question.contracts.description': undefined
+  'domain.profile.question.locations.title': undefined
+  'domain.profile.question.locations.description': undefined
+  'domain.profile.question.criteria.title': undefined
+  'domain.profile.question.criteria.description': undefined
+  'domain.profile.question.priorities.title': undefined
+  'domain.profile.question.priorities.description': undefined
+  'domain.profile.question.role.title': undefined
+  'domain.profile.question.role.description': undefined
   'dashboard.dateUnavailable': undefined
   'dashboard.hardFilter.fail': undefined
   'dashboard.hardFilter.review': undefined

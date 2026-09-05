@@ -31,4 +31,10 @@ describe('analysis replay UI', () => {
     expect(detailsSource).not.toContain('{analysis.recommendation}</strong> — {analysis.summary}')
     expect(detailsSource).toContain("t('details.history.partialScore', { score: entry.analysis.overallScore })")
   })
+
+  it('shows an import pipeline error even when a failed URL creates no review batch', () => {
+    expect(importSource).toContain("pipelineErrorMessage && !isReviewing && <Alert title={t('import.review.analysisErrorTitle')}")
+    expect(importSource).toContain("{pipelineErrorMessage && <Alert title={t('import.review.analysisErrorTitle')}")
+    expect(importSource).toContain("'key' in pipelineError ? t(pipelineError.key) : pipelineError.message")
+  })
 })

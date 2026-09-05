@@ -20,9 +20,9 @@ describe('OfferDetails analysis score placement', () => {
     expect(markup).not.toContain('Podsumowanie analizy')
   })
 
-  it('uses an English score label without translating the stored recommendation', () => {
+  it('uses English presentation labels without changing the stored recommendation value', () => {
     const markup = renderHeader({ overallScore: 30, recommendation: 'Wymaga sprawdzenia' }, 'en')
     expect(markup).toContain('Match score: 30 out of 100')
-    expect(markup).toContain('Wymaga sprawdzenia')
+    expect(markup).toContain('Needs review')
   })
 })

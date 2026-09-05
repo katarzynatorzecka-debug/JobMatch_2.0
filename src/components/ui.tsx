@@ -4,8 +4,8 @@ import { statusMeta, type DemoOffer, type DemoStatus } from '../demo/offers'
 import type { HardFilterStatus } from '../contracts/hardFilter'
 import type { AnalysisCategory, AnalysisCriterion, JobAnalysis } from '../contracts/jobAnalysis'
 import type { WorkspaceAnalysisState } from '../contracts/workspace'
-import { analysisDateLabel, analysisStateLabel, criterionMatchTypeLabel, criterionOutcomeLabel, hardFilterReasonLabels, sourceQualityLabel } from '../features/workspace/presentationLabels'
-import { useI18n } from '../i18n/I18nProvider'
+import { analysisDateLabel, analysisStateLabel, criterionMatchTypeLabel, criterionOutcomeLabel, hardFilterReasonLabel, hardFilterReasonLabels, recommendationLabel, sourceQualityLabel } from '../features/workspace/presentationLabels'
+import { translate, useI18n } from '../i18n/I18nProvider'
 
 export function PageHeader({ eyebrow = 'JobMatch', title, intro, actions }: { eyebrow?: string; title: string; intro: string; actions?: ReactNode }) { return <header className="page-header"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="page-intro">{intro}</p>{actions}</header> }
 export function PrimaryButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button className={`button button--primary ${className}`} {...props}>{children}</button> }
@@ -22,15 +22,15 @@ export function CategoryScore({ label, score }: { label: string; score: number |
 const categoryLabelKeys = { experience: 'ui.analysis.category.experience', skills: 'ui.analysis.category.skills', preferences: 'ui.analysis.category.preferences', growth: 'ui.analysis.category.growth' } as const
 export function formatPercentage(value: number) { return `${Math.round(value)}%` }
 export function HardFilterReason({ reasons }: { reasons: unknown[] }) {
-  const { t } = useI18n()
-  const labels = hardFilterReasonLabels(reasons)
+  const { t, locale } = useI18n()
+  const labels = hardFilterReasonLabels(reasons, locale)
   if (!labels.length) return null
   return <div className="hard-filter-reasons"><strong>{t('ui.hardFilter.reason')}</strong><ul>{labels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul></div>
 }
-export function SourceQualityLabel({ value }: { value: JobAnalysis['sourceQuality'] }) { const { t } = useI18n(); return <span className="analysis-meta__source">{t('ui.meta.source')} {sourceQualityLabel(value)}</span> }
+export function SourceQualityLabel({ value }: { value: JobAnalysis['sourceQuality'] }) { const { t, locale } = useI18n(); return <span className="analysis-meta__source">{t('ui.meta.source')} {sourceQualityLabel(value, locale)}</span> }
 export function AnalysisMetadata({ analysis, state }: { analysis: JobAnalysis; state: WorkspaceAnalysisState }) {
-  const { t } = useI18n()
-  return <div className="analysis-meta"><span>{t('ui.meta.state')} {analysisStateLabel({ queueStatus: state.queueItem?.status, errorCode: state.errorCode, freshness: state.freshness })}</span><span>{analysisDateLabel(state.lastAnalysisAt ?? analysis.createdAt)}</span><SourceQualityLabel value={analysis.sourceQuality} /></div>
+  const { t, locale } = useI18n()
+  return <div className="analysis-meta"><span>{t('ui.meta.state')} {analysisStateLabel({ queueStatus: state.queueItem?.status, errorCode: state.errorCode, freshness: state.freshness }, locale)}</span><span>{analysisDateLabel(state.lastAnalysisAt ?? analysis.createdAt, locale)}</span><SourceQualityLabel value={analysis.sourceQuality} /></div>
 }
 function criterionList(analysis: JobAnalysis, category: AnalysisCategory): AnalysisCriterion[] {
   const value = analysis.criteria?.[category]
@@ -48,21 +48,24 @@ function uniqueReadable(items: string[]) {
     return value && !items.slice(0, index).some((previous) => readableFingerprint(previous) === value)
   })
 }
-export function analysisNarrativeData(analysis: JobAnalysis | null | undefined) {
+export function analysisNarrativeData(analysis: JobAnalysis | null | undefined, locale: 'pl' | 'en' = 'pl') {
   if (!analysis) return null
+  const hardFilterReason = analysis.hardFilterReasons[0]
+    ? hardFilterReasonLabel(analysis.hardFilterReasons[0], locale) ?? analysis.hardFilterReasons[0]
+    : null
   const headline = analysis.recommendation === 'Warto aplikować'
-    ? 'Dlaczego ta oferta pasuje'
+    ? translate(locale, 'domain.narrative.match')
     : analysis.recommendation === 'Nie rekomenduję'
-      ? 'Dlaczego ta oferta nie jest rekomendowana'
-      : 'Co warto sprawdzić przed decyzją'
-  const hardFilterWarning = analysis.hardFilterStatus === 'weak' && analysis.hardFilterReasons[0]
-    ? `Wymaga potwierdzenia: ${analysis.hardFilterReasons[0]}`
-    : analysis.hardFilterStatus === 'fail' && analysis.hardFilterReasons[0]
-      ? `Konflikt z profilem: ${analysis.hardFilterReasons[0]}`
+      ? translate(locale, 'domain.narrative.reject')
+      : translate(locale, 'domain.narrative.review')
+  const hardFilterWarning = analysis.hardFilterStatus === 'weak' && hardFilterReason
+    ? translate(locale, 'domain.narrative.confirm', { reason: hardFilterReason })
+    : analysis.hardFilterStatus === 'fail' && hardFilterReason
+      ? translate(locale, 'domain.narrative.conflict', { reason: hardFilterReason })
       : null
   return {
     headline,
-    recommendation: analysis.recommendation,
+    recommendation: recommendationLabel(analysis.recommendation, locale),
     summary: analysis.summary,
     strengths: analysis.strengths.slice(0, 3),
     risks: uniqueReadable([...analysis.risks, ...analysis.missingInformation]).slice(0, 3),
@@ -70,8 +73,8 @@ export function analysisNarrativeData(analysis: JobAnalysis | null | undefined) 
   }
 }
 export function AnalysisNarrative({ analysis, compact = false }: { analysis: JobAnalysis; compact?: boolean }) {
-  const { t } = useI18n()
-  const narrative = analysisNarrativeData(analysis)
+  const { t, locale } = useI18n()
+  const narrative = analysisNarrativeData(analysis, locale)
   if (!narrative) return null
   return <div className={`analysis-narrative${compact ? ' analysis-narrative--compact' : ''}`}>
     <p className="analysis-narrative__recommendation"><strong>{t('ui.analysis.recommendation')}</strong> {narrative.recommendation}</p>
@@ -84,7 +87,7 @@ export function AnalysisNarrative({ analysis, compact = false }: { analysis: Job
   </div>
 }
 export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobAnalysis; detailed?: boolean }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const scoring = analysis.scoring
   const coverage = scoring?.coverage
   const confidence = scoring?.criterionConfidence
@@ -97,7 +100,7 @@ export function AnalysisQuality({ analysis, detailed = false }: { analysis: JobA
     {detailed && <div className="analysis-quality__criteria">{(['experience', 'skills', 'preferences', 'growth'] as AnalysisCategory[]).map((category) => {
       const items = criterionList(analysis, category)
       if (!items.length) return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><p>{t('ui.analysis.noHistoricalCriteria')}</p></div>
-      return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><ul>{items.map((criterion) => <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome)}{criterionMatchTypeLabel(criterion.matchType) ? ` · ${criterionMatchTypeLabel(criterion.matchType)}` : ''}; {t('ui.analysis.criterionConfidence', { confidence: criterion.confidence })}<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>{t('ui.analysis.noConfirmingData')}</em> : <><small>{t('ui.analysis.profileEvidence')} {criterion.profileEvidence.join('; ') || t('ui.analysis.noEvidence')}</small><br /><small>{t('ui.analysis.offerEvidence')} {criterion.offerEvidence.join('; ') || t('ui.analysis.noEvidence')}</small></>}</li>)}</ul></div>
+      return <div key={category}><strong>{t(categoryLabelKeys[category])}</strong><ul>{items.map((criterion) => { const matchType = criterionMatchTypeLabel(criterion.matchType, locale); return <li key={criterion.id}><b>{criterion.requirement}</b> — {criterionOutcomeLabel(criterion.outcome, locale)}{matchType ? ` · ${matchType}` : ''}; {t('ui.analysis.criterionConfidence', { confidence: criterion.confidence })}<br /><span>{criterion.rationale}</span><br />{criterion.outcome === 'UNKNOWN' ? <em>{t('ui.analysis.noConfirmingData')}</em> : <><small>{t('ui.analysis.profileEvidence')} {criterion.profileEvidence.join('; ') || t('ui.analysis.noEvidence')}</small><br /><small>{t('ui.analysis.offerEvidence')} {criterion.offerEvidence.join('; ') || t('ui.analysis.noEvidence')}</small></>}</li> })}</ul></div>
     })}</div>}
   </div>
 }
