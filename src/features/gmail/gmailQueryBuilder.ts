@@ -1,4 +1,4 @@
-import { GMAIL_DEFAULT_LOOKBACK_DAYS, GMAIL_MAX_RESULTS, GmailImportError, type GmailSearchFilters, type GmailSearchRequest } from './gmailContracts'
+import { GMAIL_DEFAULT_LOOKBACK_DAYS, GMAIL_MAX_RESULTS, GMAIL_ROCKETJOBS_DEFAULT_SENDER, GmailImportError, type GmailSearchFilters, type GmailSearchRequest } from './gmailContracts'
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 
@@ -35,4 +35,8 @@ export function buildGmailSearchRequest(filters: GmailSearchFilters = {}): Gmail
     maxResults: GMAIL_MAX_RESULTS,
     ...(filters.pageToken?.trim() ? { pageToken: filters.pageToken.trim() } : {}),
   }
+}
+
+export function buildRocketJobsGmailSearchRequest(filters: GmailSearchFilters = {}) {
+  return buildGmailSearchRequest({ ...filters, sender: filters.sender?.trim() || GMAIL_ROCKETJOBS_DEFAULT_SENDER })
 }

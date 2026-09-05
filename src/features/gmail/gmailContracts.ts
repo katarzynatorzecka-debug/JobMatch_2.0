@@ -4,6 +4,7 @@ export const GMAIL_DEFAULT_LOOKBACK_DAYS = 30
 export const GMAIL_MAX_RESULTS = 25
 export const GMAIL_MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 export const GMAIL_MAX_PARALLEL_DOWNLOADS = 5
+export const GMAIL_ROCKETJOBS_DEFAULT_SENDER = 'no-reply@rocketjobs.pl'
 
 export type GmailSearchFilters = {
   sender?: string
