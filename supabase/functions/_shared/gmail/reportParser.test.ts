@@ -4,6 +4,7 @@ import { parseGmailRawReport, parseRocketJobsText } from './reportParser'
 
 const report = 'Example Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data'
 const newsletterHeaderAndOffer = '**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**96 · RocketJobs · Mamy dla Ciebie nowe oferty\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data'
+const currentLayoutWithoutElapsedTime = '**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPraca hybrydowa\nhttps://rocketjobs.pl/oferta-pracy/example-data'
 
 function raw(body: string, sender = 'no-reply@rocketjobs.pl', contentType = 'text/plain; charset=UTF-8') {
   const message = `From: RocketJobs <${sender}>\r\nSubject: Synthetic report\r\nContent-Type: ${contentType}\r\n\r\n${body}`
@@ -33,6 +34,12 @@ describe('server-side Gmail report parser', () => {
     expect(parsed.offers).toHaveLength(1)
     expect(parsed.offers[0]).toMatchObject({ title: 'Data Analyst', company: 'Example Labs' })
     expect(parsed.offers[0]?.title).not.toContain('Twoje preferencje')
+  })
+
+  it('parses the current compact card layout without an elapsed-time line', async () => {
+    expect(parseRocketJobsText(currentLayoutWithoutElapsedTime).offers).toMatchObject([{ title: 'Data Analyst', company: 'Example Labs' }])
+    const parsed = await parseGmailRawReport(raw(currentLayoutWithoutElapsedTime))
+    expect(parsed.offers).toMatchObject([{ title: 'Data Analyst', company: 'Example Labs' }])
   })
 
   it('rejects unsupported senders, invalid RAW and reports without supported offers', async () => {

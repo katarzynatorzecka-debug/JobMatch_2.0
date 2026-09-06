@@ -5,6 +5,7 @@ import type { GmailConnection, GmailStore, OAuthStateStatus, StoredOAuthState } 
 type ConnectionRow = {
   id: string
   user_id: string
+  account_email_hmac: string
   masked_email: string | null
   refresh_token_ciphertext: Uint8Array
   refresh_token_nonce: Uint8Array
@@ -17,6 +18,7 @@ function connection(row: ConnectionRow): GmailConnection {
   return {
     id: row.id,
     userId: row.user_id,
+    accountEmailHmac: row.account_email_hmac,
     maskedEmail: row.masked_email,
     refreshToken: { ciphertext: bytesToBase64(row.refresh_token_ciphertext), nonce: bytesToBase64(row.refresh_token_nonce), keyVersion: row.key_version },
     grantedScopes: row.granted_scopes,
@@ -29,9 +31,9 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
     async createOAuthState(input) {
       await sql`
         insert into private_gmail.oauth_states
-          (user_id, state_hash, pkce_verifier_ciphertext, pkce_nonce, key_version, redirect_uri_hmac, return_target, expires_at)
+          (user_id, state_hash, pkce_verifier_ciphertext, pkce_nonce, key_version, redirect_uri_hmac, return_target, replace_connection_id, expires_at)
         values
-          (${input.userId}::uuid, ${input.stateHash}, ${base64ToBytes(input.pkceVerifier.ciphertext)}, ${base64ToBytes(input.pkceVerifier.nonce)}, ${input.pkceVerifier.keyVersion}, ${input.redirectUriHmac}, ${input.returnTarget}, ${input.expiresAt}::timestamptz)
+          (${input.userId}::uuid, ${input.stateHash}, ${base64ToBytes(input.pkceVerifier.ciphertext)}, ${base64ToBytes(input.pkceVerifier.nonce)}, ${input.pkceVerifier.keyVersion}, ${input.redirectUriHmac}, ${input.returnTarget}, ${input.replaceConnectionId ?? null}::uuid, ${input.expiresAt}::timestamptz)
       `
     },
 
@@ -44,6 +46,7 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
         key_version: number
         redirect_uri_hmac: string
         return_target: StoredOAuthState['returnTarget']
+        replace_connection_id: string | null
       }>>`select * from private_gmail.consume_oauth_state(${stateHash}, ${consumedAt}::timestamptz)`
       const row = rows[0]
       return row ? {
@@ -52,6 +55,7 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
         pkceVerifier: { ciphertext: bytesToBase64(row.pkce_verifier_ciphertext), nonce: bytesToBase64(row.pkce_nonce), keyVersion: row.key_version },
         redirectUriHmac: row.redirect_uri_hmac,
         returnTarget: row.return_target,
+        ...(row.replace_connection_id ? { replaceConnectionId: row.replace_connection_id } : {}),
       } : null
     },
 
@@ -63,10 +67,32 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
       return row ? { expiresAt: row.expires_at.toISOString(), usedAt: row.used_at?.toISOString() ?? null } satisfies OAuthStateStatus : null
     },
 
-    async getConnection(userId) {
+    async listConnections(userId) {
       const rows = await sql<ConnectionRow[]>`
-        select id, user_id, masked_email, refresh_token_ciphertext, refresh_token_nonce, key_version, granted_scopes, status
-        from private_gmail.connections where user_id = ${userId}::uuid limit 1
+        select id, user_id, account_email_hmac, masked_email, refresh_token_ciphertext, refresh_token_nonce, key_version, granted_scopes, status
+        from private_gmail.connections
+        where user_id = ${userId}::uuid and status in ('active', 'reauth_required')
+        order by created_at asc
+      `
+      return rows.map(connection)
+    },
+
+    async getConnection(userId, connectionId) {
+      const rows = await sql<ConnectionRow[]>`
+        select id, user_id, account_email_hmac, masked_email, refresh_token_ciphertext, refresh_token_nonce, key_version, granted_scopes, status
+        from private_gmail.connections
+        where user_id = ${userId}::uuid and id = ${connectionId}::uuid
+        limit 1
+      `
+      return rows[0] ? connection(rows[0]) : null
+    },
+
+    async getConnectionForAccount(userId, accountEmailHmac) {
+      const rows = await sql<ConnectionRow[]>`
+        select id, user_id, account_email_hmac, masked_email, refresh_token_ciphertext, refresh_token_nonce, key_version, granted_scopes, status
+        from private_gmail.connections
+        where user_id = ${userId}::uuid and account_email_hmac = ${accountEmailHmac}
+        limit 1
       `
       return rows[0] ? connection(rows[0]) : null
     },
@@ -77,8 +103,7 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
           (id, user_id, account_email_hmac, masked_email, refresh_token_ciphertext, refresh_token_nonce, key_version, granted_scopes, status, updated_at, last_used_at, revoked_at)
         values
           (${input.id}::uuid, ${input.userId}::uuid, ${input.accountEmailHmac}, ${input.maskedEmail}, ${base64ToBytes(input.refreshToken.ciphertext)}, ${base64ToBytes(input.refreshToken.nonce)}, ${input.refreshToken.keyVersion}, ${input.grantedScopes}, 'active', now(), now(), null)
-        on conflict (user_id) do update set
-          account_email_hmac = excluded.account_email_hmac,
+        on conflict (user_id, account_email_hmac) do update set
           masked_email = excluded.masked_email,
           refresh_token_ciphertext = excluded.refresh_token_ciphertext,
           refresh_token_nonce = excluded.refresh_token_nonce,
@@ -91,7 +116,7 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
       `
     },
 
-    async updateConnectionUse(userId, refreshToken) {
+    async updateConnectionUse(userId, connectionId, refreshToken) {
       if (refreshToken) {
         await sql`
           update private_gmail.connections set
@@ -100,15 +125,15 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
             key_version = ${refreshToken.keyVersion},
             last_used_at = now(),
             updated_at = now()
-          where user_id = ${userId}::uuid
+          where user_id = ${userId}::uuid and id = ${connectionId}::uuid
         `
         return
       }
-      await sql`update private_gmail.connections set last_used_at = now() where user_id = ${userId}::uuid`
+      await sql`update private_gmail.connections set last_used_at = now() where user_id = ${userId}::uuid and id = ${connectionId}::uuid`
     },
 
-    async markReauthRequired(userId) {
-      await sql`update private_gmail.connections set status = 'reauth_required', updated_at = now() where user_id = ${userId}::uuid`
+    async markReauthRequired(userId, connectionId) {
+      await sql`update private_gmail.connections set status = 'reauth_required', updated_at = now() where user_id = ${userId}::uuid and id = ${connectionId}::uuid`
     },
 
     async committedMessageImports(userId, connectionId, hashes) {
@@ -138,7 +163,7 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
       return existing[0]
     },
 
-    async confirmReceipt(userId, receiptId, importSessionId, committedAt) {
+    async confirmReceipt(userId, connectionId, receiptId, importSessionId, committedAt) {
       return sql.begin(async (transaction) => {
         const sessions = await transaction<Array<{ id: string }>>`
           select id from public.import_sessions
@@ -149,20 +174,25 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
         const updated = await transaction<Array<{ id: string }>>`
           update private_gmail.import_receipts
           set status = 'committed', import_session_id = ${importSessionId}::uuid, committed_at = ${committedAt}::timestamptz
-          where id = ${receiptId}::uuid and user_id = ${userId}::uuid and status = 'staged'
+          where id = ${receiptId}::uuid and user_id = ${userId}::uuid and connection_id = ${connectionId}::uuid and status = 'staged'
           returning id
         `
         if (updated[0]) return true
         const existing = await transaction<Array<{ id: string }>>`
           select id from private_gmail.import_receipts
-          where id = ${receiptId}::uuid and user_id = ${userId}::uuid and status = 'committed' and import_session_id = ${importSessionId}::uuid
+          where id = ${receiptId}::uuid and user_id = ${userId}::uuid and connection_id = ${connectionId}::uuid and status = 'committed' and import_session_id = ${importSessionId}::uuid
         `
         return Boolean(existing[0])
       })
     },
 
-    async deleteConnection(userId) {
-      await sql`delete from private_gmail.connections where user_id = ${userId}::uuid`
+    async revokeConnection(userId, connectionId) {
+      await sql`
+        update private_gmail.connections set
+          status = 'revoked', revoked_at = now(), updated_at = now(),
+          refresh_token_ciphertext = null, refresh_token_nonce = null, key_version = null
+        where user_id = ${userId}::uuid and id = ${connectionId}::uuid
+      `
     },
   }
 }

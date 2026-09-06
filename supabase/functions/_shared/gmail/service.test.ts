@@ -34,7 +34,7 @@ class FakeStore implements GmailStore {
 
   async createOAuthState(input: Parameters<GmailStore['createOAuthState']>[0]) {
     this.savedUserId = input.userId
-    this.states.set(input.stateHash, { value: { id: crypto.randomUUID(), userId: input.userId, pkceVerifier: input.pkceVerifier, redirectUriHmac: input.redirectUriHmac, returnTarget: input.returnTarget }, expiresAt: input.expiresAt, usedAt: null })
+    this.states.set(input.stateHash, { value: { id: crypto.randomUUID(), userId: input.userId, pkceVerifier: input.pkceVerifier, redirectUriHmac: input.redirectUriHmac, returnTarget: input.returnTarget, ...(input.replaceConnectionId ? { replaceConnectionId: input.replaceConnectionId } : {}) }, expiresAt: input.expiresAt, usedAt: null })
   }
 
   async consumeOAuthState(stateHash: string, consumedAt: string) {
@@ -49,8 +49,16 @@ class FakeStore implements GmailStore {
     return entry ? { expiresAt: entry.expiresAt, usedAt: entry.usedAt } : null
   }
 
-  async getConnection(requestedUserId: string) {
-    return this.connection?.userId === requestedUserId ? this.connection : null
+  async listConnections(requestedUserId: string) {
+    return this.connection?.userId === requestedUserId && this.connection.status !== 'revoked' ? [this.connection] : []
+  }
+
+  async getConnection(requestedUserId: string, requestedConnectionId: string) {
+    return this.connection?.userId === requestedUserId && this.connection.id === requestedConnectionId ? this.connection : null
+  }
+
+  async getConnectionForAccount(requestedUserId: string, accountEmailHmac: string) {
+    return this.connection?.userId === requestedUserId && this.connection.accountEmailHmac === accountEmailHmac ? this.connection : null
   }
 
   async saveConnection(input: GmailConnection & { accountEmailHmac: string }) {
@@ -58,12 +66,12 @@ class FakeStore implements GmailStore {
     this.connection = input
   }
 
-  async markReauthRequired(requestedUserId: string) {
+  async markReauthRequired(requestedUserId: string, requestedConnectionId: string) {
     this.reauthUserId = requestedUserId
-    if (this.connection?.userId === requestedUserId) this.connection.status = 'reauth_required'
+    if (this.connection?.userId === requestedUserId && this.connection.id === requestedConnectionId) this.connection.status = 'reauth_required'
   }
 
-  async updateConnectionUse(_userId: string, refreshToken?: GmailConnection['refreshToken']) {
+  async updateConnectionUse(_userId: string, _connectionId: string, refreshToken?: GmailConnection['refreshToken']) {
     this.rotatedToken = refreshToken
     if (refreshToken && this.connection) this.connection.refreshToken = refreshToken
   }
@@ -81,7 +89,7 @@ class FakeStore implements GmailStore {
     return receipt
   }
 
-  async confirmReceipt(_userId: string, receiptId: string, sessionId: string) {
+  async confirmReceipt(_userId: string, _connectionId: string, receiptId: string, sessionId: string) {
     if (!this.validSessions.has(sessionId)) return false
     const receipt = [...this.receipts.values()].find((value) => value.id === receiptId)
     if (!receipt) return false
@@ -90,9 +98,9 @@ class FakeStore implements GmailStore {
     return true
   }
 
-  async deleteConnection(requestedUserId: string) {
+  async revokeConnection(requestedUserId: string, requestedConnectionId: string) {
     this.deletedUserId = requestedUserId
-    this.connection = null
+    if (this.connection?.id === requestedConnectionId) this.connection.status = 'revoked'
   }
 }
 
@@ -161,6 +169,7 @@ async function connectedStore() {
   store.connection = {
     id: connectionId,
     userId,
+    accountEmailHmac: 'a'.repeat(64),
     maskedEmail: 't***@gmail.com',
     refreshToken: await encryptWithKeyRing('refresh-token', keyRing, [userId, connectionId, 'gmail-refresh-v1']),
     grantedScopes: [GMAIL_SCOPE],
@@ -216,7 +225,7 @@ describe('Gmail Edge Function service', () => {
     const store = await connectedStore()
     const google = new FakeGoogle()
     store.committed.add(await hmacSha256Hex('message-1', key))
-    const response = await service(store, google).search(request('gmail-search', {}))
+    const response = await service(store, google).search(request('gmail-search', { connectionId }))
     expect(response.status).toBe(200)
     const payload = await response.json()
     expect(google.listRequest).toEqual({ query: 'from:"no-reply@rocketjobs.pl" newer_than:30d', maxResults: 25 })
@@ -234,9 +243,9 @@ describe('Gmail Edge Function service', () => {
     const store = await connectedStore()
     const google = new FakeGoogle()
     const handlers = service(store, google)
-    const search = await handlers.search(request('gmail-search', {}))
+    const search = await handlers.search(request('gmail-search', { connectionId }))
     const previews = (await search.json()).messages
-    const response = await handlers.importSelected(request('gmail-import-selected', { messageRefs: previews.map((preview: { messageRef: string }) => preview.messageRef) }))
+    const response = await handlers.importSelected(request('gmail-import-selected', { connectionId, messageRefs: previews.map((preview: { messageRef: string }) => preview.messageRef) }))
     expect(response.status).toBe(200)
     const payload = await response.json()
     expect(google.rawCalls).toEqual(google.ids)
@@ -255,13 +264,13 @@ describe('Gmail Edge Function service', () => {
     const store = await connectedStore()
     const google = new FakeGoogle()
     const handlers = service(store, google)
-    const search = await handlers.search(request('gmail-search', {}))
+    const search = await handlers.search(request('gmail-search', { connectionId }))
     const messageRef = (await search.json()).messages[0].messageRef
-    const imported = await handlers.importSelected(request('gmail-import-selected', { messageRefs: [messageRef] }))
+    const imported = await handlers.importSelected(request('gmail-import-selected', { connectionId, messageRefs: [messageRef] }))
     const receiptId = (await imported.json()).reports[0].receiptId
-    const denied = await handlers.confirmImport(request('gmail-confirm-import', { receiptId, importSessionId: '55555555-5555-4555-8555-555555555555', userId: 'attacker' }))
+    const denied = await handlers.confirmImport(request('gmail-confirm-import', { connectionId, receiptId, importSessionId: '55555555-5555-4555-8555-555555555555', userId: 'attacker' }))
     expect(denied.status).toBe(409)
-    const confirmed = await handlers.confirmImport(request('gmail-confirm-import', { receiptId, importSessionId, userId: 'attacker' }))
+    const confirmed = await handlers.confirmImport(request('gmail-confirm-import', { connectionId, receiptId, importSessionId, userId: 'attacker' }))
     await expect(confirmed.json()).resolves.toEqual({ confirmed: true })
   })
 
@@ -269,17 +278,17 @@ describe('Gmail Edge Function service', () => {
     const store = await connectedStore()
     const google = new FakeGoogle()
     google.refreshFails = true
-    const failedSearch = await service(store, google).search(request('gmail-search', {}))
+    const failedSearch = await service(store, google).search(request('gmail-search', { connectionId }))
     await expect(failedSearch.json()).resolves.toEqual({ code: 'GMAIL_REAUTH_REQUIRED' })
     expect(store.reauthUserId).toBe(userId)
 
     store.connection = { ...(await connectedStore()).connection! }
     google.refreshFails = false
     google.revokeFails = true
-    const disconnected = await service(store, google).disconnect(request('gmail-disconnect', {}))
+    const disconnected = await service(store, google).disconnect(request('gmail-disconnect', { connectionId }))
     await expect(disconnected.json()).resolves.toEqual({ disconnected: true, remoteRevokeSucceeded: false })
     expect(store.deletedUserId).toBe(userId)
-    expect(store.connection).toBeNull()
+    expect(store.connection?.status).toBe('revoked')
   })
 
   it('reads a previous encryption key and rewrites the refresh token with the active version', async () => {
@@ -288,6 +297,7 @@ describe('Gmail Edge Function service', () => {
     store.connection = {
       id: connectionId,
       userId,
+      accountEmailHmac: 'a'.repeat(64),
       maskedEmail: 't***@gmail.com',
       refreshToken: await encryptWithKeyRing('refresh-token', { activeVersion: 1, keys: { 1: previousKey } }, [userId, connectionId, 'gmail-refresh-v1']),
       grantedScopes: [GMAIL_SCOPE],
@@ -307,7 +317,7 @@ describe('Gmail Edge Function service', () => {
       },
       now: () => fixedNow,
     })
-    expect((await handlers.search(request('gmail-search', {}))).status).toBe(200)
+    expect((await handlers.search(request('gmail-search', { connectionId }))).status).toBe(200)
     expect(store.rotatedToken?.keyVersion).toBe(2)
     expect(JSON.stringify(store.rotatedToken)).not.toContain('refresh-token')
   })

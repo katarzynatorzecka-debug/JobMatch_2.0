@@ -14,6 +14,7 @@ describe('Google HTTP Gmail gateway', () => {
     expect(url.origin + url.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth')
     expect(url.searchParams.get('scope')).toBe(GMAIL_SCOPE)
     expect(url.searchParams.get('access_type')).toBe('offline')
+    expect(url.searchParams.get('prompt')).toBe('select_account consent')
     expect(url.searchParams.get('state')).toBe('opaque-state')
     expect(url.searchParams.get('code_challenge')).toBe('challenge')
     expect(url.searchParams.get('code_challenge_method')).toBe('S256')

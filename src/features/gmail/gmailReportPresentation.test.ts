@@ -4,6 +4,7 @@ import { presentGmailImportedReports } from './gmailReportPresentation'
 
 const technicalFileName = 'gmail-report-123e4567-e89b-42d3-a456-426614174000.eml'
 const imported = [{
+  connectionId: '123e4567-e89b-42d3-a456-426614174001',
   receiptId: '123e4567-e89b-42d3-a456-426614174000',
   messageRef: 'opaque-ref',
   report: { version: 2, source: 'rocketjobs-gmail', reportProvider: 'rocketjobs', acquisitionChannel: 'gmail', fileName: technicalFileName, importedAt: '2026-09-06T10:05:00.000Z', warnings: [], offers: [] },

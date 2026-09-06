@@ -5,15 +5,19 @@ export const GMAIL_ALLOWED_RETURN_TARGETS = ['local', 'staging', 'production'] a
 export { GMAIL_ROCKETJOBS_DEFAULT_SENDER } from './gmailContracts'
 
 export type GmailReturnTarget = (typeof GMAIL_ALLOWED_RETURN_TARGETS)[number]
-export type GmailConnectionState = 'disconnected' | 'active' | 'reauth_required'
+export type GmailConnectionState = 'active' | 'reauth_required'
 
-export type GmailConnectionStatusResponse = {
+export type GmailConnectionSummary = {
+  connectionId: string
   state: GmailConnectionState
   maskedEmail?: string
 }
 
+export type GmailConnectionStatusResponse = { connections: GmailConnectionSummary[] }
+
 export type GmailOAuthStartRequest = {
   returnTarget: GmailReturnTarget
+  connectionId?: string
 }
 
 export type GmailOAuthStartResponse = {
@@ -21,6 +25,7 @@ export type GmailOAuthStartResponse = {
 }
 
 export type GmailSearchEdgeRequest = {
+  connectionId: string
   filters?: GmailSearchFilters
 }
 
@@ -40,10 +45,12 @@ export type GmailSearchEdgeResponse = {
 }
 
 export type GmailImportSelectedRequest = {
+  connectionId: string
   messageRefs: string[]
 }
 
 export type GmailImportedReport = {
+  connectionId: string
   receiptId: string
   messageRef: string
   report: ImportedReport
@@ -54,6 +61,7 @@ export type GmailImportSelectedResponse = {
 }
 
 export type GmailConfirmImportRequest = {
+  connectionId: string
   receiptId: string
   importSessionId: string
 }
@@ -66,6 +74,8 @@ export type GmailDisconnectResponse = {
   disconnected: true
   remoteRevokeSucceeded: boolean
 }
+
+export type GmailDisconnectRequest = { connectionId: string }
 
 export type GmailEdgeErrorCode =
   | 'GMAIL_NOT_CONNECTED'
@@ -80,6 +90,7 @@ export type GmailEdgeErrorCode =
   | 'GMAIL_OAUTH_STATE_INVALID'
   | 'GMAIL_OAUTH_STATE_EXPIRED'
   | 'GMAIL_OAUTH_CANCELLED'
+  | 'GMAIL_OAUTH_ACCOUNT_MISMATCH'
 
 export type GmailEdgeErrorResponse = {
   code: GmailEdgeErrorCode

@@ -55,9 +55,10 @@ const emptyFilters: GmailSearchFilters = { sender: GMAIL_ROCKETJOBS_DEFAULT_SEND
 
 export function GmailImportPanel({ mode, onReportsImported, client = gmailApiClient }: { mode: AppMode | null; onReportsImported: (reports: PresentedGmailImportedReport[]) => void; client?: GmailApiClient }) {
   const { t, locale } = useI18n()
-  const [connection, setConnection] = useState<GmailConnectionStatusResponse>({ state: 'disconnected' })
+  const [connectionStatus, setConnectionStatus] = useState<GmailConnectionStatusResponse>({ connections: [] })
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(mode === 'authenticated')
-  const [action, setAction] = useState<'connect' | 'disconnect' | null>(null)
+  const [action, setAction] = useState<'connect' | 'reconnect' | 'disconnect' | null>(null)
   const [failure, setFailure] = useState<GmailErrorKey | null>(null)
   const [notice] = useState<GmailNotice>(() => oauthNotice(window.location.search))
   const [expanded, setExpanded] = useState(false)
@@ -70,13 +71,16 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
   const [importing, setImporting] = useState(false)
   const selectedCount = selected.size
   const availableCount = useMemo(() => messages.filter((message) => !message.alreadyImported).length, [messages])
+  const selectedConnection = useMemo(() => connectionStatus.connections.find((connection) => connection.connectionId === selectedConnectionId) ?? null, [connectionStatus.connections, selectedConnectionId])
 
   const refresh = useCallback(async () => {
     if (mode !== 'authenticated') return
     setLoading(true)
     setFailure(null)
     try {
-      setConnection(await client.connectionStatus())
+      const status = await client.connectionStatus()
+      setConnectionStatus(status)
+      setSelectedConnectionId((current) => status.connections.some((connection) => connection.connectionId === current) ? current : (status.connections.find((connection) => connection.state === 'active') ?? status.connections[0])?.connectionId ?? null)
     } catch (error) {
       setFailure(errorKey(error instanceof GmailApiError ? error.code : ''))
     } finally {
@@ -93,11 +97,26 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
   }, [notice])
 
-  async function connect() {
-    setAction('connect')
+  function clearSearch() {
+    setExpanded(false)
+    setMessages([])
+    setNextPageToken(undefined)
+    setSelected(new Set())
+    setSearchState('idle')
+    setSearchFailure(null)
+  }
+
+  function selectConnection(connectionId: string) {
+    if (connectionId === selectedConnectionId) return
+    setSelectedConnectionId(connectionId)
+    clearSearch()
+  }
+
+  async function connect(connectionId?: string) {
+    setAction(connectionId ? 'reconnect' : 'connect')
     setFailure(null)
     try {
-      const response = await client.startOAuth(gmailReturnTargetForLocation(window.location))
+      const response = await client.startOAuth(gmailReturnTargetForLocation(window.location), connectionId)
       window.location.assign(response.authorizationUrl)
     } catch (error) {
       setFailure(errorKey(error instanceof GmailApiError ? error.code : ''))
@@ -106,15 +125,14 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
   }
 
   async function disconnect() {
+    if (!selectedConnection) return
     if (!window.confirm(t('import.gmail.disconnectConfirm'))) return
     setAction('disconnect')
     setFailure(null)
     try {
-      await client.disconnect()
-      setConnection({ state: 'disconnected' })
-      setExpanded(false)
-      setMessages([])
-      setSelected(new Set())
+      await client.disconnect(selectedConnection.connectionId)
+      clearSearch()
+      await refresh()
     } catch (error) {
       setFailure(errorKey(error instanceof GmailApiError ? error.code : ''))
     } finally {
@@ -134,16 +152,19 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
     }
     setSearchState('loading')
     setSearchFailure(null)
+    if (!selectedConnection || selectedConnection.state !== 'active') return
+    const connectionId = selectedConnection.connectionId
     try {
-      const response = await client.search({ ...filters, ...(loadMore && nextPageToken ? { pageToken: nextPageToken } : {}) })
+      const response = await client.search(connectionId, { ...filters, ...(loadMore && nextPageToken ? { pageToken: nextPageToken } : {}) })
+      if (selectedConnectionId !== connectionId) return
       setMessages((current) => loadMore ? mergeMessages(current, response.messages) : response.messages)
       setNextPageToken(response.nextPageToken)
       if (!loadMore) setSelected(new Set())
       setSearchState('ready')
     } catch (error) {
       const code = error instanceof GmailApiError ? error.code : ''
-      if (code === 'GMAIL_REAUTH_REQUIRED') setConnection({ state: 'reauth_required', maskedEmail: connection.maskedEmail })
-      if (code === 'GMAIL_NOT_CONNECTED') setConnection({ state: 'disconnected' })
+      if (code === 'GMAIL_REAUTH_REQUIRED') setConnectionStatus((current) => ({ connections: current.connections.map((connection) => connection.connectionId === connectionId ? { ...connection, state: 'reauth_required' } : connection) }))
+      if (code === 'GMAIL_NOT_CONNECTED') void refresh()
       setSearchFailure(errorKey(code, 'search'))
       setSearchState('error')
     }
@@ -160,16 +181,18 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
   }
 
   async function importSelected() {
-    if (!selected.size) return
+    if (!selected.size || !selectedConnection || selectedConnection.state !== 'active') return
     setImporting(true)
     setSearchFailure(null)
+    const connectionId = selectedConnection.connectionId
     try {
-      const response = await client.importSelected([...selected])
+      const response = await client.importSelected(connectionId, [...selected])
+      if (selectedConnectionId !== connectionId) return
       onReportsImported(presentGmailImportedReports(response.reports, messages, locale, t('import.gmail.reportLabel')))
       setSelected(new Set())
     } catch (error) {
       const code = error instanceof GmailApiError ? error.code : ''
-      if (code === 'GMAIL_REAUTH_REQUIRED') setConnection({ state: 'reauth_required', maskedEmail: connection.maskedEmail })
+      if (code === 'GMAIL_REAUTH_REQUIRED') setConnectionStatus((current) => ({ connections: current.connections.map((connection) => connection.connectionId === connectionId ? { ...connection, state: 'reauth_required' } : connection) }))
       setSearchFailure(errorKey(code, 'import'))
     } finally {
       setImporting(false)
@@ -187,19 +210,20 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
         <p className="gmail-status-copy">{t('import.gmail.demoDisabled')}</p>
         <div className="action-row"><PrimaryButton disabled>{t('import.gmail.connect')}</PrimaryButton></div>
       </> : loading ? <p className="gmail-status-copy" role="status">{t('import.gmail.statusLoading')}</p> : <>
-        {connection.state === 'active' && <p className="gmail-connection-status gmail-connection-status--active" role="status"><span aria-hidden="true" />{t('import.gmail.statusConnected', { email: connection.maskedEmail ?? t('import.gmail.maskedAccount') })}</p>}
-        {connection.state === 'disconnected' && <p className="gmail-status-copy" role="status">{t('import.gmail.statusDisconnected')}</p>}
-        {connection.state === 'reauth_required' && <p className="gmail-connection-status gmail-connection-status--warning" role="status"><span aria-hidden="true" />{t('import.gmail.statusReauth')}</p>}
+        {connectionStatus.connections.length === 0 && <p className="gmail-status-copy" role="status">{t('import.gmail.statusDisconnected')}</p>}
+        {connectionStatus.connections.length > 0 && <label className="gmail-account-select">{t('import.gmail.maskedAccount')}<select value={selectedConnectionId ?? ''} onChange={(event) => selectConnection(event.target.value)}>{connectionStatus.connections.map((connection) => <option key={connection.connectionId} value={connection.connectionId}>{connection.maskedEmail ?? t('import.gmail.maskedAccount')}</option>)}</select></label>}
+        {selectedConnection?.state === 'active' && <p className="gmail-connection-status gmail-connection-status--active" role="status"><span aria-hidden="true" />{t('import.gmail.statusConnected', { email: selectedConnection.maskedEmail ?? t('import.gmail.maskedAccount') })}</p>}
+        {selectedConnection?.state === 'reauth_required' && <p className="gmail-connection-status gmail-connection-status--warning" role="status"><span aria-hidden="true" />{t('import.gmail.statusReauth')}</p>}
         <div className="action-row">
-          {connection.state === 'active' && <PrimaryButton onClick={() => setExpanded((current) => !current)}>{expanded ? t('import.gmail.hideSearch') : t('import.gmail.openSearch')}</PrimaryButton>}
-          {connection.state !== 'active' && <PrimaryButton onClick={() => void connect()} disabled={action !== null}>{action === 'connect' ? t('import.gmail.connecting') : connection.state === 'reauth_required' ? t('import.gmail.reconnect') : t('import.gmail.connect')}</PrimaryButton>}
-          {connection.state !== 'disconnected' && <SecondaryButton onClick={() => void disconnect()} disabled={action !== null}>{action === 'disconnect' ? t('import.gmail.disconnecting') : t('import.gmail.disconnect')}</SecondaryButton>}
+          {selectedConnection?.state === 'active' && <PrimaryButton onClick={() => setExpanded((current) => !current)}>{expanded ? t('import.gmail.hideSearch') : t('import.gmail.openSearch')}</PrimaryButton>}
+          <PrimaryButton onClick={() => void connect(selectedConnection?.state === 'reauth_required' ? selectedConnection.connectionId : undefined)} disabled={action !== null}>{action === 'connect' || action === 'reconnect' ? t('import.gmail.connecting') : selectedConnection?.state === 'reauth_required' ? t('import.gmail.reconnect') : connectionStatus.connections.length ? t('import.gmail.addAccount') : t('import.gmail.connect')}</PrimaryButton>
+          {selectedConnection && <SecondaryButton onClick={() => void disconnect()} disabled={action !== null}>{action === 'disconnect' ? t('import.gmail.disconnecting') : t('import.gmail.disconnect')}</SecondaryButton>}
           {failure && <SecondaryButton onClick={() => void refresh()} disabled={loading || action !== null}>{t('import.gmail.retryStatus')}</SecondaryButton>}
         </div>
       </>}
       <span className="field-hint">{t('import.gmail.readonlyHint')}</span>
 
-      {mode === 'authenticated' && connection.state === 'active' && expanded && <div className="gmail-search-panel">
+      {mode === 'authenticated' && selectedConnection?.state === 'active' && expanded && <div className="gmail-search-panel">
         <div className="gmail-search-heading"><div><h3>{t('import.gmail.searchTitle')}</h3><p>{t('import.gmail.searchCopy')}</p></div><button type="button" className="gmail-preset" onClick={() => setFilters(emptyFilters)}>{t('import.gmail.rocketJobsPreset')}</button></div>
         <div className="gmail-filter-grid">
           <label>{t('import.gmail.senderLabel')}<input type="text" value={filters.sender ?? ''} onChange={(event) => updateFilter('sender', event.target.value)} /></label>

@@ -547,6 +547,7 @@ export type TranslationParameters = {
   'import.gmail.title': undefined
   'import.gmail.copy': undefined
   'import.gmail.connect': undefined
+  'import.gmail.addAccount': undefined
   'import.gmail.connecting': undefined
   'import.gmail.reconnect': undefined
   'import.gmail.disconnect': undefined

@@ -51,6 +51,11 @@ function maskedEmail(value: string) {
   return `${local.slice(0, 1)}***@${domain}`
 }
 
+async function connectionIdForAccount(userId: string, accountEmailHmac: string) {
+  const hash = await sha256Hex(`${userId}:${accountEmailHmac}`)
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`
+}
+
 function senderAddress(value: string) {
   const bracketed = value.match(/<([^<>\s]+@[^<>\s]+)>/)
   const plain = value.match(/(?:^|\s)([^<>\s]+@[^<>\s]+)(?:$|\s)/)
@@ -90,8 +95,8 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
     }
   }
 
-  async function activeConnection(userId: string) {
-    const connection = await dependencies.store.getConnection(userId)
+  async function activeConnection(userId: string, connectionId: string) {
+    const connection = await dependencies.store.getConnection(userId, connectionId)
     if (!connection) throw new GmailEdgeError('GMAIL_NOT_CONNECTED', 409)
     if (connection.status !== 'active') throw new GmailEdgeError('GMAIL_REAUTH_REQUIRED', 401)
     return connection
@@ -102,12 +107,12 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
     const rotatedToken = connection.refreshToken.keyVersion === dependencies.config.tokenKeys.activeVersion
       ? undefined
       : await encryptWithKeyRing(refreshToken, dependencies.config.tokenKeys, [connection.userId, connection.id, 'gmail-refresh-v1'])
-    await dependencies.store.updateConnectionUse(connection.userId, rotatedToken)
+    await dependencies.store.updateConnectionUse(connection.userId, connection.id, rotatedToken)
     try {
       return await dependencies.google.refreshAccessToken(refreshToken)
     } catch (error) {
       const resolved = edgeError(error)
-      if (resolved.code === 'GMAIL_REAUTH_REQUIRED') await dependencies.store.markReauthRequired(connection.userId)
+      if (resolved.code === 'GMAIL_REAUTH_REQUIRED') await dependencies.store.markReauthRequired(connection.userId, connection.id)
       throw resolved
     }
   }
@@ -117,6 +122,10 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
       const body = await readBody(innerRequest)
       const returnTarget = body.returnTarget
       if (returnTarget !== 'local' && returnTarget !== 'staging' && returnTarget !== 'production') throw new GmailEdgeError('GMAIL_OAUTH_STATE_INVALID', 400)
+      const replaceConnectionId = body.connectionId
+      if (replaceConnectionId !== undefined && (!validUuid(replaceConnectionId) || !await dependencies.store.getConnection(userId, replaceConnectionId))) {
+        throw new GmailEdgeError('GMAIL_OAUTH_STATE_INVALID', 400)
+      }
       const state = await createOAuthState(returnTarget, now())
       const pkceVerifier = await encryptWithKeyRing(state.pkceVerifier, dependencies.config.tokenKeys, [userId, state.stateHash, 'gmail-pkce-v1'])
       await dependencies.store.createOAuthState({
@@ -125,6 +134,7 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
         pkceVerifier,
         redirectUriHmac: await hmacSha256Hex(dependencies.config.redirectUri, dependencies.config.messageHmacKey),
         returnTarget,
+        ...(typeof replaceConnectionId === 'string' ? { replaceConnectionId } : {}),
         expiresAt: state.expiresAt,
       })
       return jsonResponse({ authorizationUrl: dependencies.google.authorizationUrl({ state: state.state, pkceChallenge: state.pkceChallenge }) }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
@@ -157,8 +167,11 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
       const tokens = await dependencies.google.exchangeCode({ code, pkceVerifier: verifier })
       if (!tokens.scopes.includes(GMAIL_SCOPE)) throw new GmailEdgeError('GMAIL_PERMISSION_DENIED', 403)
       const profile = await dependencies.google.getProfile(tokens.accessToken)
-      const existing = await dependencies.store.getConnection(consumed.userId)
-      const connectionId = existing?.id ?? uuid()
+      const accountEmailHmac = await hmacSha256Hex(profile.emailAddress.trim().toLocaleLowerCase(), dependencies.config.messageHmacKey)
+      const selected = consumed.replaceConnectionId ? await dependencies.store.getConnection(consumed.userId, consumed.replaceConnectionId) : null
+      const existing = await dependencies.store.getConnectionForAccount(consumed.userId, accountEmailHmac)
+      if (selected && (selected.accountEmailHmac !== accountEmailHmac || (existing && existing.id !== selected.id))) return fail('GMAIL_OAUTH_ACCOUNT_MISMATCH')
+      const connectionId = existing?.id ?? selected?.id ?? await connectionIdForAccount(consumed.userId, accountEmailHmac)
       const encryptedToken = await encryptWithKeyRing(tokens.refreshToken, dependencies.config.tokenKeys, [consumed.userId, connectionId, 'gmail-refresh-v1'])
       await dependencies.store.saveConnection({
         id: connectionId,
@@ -167,7 +180,7 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
         refreshToken: encryptedToken,
         grantedScopes: tokens.scopes,
         status: 'active',
-        accountEmailHmac: await hmacSha256Hex(profile.emailAddress.trim().toLocaleLowerCase(), dependencies.config.messageHmacKey),
+        accountEmailHmac,
       })
       return Response.redirect(returnLocation(dependencies.config, consumed.returnTarget, { connected: true }), 303)
     } catch (error) {
@@ -177,11 +190,8 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
 
   async function connectionStatus(request: Request) {
     return withUser(request, async (innerRequest, userId) => {
-      const connection = await dependencies.store.getConnection(userId)
-      const body = !connection || connection.status === 'revoked'
-        ? { state: 'disconnected' as const }
-        : { state: connection.status, ...(connection.maskedEmail ? { maskedEmail: connection.maskedEmail } : {}) }
-      return jsonResponse(body, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
+      const connections = await dependencies.store.listConnections(userId)
+      return jsonResponse({ connections: connections.map((connection) => ({ connectionId: connection.id, state: connection.status, ...(connection.maskedEmail ? { maskedEmail: connection.maskedEmail } : {}) })) }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
     })
   }
 
@@ -190,7 +200,8 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
       const body = await readBody(innerRequest)
       const filters = body.filters === undefined ? {} : body.filters
       if (!bodyObject(filters)) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
-      const connection = await activeConnection(userId)
+      if (!validUuid(body.connectionId)) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
+      const connection = await activeConnection(userId, body.connectionId)
       const token = await accessToken(connection)
       const typedFilters = filters as GmailSearchFilters
       const searchRequest = buildGmailQuery({ ...typedFilters, sender: typedFilters.sender?.trim() || GMAIL_ROCKETJOBS_DEFAULT_SENDER })
@@ -218,7 +229,8 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
       if (!Array.isArray(body.messageRefs) || !body.messageRefs.every((value) => typeof value === 'string')) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
       const references = [...new Set(body.messageRefs.map((value) => (value as string).trim()).filter(Boolean))]
       if (!references.length || references.length > GMAIL_MAX_RESULTS) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
-      const connection = await activeConnection(userId)
+      if (!validUuid(body.connectionId)) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
+      const connection = await activeConnection(userId, body.connectionId)
       const resolved = await Promise.all(references.map(async (reference) => ({ reference, messageId: await resolveMessageRef(reference, userId, connection.id, dependencies.config.tokenKeys) })))
       const uniqueMessages = [...new Map(resolved.map((item) => [item.messageId, item])).values()]
       const token = await accessToken(connection)
@@ -240,7 +252,7 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
           offers: parsed.offers,
           warnings: [...parsed.warnings, ...parsed.extractionWarnings.map((message) => ({ code: 'partial-parse' as const, message }))],
         }
-        return { receiptId: receipt.id, messageRef: reference, report }
+        return { connectionId: connection.id, receiptId: receipt.id, messageRef: reference, report }
       })
       return jsonResponse({ reports }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
     })
@@ -249,8 +261,8 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
   async function confirmImport(request: Request) {
     return withUser(request, async (innerRequest, userId) => {
       const body = await readBody(innerRequest)
-      if (!validUuid(body.receiptId) || !validUuid(body.importSessionId)) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
-      const confirmed = await dependencies.store.confirmReceipt(userId, body.receiptId, body.importSessionId, now().toISOString())
+      if (!validUuid(body.connectionId) || !validUuid(body.receiptId) || !validUuid(body.importSessionId)) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
+      const confirmed = await dependencies.store.confirmReceipt(userId, body.connectionId, body.receiptId, body.importSessionId, now().toISOString())
       if (!confirmed) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 409)
       return jsonResponse({ confirmed: true }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
     })
@@ -258,7 +270,9 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
 
   async function disconnect(request: Request) {
     return withUser(request, async (innerRequest, userId) => {
-      const connection = await dependencies.store.getConnection(userId)
+      const body = await readBody(innerRequest)
+      if (!validUuid(body.connectionId)) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 400)
+      const connection = await dependencies.store.getConnection(userId, body.connectionId)
       if (!connection) return jsonResponse({ disconnected: true, remoteRevokeSucceeded: false }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
       let remoteRevokeSucceeded = false
       try {
@@ -268,7 +282,7 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
       } catch {
         remoteRevokeSucceeded = false
       } finally {
-        await dependencies.store.deleteConnection(userId)
+        await dependencies.store.revokeConnection(userId, connection.id)
       }
       return jsonResponse({ disconnected: true, remoteRevokeSucceeded }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
     })

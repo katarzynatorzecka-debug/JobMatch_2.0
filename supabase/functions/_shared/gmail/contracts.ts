@@ -18,6 +18,7 @@ export type GmailEdgeErrorCode =
   | 'GMAIL_OAUTH_STATE_INVALID'
   | 'GMAIL_OAUTH_STATE_EXPIRED'
   | 'GMAIL_OAUTH_CANCELLED'
+  | 'GMAIL_OAUTH_ACCOUNT_MISMATCH'
 
 export type GmailSearchFilters = {
   sender?: string
@@ -67,6 +68,7 @@ export type ImportedReport = {
 export type GmailConnection = {
   id: string
   userId: string
+  accountEmailHmac: string
   maskedEmail: string | null
   refreshToken: { ciphertext: string; nonce: string; keyVersion: number }
   grantedScopes: string[]
@@ -79,6 +81,7 @@ export type StoredOAuthState = {
   pkceVerifier: { ciphertext: string; nonce: string; keyVersion: number }
   redirectUriHmac: string
   returnTarget: 'local' | 'staging' | 'production'
+  replaceConnectionId?: string
 }
 
 export type OAuthStateStatus = { expiresAt: string; usedAt: string | null }
@@ -90,18 +93,21 @@ export interface GmailStore {
     pkceVerifier: StoredOAuthState['pkceVerifier']
     redirectUriHmac: string
     returnTarget: StoredOAuthState['returnTarget']
+    replaceConnectionId?: string
     expiresAt: string
   }): Promise<void>
   consumeOAuthState(stateHash: string, consumedAt: string): Promise<StoredOAuthState | null>
   getOAuthStateStatus(stateHash: string): Promise<OAuthStateStatus | null>
-  getConnection(userId: string): Promise<GmailConnection | null>
+  listConnections(userId: string): Promise<GmailConnection[]>
+  getConnection(userId: string, connectionId: string): Promise<GmailConnection | null>
+  getConnectionForAccount(userId: string, accountEmailHmac: string): Promise<GmailConnection | null>
   saveConnection(input: GmailConnection & { accountEmailHmac: string }): Promise<void>
-  updateConnectionUse(userId: string, refreshToken?: GmailConnection['refreshToken']): Promise<void>
-  markReauthRequired(userId: string): Promise<void>
+  updateConnectionUse(userId: string, connectionId: string, refreshToken?: GmailConnection['refreshToken']): Promise<void>
+  markReauthRequired(userId: string, connectionId: string): Promise<void>
   committedMessageImports(userId: string, connectionId: string, hashes: string[]): Promise<Map<string, string>>
   stageReceipt(userId: string, connectionId: string, messageHash: string): Promise<{ id: string; status: 'staged' | 'committed' }>
-  confirmReceipt(userId: string, receiptId: string, importSessionId: string, committedAt: string): Promise<boolean>
-  deleteConnection(userId: string): Promise<void>
+  confirmReceipt(userId: string, connectionId: string, receiptId: string, importSessionId: string, committedAt: string): Promise<boolean>
+  revokeConnection(userId: string, connectionId: string): Promise<void>
 }
 
 export type GoogleMessageMetadata = {

@@ -75,7 +75,7 @@ export class GoogleHttpGmailGateway implements GoogleGmailGateway {
       response_type: 'code',
       scope: GMAIL_SCOPE,
       access_type: 'offline',
-      prompt: 'consent',
+      prompt: 'select_account consent',
       include_granted_scopes: 'false',
       state: input.state,
       code_challenge: input.pkceChallenge,

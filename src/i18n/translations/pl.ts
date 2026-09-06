@@ -547,6 +547,7 @@ export const plTranslations = {
   'import.gmail.title': 'Wyszukaj na mailu',
   'import.gmail.copy': 'Połącz konto Gmail, wyszukaj raporty RocketJobs i wybierz wiadomości do importu.',
   'import.gmail.connect': 'Połącz Gmail',
+  'import.gmail.addAccount': 'Dodaj kolejne konto',
   'import.gmail.connecting': 'Przekierowujemy…',
   'import.gmail.reconnect': 'Połącz ponownie',
   'import.gmail.disconnect': 'Odłącz',

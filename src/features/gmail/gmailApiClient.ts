@@ -3,6 +3,7 @@ import { supabase } from '../supabase/client'
 import type {
   GmailConfirmImportRequest,
   GmailConnectionStatusResponse,
+  GmailConnectionSummary,
   GmailDisconnectResponse,
   GmailEdgeErrorCode,
   GmailEdgeMessagePreview,
@@ -43,9 +44,16 @@ async function defaultInvoker(name: GmailFunctionName, body: Record<string, unkn
   return supabase.functions.invoke(name, { body })
 }
 
+function validConnection(value: unknown): value is GmailConnectionSummary {
+  return isObject(value)
+    && typeof value.connectionId === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.connectionId)
+    && (value.state === 'active' || value.state === 'reauth_required')
+    && (value.maskedEmail === undefined || typeof value.maskedEmail === 'string')
+}
+
 function validConnectionStatus(data: unknown): data is GmailConnectionStatusResponse {
-  if (!isObject(data) || (data.state !== 'disconnected' && data.state !== 'active' && data.state !== 'reauth_required')) return false
-  return data.maskedEmail === undefined || typeof data.maskedEmail === 'string'
+  return isObject(data) && Array.isArray(data.connections) && data.connections.every(validConnection)
 }
 
 function validAuthorizationUrl(data: unknown): data is GmailOAuthStartResponse {
@@ -88,11 +96,12 @@ function parseImport(data: unknown): GmailImportSelectedResponse | null {
   if (!isObject(data) || !Array.isArray(data.reports) || data.reports.length > 25) return null
   const reports: GmailImportSelectedResponse['reports'] = []
   for (const entry of data.reports) {
-    if (!isObject(entry) || typeof entry.receiptId !== 'string' || typeof entry.messageRef !== 'string') return null
+    if (!isObject(entry) || typeof entry.connectionId !== 'string' || typeof entry.receiptId !== 'string' || typeof entry.messageRef !== 'string') return null
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entry.connectionId)) return null
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entry.receiptId)) return null
     const parsed = validateImportedReport(entry.report)
     if (!parsed.success) return null
-    reports.push({ receiptId: entry.receiptId, messageRef: entry.messageRef, report: parsed.data })
+    reports.push({ connectionId: entry.connectionId, receiptId: entry.receiptId, messageRef: entry.messageRef, report: parsed.data })
   }
   return { reports }
 }
@@ -121,30 +130,30 @@ export function createGmailApiClient(invoke: GmailApiInvoker = defaultInvoker) {
     async connectionStatus(): Promise<GmailConnectionStatusResponse> {
       const data = await call('gmail-connection-status', {})
       if (!validConnectionStatus(data)) throw new GmailApiError('GMAIL_RESPONSE_INVALID')
-      return { state: data.state, ...(data.maskedEmail ? { maskedEmail: data.maskedEmail } : {}) }
+      return { connections: data.connections.map((connection) => ({ connectionId: connection.connectionId, state: connection.state, ...(connection.maskedEmail ? { maskedEmail: connection.maskedEmail } : {}) })) }
     },
-    async startOAuth(returnTarget: GmailReturnTarget): Promise<GmailOAuthStartResponse> {
-      const data = await call('gmail-oauth-start', { returnTarget })
+    async startOAuth(returnTarget: GmailReturnTarget, connectionId?: string): Promise<GmailOAuthStartResponse> {
+      const data = await call('gmail-oauth-start', { returnTarget, ...(connectionId ? { connectionId } : {}) })
       if (!validAuthorizationUrl(data)) throw new GmailApiError('GMAIL_RESPONSE_INVALID')
       return data
     },
-    async search(filters: GmailSearchFilters): Promise<GmailSearchEdgeResponse> {
-      const data = parseSearch(await call('gmail-search', { filters }))
+    async search(connectionId: string, filters: GmailSearchFilters): Promise<GmailSearchEdgeResponse> {
+      const data = parseSearch(await call('gmail-search', { connectionId, filters }))
       if (!data) throw new GmailApiError('GMAIL_RESPONSE_INVALID')
       return data
     },
-    async importSelected(messageRefs: string[]): Promise<GmailImportSelectedResponse> {
-      const data = parseImport(await call('gmail-import-selected', { messageRefs }))
+    async importSelected(connectionId: string, messageRefs: string[]): Promise<GmailImportSelectedResponse> {
+      const data = parseImport(await call('gmail-import-selected', { connectionId, messageRefs }))
       if (!data) throw new GmailApiError('GMAIL_RESPONSE_INVALID')
       return data
     },
-    async confirmImport(receiptId: string, importSessionId: string): Promise<void> {
-      const body: GmailConfirmImportRequest = { receiptId, importSessionId }
+    async confirmImport(connectionId: string, receiptId: string, importSessionId: string): Promise<void> {
+      const body: GmailConfirmImportRequest = { connectionId, receiptId, importSessionId }
       const data = await call('gmail-confirm-import', body)
       if (!isObject(data) || data.confirmed !== true) throw new GmailApiError('GMAIL_RESPONSE_INVALID')
     },
-    async disconnect(): Promise<GmailDisconnectResponse> {
-      const data = await call('gmail-disconnect', {})
+    async disconnect(connectionId: string): Promise<GmailDisconnectResponse> {
+      const data = await call('gmail-disconnect', { connectionId })
       if (!validDisconnect(data)) throw new GmailApiError('GMAIL_RESPONSE_INVALID')
       return { disconnected: true, remoteRevokeSucceeded: data.remoteRevokeSucceeded }
     },

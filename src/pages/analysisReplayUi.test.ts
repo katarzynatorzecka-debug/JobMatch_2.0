@@ -20,7 +20,7 @@ describe('analysis replay UI', () => {
     expect(offersSource).toContain('const initial = !hasLoaded.current')
     expect(offersSource).toContain("item.analysisState.queueItem?.status === 'queued' || item.analysisState.queueItem?.status === 'processing'")
     expect(offersSource).toContain('if (initialLoading) return')
-    expect(offersSource).toContain('aria-busy={refreshing || undefined}')
+    expect(offersSource).toContain('aria-busy={refreshing || continuingReport || undefined}')
   })
 
   it('shows quality-aware scores without duplicating summary and risks on import or details', () => {

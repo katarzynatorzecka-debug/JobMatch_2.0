@@ -24,7 +24,8 @@ function firstUsefulLines(block: string) {
 }
 
 function hasCompactOfferCard(useful: string[], elapsedIndex: number) {
-  return elapsedIndex >= 2 && useful.slice(Math.max(0, elapsedIndex - 4), elapsedIndex).length >= 2
+  if (elapsedIndex >= 2 && useful.slice(Math.max(0, elapsedIndex - 4), elapsedIndex).length >= 2) return true
+  return useful.length >= 3 && useful.some((line) => /(zdaln|remote|hybryd|stacjon|b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt|pln|zł|eur|usd|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line))
 }
 
 function offerFromBlock(block: string, sourceUrl: string): ImportedJobOffer | null {
@@ -36,7 +37,7 @@ function offerFromBlock(block: string, sourceUrl: string): ImportedJobOffer | nu
   const cardLines = elapsedIndex >= 5 ? useful.slice(Math.max(0, elapsedIndex - 7), elapsedIndex) : useful
   // The two RocketJobs report layouts use company → location → title in their compact card.
   const resolvedCompany = company || cardLines[0] || useful[0]
-  const resolvedTitle = title || cardLines[2] || useful.find((line, index) => index > 0 && line !== resolvedCompany && !/(zdaln|hybryd|b2b|umowa|pln|zł|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line))
+  const resolvedTitle = title || useful.find((line, index) => index > 0 && line !== resolvedCompany && !/(zdaln|remote|hybryd|stacjon|b2b|umowa|pln|zł|eur|usd|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line)) || cardLines[2]
   if (!resolvedTitle || !resolvedCompany) return null
   const location = field(block, ['lokalizacja', 'miejsce pracy', 'location']) || cardLines[1] || useful.find((line) => /(kraków|warszaw|gdańsk|wrocław|poznań|łódź|zdaln|remote|hybryd)/i.test(line))
   const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || cardLines.find((line) => /(zdaln|remote|hybryd|stacjon)/i.test(line))

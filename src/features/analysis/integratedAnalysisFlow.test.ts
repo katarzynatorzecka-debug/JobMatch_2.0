@@ -42,11 +42,11 @@ describe('integrated analysis batch', () => {
 
   it('confirms a Gmail receipt only after its workspace import becomes active', async () => {
     repositoryForCalls = 0
-    const reports = [{ ...report('Gmail', [offer('mail')]), gmailReceiptId: 'receipt-1' }]
+    const reports = [{ ...report('Gmail', [offer('mail')]), gmailReceiptId: 'receipt-1', gmailConnectionId: 'connection-1' }]
     const repository = repositoryFor(reports); const order: string[] = []
     repository.importReport.mockImplementationOnce(async () => { order.push('import'); return { importSessionId: 'session-0' } })
     repository.setActiveImportSession.mockImplementationOnce(async () => { order.push('active') })
-    const onReportImported = vi.fn(async (entry, sessionId) => { order.push('confirm'); expect(entry.gmailReceiptId).toBe('receipt-1'); expect(sessionId).toBe('session-0') })
+    const onReportImported = vi.fn(async (entry, sessionId) => { order.push('confirm'); expect(entry.gmailReceiptId).toBe('receipt-1'); expect(entry.gmailConnectionId).toBe('connection-1'); expect(sessionId).toBe('session-0') })
 
     await runIntegratedAnalysisBatch({ repository: repository as never, mode: 'demo', userId: 'demo-user', profile: defaultProfile, reports, onCounts: () => undefined, onOfferProgress: () => undefined, onReportImported })
 

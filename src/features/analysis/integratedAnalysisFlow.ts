@@ -11,7 +11,7 @@ import { findDemoOffer } from '../../demo/offers'
 export type IntegratedOfferState = 'waiting' | 'hard_filtering' | 'queued' | 'processing' | 'completed' | 'rejected' | 'failed'
 export type IntegratedOfferProgress = { key: string; offer: ImportedJobOffer; state: IntegratedOfferState; hardFilterStatus?: 'pass' | 'weak' | 'fail'; workspaceOfferId?: string; analysis?: JobAnalysis; error?: string; analysisVersionId?: string | null; freshness?: 'current' | 'stale_profile' | 'stale_offer' | 'stale_algorithm' | 'stale_prompt' | 'stale_model' | 'missing' }
 export type IntegratedBatchCounts = { total: number; hardFilterRejected: number; queued: number; processing: number; completed: number; failed: number }
-export type BatchReport = { key: string; report: ImportedReport; offers: ImportedJobOffer[]; gmailReceiptId?: string }
+export type BatchReport = { key: string; report: ImportedReport; offers: ImportedJobOffer[]; gmailReceiptId?: string; gmailConnectionId?: string }
 export type IntegratedBatchResult = { items: WorkspaceOfferListItem[]; counts: IntegratedBatchCounts; partial: boolean }
 
 const categories: AnalysisCategory[] = ['experience', 'skills', 'preferences', 'growth']

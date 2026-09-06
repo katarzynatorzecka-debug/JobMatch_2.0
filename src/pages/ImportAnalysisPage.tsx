@@ -110,7 +110,7 @@ export function ImportAnalysisPage() {
     const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline)
     freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setPipelineError(null)
     if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }
-    const entries: ImportBatchEntry[] = imported.map(({ receiptId, report, displayName }) => ({ kind: 'report', id: createImportBatchId(report.fileName, sequenceRef.current++), report, removedOfferIds: [], gmailReceiptId: receiptId, displayName }))
+    const entries: ImportBatchEntry[] = imported.map(({ connectionId, receiptId, report, displayName }) => ({ kind: 'report', id: createImportBatchId(report.fileName, sequenceRef.current++), report, removedOfferIds: [], gmailConnectionId: connectionId, gmailReceiptId: receiptId, displayName }))
     setBatch((current) => appendBatchEntries(startsFreshPacket ? createImportBatchState() : current, entries))
   }
 
@@ -137,7 +137,7 @@ export function ImportAnalysisPage() {
   function startOver() { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); sequenceRef.current = 0; setBatch(createImportBatchState()); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(null); clearIntegratedAnalysisSession(undefined, sessionScope); if (mode) void workspaceRepositoryFor(mode, session?.user).setActiveImportSession(null).catch((cause) => setPipelineError(rawPipelineError(cause instanceof Error ? cause.message : 'ACTIVE_IMPORT_SESSION_CLEAR_FAILED'))); if (inputRef.current) inputRef.current.value = '' }
   async function startAnalysis(reportsOverride?: BatchReport[]) {
     if (!mode || pipeline === 'running' || analysisRunRef.current) return
-    const reports = reportsOverride ?? batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry), ...(entry.gmailReceiptId ? { gmailReceiptId: entry.gmailReceiptId } : {}) })).filter((entry) => entry.offers.length > 0)
+    const reports = reportsOverride ?? batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry), ...(entry.gmailReceiptId && entry.gmailConnectionId ? { gmailReceiptId: entry.gmailReceiptId, gmailConnectionId: entry.gmailConnectionId } : {}) })).filter((entry) => entry.offers.length > 0)
     if (!reports.length) { setPipelineError(translatedPipelineError('import.error.restoreOffer')); return }
     analysisRunRef.current = true
     const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
@@ -148,7 +148,7 @@ export function ImportAnalysisPage() {
     const userId = mode === 'authenticated' && session ? session.user.id : 'demo-user'; const repository = workspaceRepositoryFor(mode, session?.user)
     setPipeline('running'); setPipelineError(null); setProgress(Object.fromEntries(reports.flatMap((report) => report.offers.map((offer) => [progressKey(report.key, offer.id), { key: progressKey(report.key, offer.id), offer, state: 'waiting' as const }])))); setCounts({ ...emptyCounts, total: reports.reduce((total, report) => total + report.offers.length, 0) })
     try {
-      const result = await runIntegratedAnalysisBatch({ repository, mode, userId, profile, reports, onCounts: setCounts, onOfferProgress: (entry) => setProgress((current) => ({ ...current, [entry.key]: entry })), onReportImported: async (report, importSessionId) => { if (report.gmailReceiptId) await gmailApiClient.confirmImport(report.gmailReceiptId, importSessionId) } })
+      const result = await runIntegratedAnalysisBatch({ repository, mode, userId, profile, reports, onCounts: setCounts, onOfferProgress: (entry) => setProgress((current) => ({ ...current, [entry.key]: entry })), onReportImported: async (report, importSessionId) => { if (report.gmailReceiptId && report.gmailConnectionId) await gmailApiClient.confirmImport(report.gmailConnectionId, report.gmailReceiptId, importSessionId) } })
       setPipeline(result.partial ? 'partial_complete' : 'complete')
     } catch (cause) { setPipeline('idle'); setPipelineError(cause instanceof Error ? rawPipelineError(cause.message) : translatedPipelineError('import.error.start')) } finally { analysisRunRef.current = false }
   }
@@ -185,10 +185,12 @@ export function ImportAnalysisPage() {
     <input ref={inputRef} className="sr-only" type="file" multiple accept=".eml,message/rfc822" onChange={(event) => void handleFiles(event.target.files)} />
     {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title={t('import.processing.title')}><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
     {pipelineErrorMessage && !isReviewing && <Alert title={t('import.review.analysisErrorTitle')} tone="warning">{pipelineErrorMessage}</Alert>}
-    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <div className="import-source-grid" aria-label={t('import.sources.aria')}>
+    {!isProcessingFiles && !isProcessingUrl && <div className="import-source-grid" aria-label={t('import.sources.aria')}>
       <GmailImportPanel mode={mode} onReportsImported={handleGmailReports} />
+      {!isReviewing && <>
       <SectionCard title={t('import.drop.title')} className="import-source-card"><div className="import-source-card__body"><span className="import-source-icon" aria-hidden="true">⇧</span><p>{t('import.drop.copy')}</p><div className="action-row"><PrimaryButton onClick={openFilePicker}>{t('import.drop.choose')}</PrimaryButton>{mode === 'demo' && <SecondaryButton onClick={() => void handleSampleReport()}>{t('import.drop.sample')}</SecondaryButton>}</div><span className="field-hint">{t('import.drop.format')}</span></div></SectionCard>
       <SectionCard title={t('import.url.title')} className="import-source-card"><div className="import-source-card__body"><span className="import-source-icon import-source-icon--link" aria-hidden="true">↗</span><p>{t('import.url.copy')}</p><div className="url-import"><label htmlFor="offer-url">{t('import.url.label')}</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>{t('import.url.action')}</PrimaryButton></div></div><span className="field-hint">{t('import.url.hint')}</span></div></SectionCard>
+      </>}
     </div>}
 {isProcessingUrl && <SectionCard title={t('import.url.processingTitle')}><p className="field-hint">{t('import.url.processingCopy')}</p></SectionCard>}
     {isReviewing && <>

@@ -26,6 +26,7 @@ describe('Gmail Edge contracts', () => {
 
   it('keeps RAW and token fields outside the imported-report response contract', () => {
     const response: GmailImportedReport = {
+      connectionId: '123e4567-e89b-42d3-a456-426614174001',
       receiptId: 'receipt-id',
       messageRef: 'opaque-preview-id',
       report: {

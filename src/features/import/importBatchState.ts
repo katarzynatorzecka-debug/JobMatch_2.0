@@ -17,6 +17,7 @@ export type ImportBatchReport = {
   report: ImportedReport
   removedOfferIds: string[]
   gmailReceiptId?: string
+  gmailConnectionId?: string
   displayName?: string
 }
 
