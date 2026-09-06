@@ -27,7 +27,7 @@ describe('candidate assessment contract', () => {
     const value = output()
     expect(isCandidateAssessmentOutput(value, rubric)).toBe(true)
     const analysis = candidateAssessmentToAnalysisOutput(value, rubric)
-    expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical', matchType: 'no_evidence', outcome: 'UNKNOWN' })
+    expect(analysis.criteria.skills[0]).toMatchObject({ type: 'language', importance: 'critical', matchType: 'no_evidence', outcome: 'NO_MATCH' })
     expect(analysis.criteria.skills[0].offerEvidence).toEqual(['arabski'])
     expect(analysis.criteria.experience[0].offerEvidence).toEqual(['moderating social media'])
     expect(analysis.criteria.experience[0].localizedRationale?.en).toBe('The profile shows partially transferable experience.')

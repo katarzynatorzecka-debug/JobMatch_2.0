@@ -59,7 +59,7 @@ describe('analysisNarrativeData', () => {
     const limited = { ...analysis, overallScore: 100, recommendation: 'Wymaga sprawdzenia' as const, scoring: { ...analysis.scoring!, coverage: 35, reliability: 'limited' as const } }
     const quality = renderWithI18n(createElement(AnalysisQuality, { analysis: limited }))
     const badge = renderWithI18n(createElement(ScoreBadge, { score: 100, limited: true }))
-    expect(quality).toContain('Wynik częściowy: 100/100 przy 35% pokrycia')
+    expect(quality).toContain('Wynik częściowy: 100/100 przy 35% pokrycia ocenionych kryteriów')
     expect(quality).toContain('Nie interpretuj jako pełnego dopasowania')
     expect(quality).not.toContain('wysokie dopasowanie')
     expect(badge).toContain('wynik częściowy')
@@ -67,7 +67,7 @@ describe('analysisNarrativeData', () => {
 
   it('switches generated narrative together with the interface without changing the score', () => {
     const quality = renderWithI18n(createElement(AnalysisQuality, { analysis }), 'en')
-    expect(quality).toContain('Coverage: 80%')
+    expect(quality).toContain('Assessed-criteria coverage: 80%')
     expect(quality).toContain('Candidate strengths')
     expect(quality).toContain('The profile matches the key job requirements.')
     expect(quality).toContain('Process automation')

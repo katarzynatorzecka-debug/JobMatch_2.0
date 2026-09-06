@@ -150,7 +150,10 @@ export function candidateAssessmentToAnalysisOutput(value: CandidateAssessmentOu
       requirement: expected[index].statement,
       type: expected[index].type,
       importance: expected[index].importance,
-      outcome: criterion.matchType === 'no_evidence' ? 'UNKNOWN' : criterion.matchType === 'direct' ? 'MATCH' : criterion.matchType === 'transferable' ? 'PARTIAL' : 'NO_MATCH',
+      // A complete rubric has already established that this is an offer
+      // requirement. Missing profile proof is therefore an assessed gap, not
+      // a technical unknown that may be removed from the denominator.
+      outcome: criterion.matchType === 'direct' ? 'MATCH' : criterion.matchType === 'transferable' ? 'PARTIAL' : 'NO_MATCH',
       matchType: criterion.matchType,
       rationale: criterion.rationale.pl,
       localizedRationale: criterion.rationale,

@@ -105,6 +105,37 @@ describe('deterministic scoring', () => {
     expect(result.recommendation).toBe('Wymaga sprawdzenia')
   })
 
+  it('keeps a fully evidenced high-match reference near 79 points', () => {
+    let sequence = 0
+    const criterion = (outcome: 'MATCH' | 'PARTIAL') => ({ id: `req:high-${++sequence}`, canonicalKey: `req:high-${sequence}`, requirement: 'wymóg', outcome, rationale: 'uzasadnienie', profileEvidence: ['profil'], offerEvidence: ['oferta'], confidence: 80 })
+    const result = calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, {
+      experience: [criterion('MATCH'), criterion('MATCH')],
+      skills: [criterion('MATCH'), criterion('PARTIAL')],
+      preferences: [criterion('PARTIAL')],
+      growth: [criterion('PARTIAL')],
+    })
+    expect(result.overallScore).toBe(79)
+    expect(result.scoring.coverage).toBe(100)
+    expect(result.scoring.reliability).toBe('standard')
+    expect(result.recommendation).toBe('Warto aplikować')
+  })
+
+  it('does not give a high result to a fully classified medium-evidence shape with explicit gaps', () => {
+    let sequence = 0
+    const evidenced = (matchType: 'direct' | 'transferable') => ({ id: `req:medium-${++sequence}`, canonicalKey: `req:medium-${sequence}`, requirement: 'wymóg', matchType, outcome: matchType === 'direct' ? 'MATCH' as const : 'PARTIAL' as const, rationale: 'uzasadnienie', profileEvidence: ['profil'], offerEvidence: ['oferta'], confidence: 80 })
+    const gap = () => ({ id: `req:medium-${++sequence}`, canonicalKey: `req:medium-${sequence}`, requirement: 'wymóg', matchType: 'no_evidence' as const, outcome: 'NO_MATCH' as const, rationale: 'brak dowodu w profilu', profileEvidence: [], offerEvidence: ['oferta'], confidence: 80 })
+    const result = calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, {
+      experience: [evidenced('direct'), evidenced('transferable'), gap()],
+      skills: [evidenced('transferable'), gap(), gap(), gap(), gap()],
+      preferences: [gap()],
+      growth: [gap()],
+    })
+    expect(result.scoring.coverage).toBe(100)
+    expect(result.scoring.unknownCriterionCount).toBe(0)
+    expect(result.overallScore).toBeLessThan(50)
+    expect(result.recommendation).toBe('Nie rekomenduję')
+  })
+
   it('produces a calibration report for three non-final importance variants', () => {
     let index = 0
     const criterion = (outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH' | 'UNKNOWN', importance: 'critical' | 'core' | 'preferred', type: 'required_skill' | 'employment_condition' = 'required_skill') => ({ id: `req:calibration-${++index}`, canonicalKey: `req:calibration-${index}`, requirement: 'wymóg', type, importance, outcome, rationale: outcome, profileEvidence: outcome === 'UNKNOWN' || outcome === 'NO_MATCH' ? [] : ['profil'], offerEvidence: ['oferta'], confidence: 80 })
@@ -120,11 +151,11 @@ describe('deterministic scoring', () => {
     expect(report.cases[0].variants[2].overallScore).toBeLessThan(report.cases[0].variants[1].overallScore)
   })
 
-  it('treats transferable evidence as partial and no evidence as uncovered', () => {
+  it('treats transferable evidence as partial and explicit missing evidence as NO_MATCH', () => {
     const criterion = (matchType: 'direct' | 'transferable' | 'no_evidence' | 'contradiction', outcome: 'MATCH' | 'PARTIAL' | 'NO_MATCH') => ({ id: `req:${matchType}`, canonicalKey: `req:${matchType}`, requirement: matchType, matchType, outcome, rationale: matchType, profileEvidence: matchType === 'no_evidence' || matchType === 'contradiction' ? [] : ['JobMatchMaker'], offerEvidence: ['oferta'], confidence: 90 })
     const result = calculateCriterionLevelScore({ priorities: ['experience', 'skills', 'preferences', 'growth'] }, { experience: [criterion('direct', 'MATCH'), criterion('transferable', 'PARTIAL'), criterion('no_evidence', 'NO_MATCH')], skills: [], preferences: [], growth: [] })
-    expect(result.overallScore).toBe(80)
-    expect(result.scoring.coverage).toBe(67)
-    expect(result.scoring.unknownCriterionCount).toBe(1)
+    expect(result.overallScore).toBe(53)
+    expect(result.scoring.coverage).toBe(100)
+    expect(result.scoring.unknownCriterionCount).toBe(0)
   })
 })

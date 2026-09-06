@@ -38,12 +38,12 @@ export const scoringWeightVariants: ScoringWeightVariant[] = [
 
 export const activeScoringVariantId = 'critical-priority'
 export const SCORING_CALIBRATION_STATUS = 'pending_human_scoring_gate' as const
-export const SCORING_ALGORITHM_VERSION = 'jobmatch-deterministic-r10-critical-priority'
+export const SCORING_ALGORITHM_VERSION = 'jobmatch-deterministic-r11-evidence-gaps'
 export const outcomePercent: Record<ScoringOutcome, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
 function effectiveOutcome(criterion: ScoringCriterion): ScoringOutcome {
   if (criterion.matchType === 'direct') return 'MATCH'
   if (criterion.matchType === 'transferable') return 'PARTIAL'
-  if (criterion.matchType === 'no_evidence') return 'UNKNOWN'
+  if (criterion.matchType === 'no_evidence') return 'NO_MATCH'
   if (criterion.matchType === 'contradiction') return 'NO_MATCH'
   return criterion.outcome
 }
@@ -109,8 +109,9 @@ export function scoreScoringCriteria(priorities: readonly string[], criteria: Sc
   const knownEntries = scoredEntries.filter(({ criterion }) => effectiveOutcome(criterion) !== 'UNKNOWN')
   const knownWeight = knownEntries.reduce((total, entry) => total + entry.weight, 0)
   const weightedPoints = knownEntries.reduce((total, entry) => total + entry.weight * (outcomePercent[effectiveOutcome(entry.criterion)] ?? 0), 0)
-  // Unproven is not the same as contradicted: no_evidence becomes UNKNOWN and
-  // lowers coverage, but must not zero out the score of evidenced criteria.
+  // A criterion with no profile proof has been assessed against a complete
+  // employer rubric. It contributes zero points; UNKNOWN is reserved for a
+  // technical or legacy incomplete assessment and remains outside the score.
   const score = knownWeight ? Math.round(weightedPoints / knownWeight) : 0
   const confidenceValues = knownEntries.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const criterionConfidence = confidenceValues.length === knownEntries.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / knownWeight) : null
