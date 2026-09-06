@@ -1,6 +1,6 @@
 import type { AnalysisFreshnessStatus, AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, OfferUserState, WorkspaceProfile } from '../../contracts/workspace'
 
-export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r11-evidence-gaps'
+export const CURRENT_ANALYSIS_ALGORITHM_VERSION = 'jobmatch-deterministic-r12-calibrated-evidence'
 export const CURRENT_ANALYSIS_PROMPT_VERSION = 'jobmatch-job-match-v7-bilingual'
 export const CURRENT_ANALYSIS_MODEL_VERSION = 'gpt-5.4-mini'
 const SCORE_COMPATIBLE_PROMPT_VERSIONS = new Set([CURRENT_ANALYSIS_PROMPT_VERSION, 'jobmatch-job-match-v6'])

@@ -20,6 +20,8 @@ export interface AnalysisCriterion {
   /** Employer-rubric metadata. Optional for historical/demo rows. */
   type?: CriterionType
   importance?: CriterionImportance
+  /** Whether the employer stated this as an explicit requirement. */
+  requiredExplicitly?: boolean
   matchType?: CriterionMatchType
   outcome: CriterionOutcome
   rationale: string

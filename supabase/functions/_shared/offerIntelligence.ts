@@ -207,7 +207,9 @@ export function buildOfferIntelligenceRubric(source: OfferSourceSnapshot, source
       canonicalKey,
       statement: compact(raw.statement),
       type: raw.type,
-      importance: raw.importance,
+      // A capability inferred from responsibilities or marked as a plus must
+      // not outweigh an explicit employer requirement.
+      importance: raw.requiredExplicitly ? raw.importance : 'preferred',
       category: raw.category,
       sourceEvidence: unique(raw.sourceEvidence, 4),
       sourceSection: raw.sourceSection,
@@ -267,7 +269,7 @@ export function isOfferIntelligenceRubricRunnable(rubric: OfferIntelligenceRubri
 }
 
 export function buildOfferIntelligencePrompt(source: OfferSourceSnapshot, sourceSnapshotHash: string) {
-  return `Zbuduj wyłącznie rubrykę wymagań pracodawcy z pełnego, zamrożonego snapshotu oferty. Nie otrzymujesz profilu kandydata i nie wolno Ci go zakładać. Odczytaj znaczenie semantycznie, niezależnie od nagłówków, list i kolejności portalu. Zwróć atomic criteria: każde realne wymaganie lub capability ma jeden canonicalKey i jeden udział w score. Deduplicate sens: to samo znaczenie opisane jako skill, doświadczenie i obowiązek zwróć tylko raz. Obowiązek może utworzyć responsibility_capability, gdy wynika z niego zdolność wymagana do wykonania pracy. requiredExplicitly=true tylko dla wymagania jawnie wymaganego; capability wyprowadzona z obowiązku może być false. importance wybierz jako critical, core lub preferred na podstawie języka i znaczenia w ofercie. sourceEvidence musi być krótkim, dosłownym, niezmienionym wierszem lub zdaniem ze snapshotu; nie parafrazuj i nie łącz odległych fragmentów. Brak benefitów, widełek, rodzaju umowy lub innych opcjonalnych danych nie jest powodem do ustawienia rubricComplete=false — wpisz to do missingInformation. unresolvedAmbiguities stosuj tylko dla sprzecznych lub rzeczywiście niejednoznacznych wymagań, nie dla zwykłego braku informacji. Jeśli źródło jest pełne i da się zbudować ugruntowane kryteria, ustaw rubricComplete=true. Nie licz score, coverage ani rekomendacji.
+  return `Zbuduj wyłącznie rubrykę wymagań pracodawcy z pełnego, zamrożonego snapshotu oferty. Nie otrzymujesz profilu kandydata i nie wolno Ci go zakładać. Odczytaj znaczenie semantycznie, niezależnie od nagłówków, list i kolejności portalu. Zwróć atomic criteria: każde realne wymaganie lub capability ma jeden canonicalKey i jeden udział w score. Deduplicate sens: to samo znaczenie opisane jako skill, doświadczenie i obowiązek zwróć tylko raz. Obowiązek może utworzyć responsibility_capability, gdy wynika z niego zdolność wymagana do wykonania pracy. requiredExplicitly=true tylko dla wymagania jawnie wymaganego. Frazy „mile widziane”, „plus”, „optional”, „nice to have”, „would be an advantage” oraz capability jedynie wyprowadzone z obowiązku mają requiredExplicitly=false i importance=preferred. importance wybierz jako critical, core lub preferred na podstawie języka i znaczenia w ofercie. sourceEvidence musi być krótkim, dosłownym, niezmienionym wierszem lub zdaniem ze snapshotu; nie parafrazuj i nie łącz odległych fragmentów. Brak benefitów, widełek, rodzaju umowy lub innych opcjonalnych danych nie jest powodem do ustawienia rubricComplete=false — wpisz to do missingInformation. unresolvedAmbiguities stosuj tylko dla sprzecznych lub rzeczywiście niejednoznacznych wymagań, nie dla zwykłego braku informacji. Jeśli źródło jest pełne i da się zbudować ugruntowane kryteria, ustaw rubricComplete=true. Nie licz score, coverage ani rekomendacji.
 sourceSnapshotHash: ${sourceSnapshotHash}
 snapshot: ${JSON.stringify(source)}`
 }

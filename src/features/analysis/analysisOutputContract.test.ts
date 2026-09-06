@@ -41,7 +41,7 @@ describe('AI criterion output contract', () => {
     expect(DETERMINISTIC_SCORING_VERSION).toBe(CURRENT_ANALYSIS_ALGORITHM_VERSION)
     expect(edgeSource).toContain('const algorithmVersion = SCORING_ALGORITHM_VERSION')
     expect(edgeSource).toContain(`const promptVersion = '${CURRENT_ANALYSIS_PROMPT_VERSION}'`)
-    expect(edgeSource).toContain("const analysisContractVersion = 'jobmatch-analysis-contract-vnext-c'")
+    expect(edgeSource).toContain("const analysisContractVersion = 'jobmatch-analysis-contract-vnext-d'")
     expect(edgeSource).toContain('algorithm_version: algorithmVersion')
   })
 

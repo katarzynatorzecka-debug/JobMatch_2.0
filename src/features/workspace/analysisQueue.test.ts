@@ -15,7 +15,7 @@ describe('workspace analysis queue projection', () => {
 
   it('marks the old baseline stale while accepting the coherent bilingual identity', () => {
     const context = { profile: { currentVersionId: 'profile-v1' } as never, offerVersionId: 'offer-v1', hardFilter: { status: 'pass' } as never }
-    expect(CURRENT_ANALYSIS_ALGORITHM_VERSION).toBe('jobmatch-deterministic-r11-evidence-gaps')
+    expect(CURRENT_ANALYSIS_ALGORITHM_VERSION).toBe('jobmatch-deterministic-r12-calibrated-evidence')
     expect(CURRENT_ANALYSIS_PROMPT_VERSION).toBe('jobmatch-job-match-v7-bilingual')
     expect(analysisFreshness({ ...context, latestVersion: { profileVersionId: 'profile-v1', offerVersionId: 'offer-v1', algorithmVersion: 'jobmatch-deterministic-r8', promptVersion: 'jobmatch-job-match-v4', modelVersion: 'gpt-5.4-mini', hardFilterStatus: 'pass' } as never })).toBe('stale_algorithm')
     expect(analysisFreshness({ ...context, latestVersion: version })).toBe('current')

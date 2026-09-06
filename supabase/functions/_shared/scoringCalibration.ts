@@ -14,6 +14,7 @@ export type ScoringCriterion = {
   confidence: number
   type?: 'required_skill' | 'required_experience' | 'language' | 'responsibility_capability' | 'employment_condition' | 'preferred_qualification'
   importance?: ScoringImportance
+  requiredExplicitly?: boolean
 }
 
 export type ScoringCriteria = Record<ScoringCategory, ScoringCriterion[]>
@@ -38,12 +39,12 @@ export const scoringWeightVariants: ScoringWeightVariant[] = [
 
 export const activeScoringVariantId = 'critical-priority'
 export const SCORING_CALIBRATION_STATUS = 'pending_human_scoring_gate' as const
-export const SCORING_ALGORITHM_VERSION = 'jobmatch-deterministic-r11-evidence-gaps'
-export const outcomePercent: Record<ScoringOutcome, number | null> = { MATCH: 100, PARTIAL: 60, NO_MATCH: 0, UNKNOWN: null }
+export const SCORING_ALGORITHM_VERSION = 'jobmatch-deterministic-r12-calibrated-evidence'
+export const outcomePercent: Record<ScoringOutcome, number | null> = { MATCH: 100, PARTIAL: 70, NO_MATCH: 0, UNKNOWN: null }
 function effectiveOutcome(criterion: ScoringCriterion): ScoringOutcome {
   if (criterion.matchType === 'direct') return 'MATCH'
   if (criterion.matchType === 'transferable') return 'PARTIAL'
-  if (criterion.matchType === 'no_evidence') return 'NO_MATCH'
+  if (criterion.matchType === 'no_evidence') return criterion.requiredExplicitly === false ? 'UNKNOWN' : 'NO_MATCH'
   if (criterion.matchType === 'contradiction') return 'NO_MATCH'
   return criterion.outcome
 }
@@ -62,6 +63,7 @@ function dimensionFor(category: ScoringCategory, criterion: ScoringCriterion): S
 }
 
 function importanceFor(category: ScoringCategory, criterion: ScoringCriterion): ScoringImportance {
+  if (criterion.requiredExplicitly === false) return 'preferred'
   if (criterion.importance) return criterion.importance
   return category === 'preferences' ? 'preferred' : 'core'
 }
@@ -107,15 +109,20 @@ export function scoreScoringCriteria(priorities: readonly string[], criteria: Sc
   const scoredEntries = entries.map((entry) => ({ ...entry, weight: dimensionBudgets[entry.dimension] * entry.factor / dimensionFactorTotals[entry.dimension] }))
   const totalWeight = scoredEntries.reduce((total, entry) => total + entry.weight, 0)
   const knownEntries = scoredEntries.filter(({ criterion }) => effectiveOutcome(criterion) !== 'UNKNOWN')
+  // Optional criteria with no profile proof are fully assessed, but do not
+  // become a zero-point employer requirement. Legacy UNKNOWN remains the only
+  // source of incomplete assessment coverage.
+  const assessedEntries = scoredEntries.filter(({ criterion }) => criterion.outcome !== 'UNKNOWN' || criterion.matchType !== undefined)
   const knownWeight = knownEntries.reduce((total, entry) => total + entry.weight, 0)
   const weightedPoints = knownEntries.reduce((total, entry) => total + entry.weight * (outcomePercent[effectiveOutcome(entry.criterion)] ?? 0), 0)
-  // A criterion with no profile proof has been assessed against a complete
-  // employer rubric. It contributes zero points; UNKNOWN is reserved for a
-  // technical or legacy incomplete assessment and remains outside the score.
+  // An explicit requirement with no profile proof contributes zero points.
+  // A non-explicit, preferred criterion is assessed but excluded from the
+  // employer-fit denominator when there is no supporting evidence.
   const score = knownWeight ? Math.round(weightedPoints / knownWeight) : 0
   const confidenceValues = knownEntries.filter(({ criterion }) => Number.isInteger(criterion.confidence) && criterion.confidence >= 0 && criterion.confidence <= 100)
   const criterionConfidence = confidenceValues.length === knownEntries.length && confidenceValues.length ? Math.round(confidenceValues.reduce((total, entry) => total + entry.weight * entry.criterion.confidence, 0) / knownWeight) : null
-  const coverage = totalWeight ? Math.round((knownWeight / totalWeight) * 100) : 0
+  const assessedWeight = assessedEntries.reduce((total, entry) => total + entry.weight, 0)
+  const coverage = totalWeight ? Math.round((assessedWeight / totalWeight) * 100) : 0
   const reliability = coverage < 75 || criterionConfidence === null || criterionConfidence < 60 ? 'limited' : 'standard'
   const dimensionScore = (dimension: ScoringDimension) => {
     const dimensionEntries = scoredEntries.filter((entry) => entry.dimension === dimension)
@@ -148,8 +155,8 @@ export function scoreScoringCriteria(priorities: readonly string[], criteria: Sc
       reliability,
       scoredCategories: analysisCategories.filter((category) => (criteria[category] ?? []).some((criterion) => effectiveOutcome(criterion) !== 'UNKNOWN')),
       criterionCount: entries.length,
-      knownCriterionCount: knownEntries.length,
-      unknownCriterionCount: entries.length - knownEntries.length,
+      knownCriterionCount: assessedEntries.length,
+      unknownCriterionCount: entries.length - assessedEntries.length,
     },
   }
 }

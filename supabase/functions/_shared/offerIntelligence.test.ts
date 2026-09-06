@@ -28,8 +28,8 @@ function criterion(overrides: Partial<OfferIntelligenceProviderOutput['criteria'
 
 describe('offer intelligence truth layer', () => {
   it('refreshes a stored full snapshot when its contract is legacy', () => {
-    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-r7', activeContractVersion: 'jobmatch-analysis-contract-vnext-c' })).toBe(true)
-    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-vnext-c', activeContractVersion: 'jobmatch-analysis-contract-vnext-c' })).toBe(false)
+    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-r7', activeContractVersion: 'jobmatch-analysis-contract-vnext-d' })).toBe(true)
+    expect(shouldRefreshOfferSourceSnapshot({ hasStoredSource: true, storedContractVersion: 'jobmatch-analysis-contract-vnext-d', activeContractVersion: 'jobmatch-analysis-contract-vnext-d' })).toBe(false)
   })
 
   it('reports grounded-evidence failures without exposing source text', () => {
@@ -54,6 +54,7 @@ describe('offer intelligence truth layer', () => {
     expect(rubric?.criteria.map((item) => item.canonicalKey)).toEqual(['req:arabic-language', 'req:social-media', 'req:social-media-work', 'req:social-media-discussions'])
     expect(rubric?.criteria.find((item) => item.canonicalKey === 'req:arabic-language')?.importance).toBe('critical')
     expect(rubric?.criteria.find((item) => item.canonicalKey === 'req:social-media-work')?.type).toBe('responsibility_capability')
+    expect(rubric?.criteria.find((item) => item.canonicalKey === 'req:social-media-work')?.importance).toBe('preferred')
     expect(rubric && isOfferIntelligenceRubric(rubric)).toBe(true)
     expect(rubric && isOfferIntelligenceRubricSufficient(rubric)).toBe(true)
   })
