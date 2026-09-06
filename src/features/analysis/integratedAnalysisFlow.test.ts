@@ -40,6 +40,20 @@ describe('integrated analysis batch', () => {
     expect(states).not.toContain('needs-review:rejected')
   })
 
+  it('confirms a Gmail receipt only after its workspace import becomes active', async () => {
+    repositoryForCalls = 0
+    const reports = [{ ...report('Gmail', [offer('mail')]), gmailReceiptId: 'receipt-1' }]
+    const repository = repositoryFor(reports); const order: string[] = []
+    repository.importReport.mockImplementationOnce(async () => { order.push('import'); return { importSessionId: 'session-0' } })
+    repository.setActiveImportSession.mockImplementationOnce(async () => { order.push('active') })
+    const onReportImported = vi.fn(async (entry, sessionId) => { order.push('confirm'); expect(entry.gmailReceiptId).toBe('receipt-1'); expect(sessionId).toBe('session-0') })
+
+    await runIntegratedAnalysisBatch({ repository: repository as never, mode: 'demo', userId: 'demo-user', profile: defaultProfile, reports, onCounts: () => undefined, onOfferProgress: () => undefined, onReportImported })
+
+    expect(order).toEqual(['import', 'active', 'confirm'])
+    expect(onReportImported).toHaveBeenCalledTimes(1)
+  })
+
   it('continues the batch after one offer fails', async () => {
     repositoryForCalls = 0
     const reports = [report('A', [offer('one'), offer('two')])]

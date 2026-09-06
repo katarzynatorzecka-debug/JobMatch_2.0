@@ -22,6 +22,8 @@ import { analysisErrorLabel, analysisFreshnessLabel } from '../features/workspac
 import { createDemoSampleReport } from '../demo/demoSampleData'
 import { useI18n } from '../i18n/I18nProvider'
 import { GmailImportPanel } from '../features/gmail/components/GmailImportPanel'
+import type { PresentedGmailImportedReport } from '../features/gmail/gmailReportPresentation'
+import { gmailApiClient } from '../features/gmail/gmailApiClient'
 
 const emptyCounts: IntegratedBatchCounts = { total: 0, hardFilterRejected: 0, queued: 0, processing: 0, completed: 0, failed: 0 }
 type PipelineState = 'idle' | 'running' | 'complete' | 'partial_complete'
@@ -103,6 +105,15 @@ export function ImportAnalysisPage() {
     setBatch((current) => appendBatchEntries(current, entries)); setIsProcessingFiles(false); if (inputRef.current) inputRef.current.value = ''
   }
 
+  function handleGmailReports(imported: PresentedGmailImportedReport[]) {
+    if (!imported.length || pipeline === 'running') return
+    const startsFreshPacket = shouldResetTerminalBatchForNewFiles(pipeline)
+    freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); setPipelineError(null)
+    if (startsFreshPacket) { setPipeline('idle'); setProgress({}); setCounts(emptyCounts) }
+    const entries: ImportBatchEntry[] = imported.map(({ receiptId, report, displayName }) => ({ kind: 'report', id: createImportBatchId(report.fileName, sequenceRef.current++), report, removedOfferIds: [], gmailReceiptId: receiptId, displayName }))
+    setBatch((current) => appendBatchEntries(startsFreshPacket ? createImportBatchState() : current, entries))
+  }
+
   async function handleUrl() {
     if (!mode || isProcessingFiles || isProcessingUrl || pipeline === 'running') return
     const normalizedUrl = normalizeOfferUrl(urlInput)
@@ -126,7 +137,7 @@ export function ImportAnalysisPage() {
   function startOver() { freshBatchStartedRef.current = true; setRestoredWorkspaceBatch(true); sequenceRef.current = 0; setBatch(createImportBatchState()); setPipeline('idle'); setProgress({}); setCounts(emptyCounts); setPipelineError(null); clearIntegratedAnalysisSession(undefined, sessionScope); if (mode) void workspaceRepositoryFor(mode, session?.user).setActiveImportSession(null).catch((cause) => setPipelineError(rawPipelineError(cause instanceof Error ? cause.message : 'ACTIVE_IMPORT_SESSION_CLEAR_FAILED'))); if (inputRef.current) inputRef.current.value = '' }
   async function startAnalysis(reportsOverride?: BatchReport[]) {
     if (!mode || pipeline === 'running' || analysisRunRef.current) return
-    const reports = reportsOverride ?? batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry) })).filter((entry) => entry.offers.length > 0)
+    const reports = reportsOverride ?? batch.entries.filter((entry): entry is Extract<ImportBatchEntry, { kind: 'report' }> => entry.kind === 'report').map((entry) => ({ key: entry.id, report: entry.report, offers: visibleOffers(entry), ...(entry.gmailReceiptId ? { gmailReceiptId: entry.gmailReceiptId } : {}) })).filter((entry) => entry.offers.length > 0)
     if (!reports.length) { setPipelineError(translatedPipelineError('import.error.restoreOffer')); return }
     analysisRunRef.current = true
     const cloudProfile = mode === 'authenticated' && session ? await supabaseProfileRepository(session.user).load() : null
@@ -137,7 +148,7 @@ export function ImportAnalysisPage() {
     const userId = mode === 'authenticated' && session ? session.user.id : 'demo-user'; const repository = workspaceRepositoryFor(mode, session?.user)
     setPipeline('running'); setPipelineError(null); setProgress(Object.fromEntries(reports.flatMap((report) => report.offers.map((offer) => [progressKey(report.key, offer.id), { key: progressKey(report.key, offer.id), offer, state: 'waiting' as const }])))); setCounts({ ...emptyCounts, total: reports.reduce((total, report) => total + report.offers.length, 0) })
     try {
-      const result = await runIntegratedAnalysisBatch({ repository, mode, userId, profile, reports, onCounts: setCounts, onOfferProgress: (entry) => setProgress((current) => ({ ...current, [entry.key]: entry })) })
+      const result = await runIntegratedAnalysisBatch({ repository, mode, userId, profile, reports, onCounts: setCounts, onOfferProgress: (entry) => setProgress((current) => ({ ...current, [entry.key]: entry })), onReportImported: async (report, importSessionId) => { if (report.gmailReceiptId) await gmailApiClient.confirmImport(report.gmailReceiptId, importSessionId) } })
       setPipeline(result.partial ? 'partial_complete' : 'complete')
     } catch (cause) { setPipeline('idle'); setPipelineError(cause instanceof Error ? rawPipelineError(cause.message) : translatedPipelineError('import.error.start')) } finally { analysisRunRef.current = false }
   }
@@ -175,7 +186,7 @@ export function ImportAnalysisPage() {
     {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title={t('import.processing.title')}><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
     {pipelineErrorMessage && !isReviewing && <Alert title={t('import.review.analysisErrorTitle')} tone="warning">{pipelineErrorMessage}</Alert>}
     {!isReviewing && !isProcessingFiles && !isProcessingUrl && <div className="import-source-grid" aria-label={t('import.sources.aria')}>
-      <GmailImportPanel mode={mode} />
+      <GmailImportPanel mode={mode} onReportsImported={handleGmailReports} />
       <SectionCard title={t('import.drop.title')} className="import-source-card"><div className="import-source-card__body"><span className="import-source-icon" aria-hidden="true">⇧</span><p>{t('import.drop.copy')}</p><div className="action-row"><PrimaryButton onClick={openFilePicker}>{t('import.drop.choose')}</PrimaryButton>{mode === 'demo' && <SecondaryButton onClick={() => void handleSampleReport()}>{t('import.drop.sample')}</SecondaryButton>}</div><span className="field-hint">{t('import.drop.format')}</span></div></SectionCard>
       <SectionCard title={t('import.url.title')} className="import-source-card"><div className="import-source-card__body"><span className="import-source-icon import-source-icon--link" aria-hidden="true">↗</span><p>{t('import.url.copy')}</p><div className="url-import"><label htmlFor="offer-url">{t('import.url.label')}</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>{t('import.url.action')}</PrimaryButton></div></div><span className="field-hint">{t('import.url.hint')}</span></div></SectionCard>
     </div>}
@@ -190,7 +201,7 @@ export function ImportAnalysisPage() {
         {summary.localDuplicateCount > 0 && <Alert title={t('import.duplicates.title')} tone="info">{t('import.duplicates.copy')}</Alert>}
         <ul className="import-report-list" aria-label={t('import.reports.aria')}>
           {batch.entries.map((entry) => entry.kind === 'file_error' ? <li key={entry.id} className="import-report-list__error"><div><strong>{entry.fileName}</strong><span>{t('import.file.failed')}</span></div><Alert title={t('import.file.skipped')} tone="warning">{importFileErrorLabel(entry.message, locale)}</Alert></li> : <li key={entry.id}>
-            <div className="import-report-list__heading"><div><strong>{entry.report.fileName}</strong><span>{t('import.report.recognized', { all: entry.report.offers.length, visible: visibleOffers(entry).length })}</span></div><SecondaryButton onClick={() => removeReport(entry.id)} disabled={pipeline === 'running'}>{t('import.action.removeReport')}</SecondaryButton></div>
+            <div className="import-report-list__heading"><div><strong>{entry.displayName ?? entry.report.fileName}</strong><span>{t('import.report.recognized', { all: entry.report.offers.length, visible: visibleOffers(entry).length })}</span></div><SecondaryButton onClick={() => removeReport(entry.id)} disabled={pipeline === 'running'}>{t('import.action.removeReport')}</SecondaryButton></div>
             {entry.report.warnings.length > 0 && <ul className="import-warnings">{entry.report.warnings.map((warning, index) => <li key={`${warning.code}:${index}`}>{importWarningLabel(warning, locale)}</li>)}</ul>}
             <ul className="recognized-offers">{visibleOffers(entry).map((offer) => { const item = progress[progressKey(entry.id, offer.id)]; const issues = presentOfferIssues(offer, locale); return <li className={`analysis-tile analysis-tile--${item?.state ?? 'waiting'}`} key={offer.id}><div><strong>{offer.title}</strong><span>{offer.company}{offer.sourceLabel ? ` · ${offer.sourceLabel}` : ''}{offer.location ? ` · ${offer.location}` : ''}</span>{issues.missing.length > 0 && <small className="offer-missing">{t('import.offer.missing')} {issues.missing.join(', ')}.</small>}{issues.warnings.length > 0 && <small className="offer-warning">{t('import.offer.review')} {issues.warnings.join(', ')}.</small>}<span className="analysis-tile__state">{statusLabel(item)}</span>{item?.state === 'processing' && <small>{t('import.offer.processing')}</small>}{item?.state === 'failed' && <><small className="analysis-tile__error">{analysisErrorLabel(item.error, locale)}</small><SecondaryButton onClick={() => void retryOffer(item)}>{t('import.action.retry')}</SecondaryButton></>}{item?.state === 'completed' && <AnalysisPreview analysis={item.analysis} hardFilter={item.hardFilterStatus} freshness={item.freshness} analysisVersionId={item.analysisVersionId} />}{item?.state === 'rejected' && <><AnalysisPreview hardFilter="fail" /><SecondaryButton onClick={() => void retryOffer(item, true)}>{t('import.action.force')}</SecondaryButton></>}</div>{pipeline !== 'running' && !isFinished && <SecondaryButton onClick={() => setBatch((current) => removeBatchOffer(current, entry.id, offer.id))}>{t('import.action.removeOffer')}</SecondaryButton>}</li> })}</ul>
           </li>)}

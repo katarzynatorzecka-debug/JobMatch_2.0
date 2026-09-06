@@ -57,6 +57,10 @@ export type GmailConfirmImportRequest = {
   importSessionId: string
 }
 
+export type GmailConfirmImportResponse = {
+  confirmed: true
+}
+
 export type GmailDisconnectResponse = {
   disconnected: true
   remoteRevokeSucceeded: boolean

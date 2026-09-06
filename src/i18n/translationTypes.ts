@@ -566,6 +566,34 @@ export type TranslationParameters = {
   'import.gmail.error.timeout': undefined
   'import.gmail.error.provider': undefined
   'import.gmail.error.generic': undefined
+  'import.gmail.openSearch': undefined
+  'import.gmail.hideSearch': undefined
+  'import.gmail.searchTitle': undefined
+  'import.gmail.searchCopy': undefined
+  'import.gmail.rocketJobsPreset': undefined
+  'import.gmail.senderLabel': undefined
+  'import.gmail.subjectLabel': undefined
+  'import.gmail.subjectPlaceholder': undefined
+  'import.gmail.afterLabel': undefined
+  'import.gmail.beforeLabel': undefined
+  'import.gmail.search': undefined
+  'import.gmail.searching': undefined
+  'import.gmail.searchInitial': undefined
+  'import.gmail.noResults': undefined
+  'import.gmail.searchErrorTitle': undefined
+  'import.gmail.resultsTitle': { count: number }
+  'import.gmail.availableCount': { count: number }
+  'import.gmail.resultsAria': undefined
+  'import.gmail.selectMessage': { subject: string }
+  'import.gmail.noSubject': undefined
+  'import.gmail.alreadyImported': undefined
+  'import.gmail.selectedCount': { count: number }
+  'import.gmail.importHint': undefined
+  'import.gmail.loadMore': undefined
+  'import.gmail.loadingMore': undefined
+  'import.gmail.importSelected': undefined
+  'import.gmail.importing': undefined
+  'import.gmail.reportLabel': undefined
   'import.url.title': undefined
   'import.url.copy': undefined
   'import.processing.title': undefined

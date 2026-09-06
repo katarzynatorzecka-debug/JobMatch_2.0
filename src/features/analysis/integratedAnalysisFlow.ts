@@ -11,7 +11,7 @@ import { findDemoOffer } from '../../demo/offers'
 export type IntegratedOfferState = 'waiting' | 'hard_filtering' | 'queued' | 'processing' | 'completed' | 'rejected' | 'failed'
 export type IntegratedOfferProgress = { key: string; offer: ImportedJobOffer; state: IntegratedOfferState; hardFilterStatus?: 'pass' | 'weak' | 'fail'; workspaceOfferId?: string; analysis?: JobAnalysis; error?: string; analysisVersionId?: string | null; freshness?: 'current' | 'stale_profile' | 'stale_offer' | 'stale_algorithm' | 'stale_prompt' | 'stale_model' | 'missing' }
 export type IntegratedBatchCounts = { total: number; hardFilterRejected: number; queued: number; processing: number; completed: number; failed: number }
-export type BatchReport = { key: string; report: ImportedReport; offers: ImportedJobOffer[] }
+export type BatchReport = { key: string; report: ImportedReport; offers: ImportedJobOffer[]; gmailReceiptId?: string }
 export type IntegratedBatchResult = { items: WorkspaceOfferListItem[]; counts: IntegratedBatchCounts; partial: boolean }
 
 const categories: AnalysisCategory[] = ['experience', 'skills', 'preferences', 'growth']
@@ -86,6 +86,7 @@ export async function runIntegratedAnalysisBatch(input: {
   reports: BatchReport[]
   onOfferProgress: (entry: IntegratedOfferProgress) => void
   onCounts: (counts: IntegratedBatchCounts) => void
+  onReportImported?: (report: BatchReport, importSessionId: string) => Promise<void> | void
 }): Promise<IntegratedBatchResult> {
   const counts: IntegratedBatchCounts = { total: input.reports.reduce((total, report) => total + report.offers.length, 0), hardFilterRejected: 0, queued: 0, processing: 0, completed: 0, failed: 0 }
   const publishCounts = () => input.onCounts({ ...counts })
@@ -105,6 +106,7 @@ export async function runIntegratedAnalysisBatch(input: {
   for (const report of input.reports) {
     const result = await input.repository.importReport(toWorkspaceImportInput(input.userId, report.report))
     await input.repository.setActiveImportSession(result.importSessionId)
+    await input.onReportImported?.(report, result.importSessionId)
     imported.push({ report, sessionId: result.importSessionId })
   }
   const workspace = await input.repository.loadWorkspace()

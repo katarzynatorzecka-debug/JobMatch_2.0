@@ -16,6 +16,8 @@ export type ImportBatchReport = {
   id: string
   report: ImportedReport
   removedOfferIds: string[]
+  gmailReceiptId?: string
+  displayName?: string
 }
 
 export type ImportBatchFileError = {
