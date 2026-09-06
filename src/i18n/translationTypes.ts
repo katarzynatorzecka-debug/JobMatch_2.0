@@ -540,6 +540,34 @@ export type TranslationParameters = {
   'import.header.eyebrow': undefined
   'import.header.title': undefined
   'import.header.intro': undefined
+  'import.sources.aria': undefined
+  'import.gmail.title': undefined
+  'import.gmail.copy': undefined
+  'import.gmail.connect': undefined
+  'import.gmail.connecting': undefined
+  'import.gmail.reconnect': undefined
+  'import.gmail.disconnect': undefined
+  'import.gmail.disconnecting': undefined
+  'import.gmail.disconnectConfirm': undefined
+  'import.gmail.retryStatus': undefined
+  'import.gmail.statusLoading': undefined
+  'import.gmail.statusConnected': { email: string }
+  'import.gmail.statusDisconnected': undefined
+  'import.gmail.statusReauth': undefined
+  'import.gmail.maskedAccount': undefined
+  'import.gmail.demoDisabled': undefined
+  'import.gmail.readonlyHint': undefined
+  'import.gmail.connectedTitle': undefined
+  'import.gmail.connectedCopy': undefined
+  'import.gmail.errorTitle': undefined
+  'import.gmail.error.auth': undefined
+  'import.gmail.error.permission': undefined
+  'import.gmail.error.rateLimited': undefined
+  'import.gmail.error.timeout': undefined
+  'import.gmail.error.provider': undefined
+  'import.gmail.error.generic': undefined
+  'import.url.title': undefined
+  'import.url.copy': undefined
   'import.processing.title': undefined
   'import.processing.adding': undefined
   'import.processing.reading': undefined

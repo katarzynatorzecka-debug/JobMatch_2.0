@@ -21,6 +21,7 @@ import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
 import { analysisErrorLabel, analysisFreshnessLabel } from '../features/workspace/presentationLabels'
 import { createDemoSampleReport } from '../demo/demoSampleData'
 import { useI18n } from '../i18n/I18nProvider'
+import { GmailImportPanel } from '../features/gmail/components/GmailImportPanel'
 
 const emptyCounts: IntegratedBatchCounts = { total: 0, hardFilterRejected: 0, queued: 0, processing: 0, completed: 0, failed: 0 }
 type PipelineState = 'idle' | 'running' | 'complete' | 'partial_complete'
@@ -173,7 +174,11 @@ export function ImportAnalysisPage() {
     <input ref={inputRef} className="sr-only" type="file" multiple accept=".eml,message/rfc822" onChange={(event) => void handleFiles(event.target.files)} />
     {(['adding_files', 'reading', 'parsing'] as const).includes(batch.status as keyof typeof processingLabels) && <SectionCard title={t('import.processing.title')}><p className="field-hint">{processingLabels[batch.status as keyof typeof processingLabels]}</p></SectionCard>}
     {pipelineErrorMessage && !isReviewing && <Alert title={t('import.review.analysisErrorTitle')} tone="warning">{pipelineErrorMessage}</Alert>}
-    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <SectionCard className="dropzone-card"><div className="file-dropzone"><span className="dropzone-icon" aria-hidden="true">⇧</span><h2>{t('import.drop.title')}</h2><p>{t('import.drop.copy')}</p><div className="action-row"><PrimaryButton onClick={openFilePicker}>{t('import.drop.choose')}</PrimaryButton>{mode === 'demo' && <SecondaryButton onClick={() => void handleSampleReport()}>{t('import.drop.sample')}</SecondaryButton>}</div><span className="field-hint">{t('import.drop.format')}</span><div className="url-import"><label htmlFor="offer-url">{t('import.url.label')}</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>{t('import.url.action')}</PrimaryButton></div><span className="field-hint">{t('import.url.hint')}</span></div></div></SectionCard>}
+    {!isReviewing && !isProcessingFiles && !isProcessingUrl && <div className="import-source-grid" aria-label={t('import.sources.aria')}>
+      <GmailImportPanel mode={mode} />
+      <SectionCard title={t('import.drop.title')} className="import-source-card"><div className="import-source-card__body"><span className="import-source-icon" aria-hidden="true">⇧</span><p>{t('import.drop.copy')}</p><div className="action-row"><PrimaryButton onClick={openFilePicker}>{t('import.drop.choose')}</PrimaryButton>{mode === 'demo' && <SecondaryButton onClick={() => void handleSampleReport()}>{t('import.drop.sample')}</SecondaryButton>}</div><span className="field-hint">{t('import.drop.format')}</span></div></SectionCard>
+      <SectionCard title={t('import.url.title')} className="import-source-card"><div className="import-source-card__body"><span className="import-source-icon import-source-icon--link" aria-hidden="true">↗</span><p>{t('import.url.copy')}</p><div className="url-import"><label htmlFor="offer-url">{t('import.url.label')}</label><div className="url-import__row"><input id="offer-url" type="url" inputMode="url" placeholder="https://rocketjobs.pl/..." value={urlInput} onChange={(event) => setUrlInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleUrl() }} /><PrimaryButton onClick={() => void handleUrl()} disabled={!urlInput.trim() || isProcessingUrl}>{t('import.url.action')}</PrimaryButton></div></div><span className="field-hint">{t('import.url.hint')}</span></div></SectionCard>
+    </div>}
 {isProcessingUrl && <SectionCard title={t('import.url.processingTitle')}><p className="field-hint">{t('import.url.processingCopy')}</p></SectionCard>}
     {isReviewing && <>
       <SectionCard title={t('import.review.title')} className="import-review-card">
