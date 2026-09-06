@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseRocketJobsReport } from './rocketJobsReportParser'
 
 const report = `RocketJobs\nExample Labs\nWarszawa\nData Automation Specialist\n120–150 PLN/h\nPraca zdalna\nUmowa B2B\nPozostało: 5 dni\nhttps://rocketjobs.pl/oferta/example-data-automation\n\nNorthstar\nGdańsk\nProduct Analyst\nPraca hybrydowa\nUmowa o pracę\nPozostało: 3 dni\nhttps://rocketjobs.pl/oferta/northstar-product-analyst`
+const newsletterHeaderAndOffer = `Dopasowaliśmy raport do Twoich preferencji\n**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**96 · RocketJobs · Mamy dla Ciebie nowe oferty\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data`
 
 describe('parseRocketJobsReport', () => {
   it('extracts normalized offers from anonymous RocketJobs snippets', () => {
@@ -14,6 +15,12 @@ describe('parseRocketJobsReport', () => {
     const parsed = parseRocketJobsReport(`${report}\n${report}`)
     expect(parsed.offers).toHaveLength(2)
     expect(parsed.warnings.some((warning) => warning.code === 'duplicate')).toBe(true)
+  })
+  it('ignores a newsletter header link while preserving the following offer card', () => {
+    const parsed = parseRocketJobsReport(newsletterHeaderAndOffer)
+    expect(parsed.offers).toHaveLength(1)
+    expect(parsed.offers[0]).toMatchObject({ title: 'Data Analyst', company: 'Example Labs' })
+    expect(parsed.offers[0]?.title).not.toContain('Twoje preferencje')
   })
 
   it('repairs legacy report URLs before storing an offer', () => {

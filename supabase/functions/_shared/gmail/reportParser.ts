@@ -6,6 +6,7 @@ import { GmailEdgeError } from './errors.ts'
 const sourceUrlPattern = /https?:\/\/(?:www\.)?rocketjobs\.pl\/oferta(?:-pracy)?\/[^\s)>]+/gi
 const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły)$/i
 const metaLine = /^(lokalizacja|miejsce pracy|tryb pracy|forma pracy|rodzaj umowy|umowa|wynagrodzenie|widełki|firma|company|stanowisko|oferta|salary)\s*:/i
+const newsletterChromeLine = /(twoje preferencje|najlepiej dopasowane|mamy dla ciebie nowe oferty)/i
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\u00a0/g, ' ').replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
@@ -41,14 +42,19 @@ function field(block: string, labels: string[]) {
 }
 
 function firstUsefulLines(block: string) {
-  return block.split('\n').map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !metaLine.test(line) && !/^https?:\/\//i.test(line) && !/^\[image:/i.test(line))
+  return block.split('\n').map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !newsletterChromeLine.test(line) && !metaLine.test(line) && !/^https?:\/\//i.test(line) && !/^\[image:/i.test(line))
+}
+
+function hasCompactOfferCard(useful: string[], elapsedIndex: number) {
+  return elapsedIndex >= 2 && useful.slice(Math.max(0, elapsedIndex - 4), elapsedIndex).length >= 2
 }
 
 function offerFromBlock(block: string, sourceUrl: string): ImportedJobOffer | null {
   const title = field(block, ['stanowisko', 'oferta', 'job title', 'position'])
   const company = field(block, ['firma', 'company', 'pracodawca'])
   const useful = firstUsefulLines(block)
-  const elapsedIndex = useful.findIndex((line) => /^(pozostało|dodano|wygasa|opublikowano)\b/i.test(line))
+  const elapsedIndex = useful.findIndex((line) => /^(pozosta[lł]o|dodano|wygasa|opublikowano)\b/i.test(line))
+  if (!(title && company) && !hasCompactOfferCard(useful, elapsedIndex)) return null
   const cardLines = elapsedIndex >= 5 ? useful.slice(Math.max(0, elapsedIndex - 7), elapsedIndex) : useful
   const resolvedCompany = company || cardLines[0] || useful[0]
   const resolvedTitle = title || cardLines[2] || useful.find((line, index) => index > 0 && line !== resolvedCompany && !/(zdaln|hybryd|b2b|umowa|pln|zł|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line))

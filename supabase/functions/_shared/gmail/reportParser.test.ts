@@ -3,6 +3,7 @@ import { parseRocketJobsReport } from '../../../../src/features/import/rocketJob
 import { parseGmailRawReport, parseRocketJobsText } from './reportParser'
 
 const report = 'Example Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data'
+const newsletterHeaderAndOffer = '**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**96 · RocketJobs · Mamy dla Ciebie nowe oferty\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data'
 
 function raw(body: string, sender = 'no-reply@rocketjobs.pl', contentType = 'text/plain; charset=UTF-8') {
   const message = `From: RocketJobs <${sender}>\r\nSubject: Synthetic report\r\nContent-Type: ${contentType}\r\n\r\n${body}`
@@ -24,6 +25,14 @@ describe('server-side Gmail report parser', () => {
     expect(html.offers).toEqual(parseRocketJobsReport(report).offers)
     expect(text).not.toHaveProperty('raw')
     expect(text).not.toHaveProperty('text')
+  })
+
+  it('ignores a newsletter header link while preserving the following offer card', async () => {
+    expect(parseRocketJobsText(newsletterHeaderAndOffer)).toEqual(parseRocketJobsReport(newsletterHeaderAndOffer))
+    const parsed = await parseGmailRawReport(raw(newsletterHeaderAndOffer))
+    expect(parsed.offers).toHaveLength(1)
+    expect(parsed.offers[0]).toMatchObject({ title: 'Data Analyst', company: 'Example Labs' })
+    expect(parsed.offers[0]?.title).not.toContain('Twoje preferencje')
   })
 
   it('rejects unsupported senders, invalid RAW and reports without supported offers', async () => {
