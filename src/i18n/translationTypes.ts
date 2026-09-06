@@ -282,6 +282,9 @@ export type TranslationParameters = {
   'offers.exclude': undefined
   'offers.emptyFiltered.title': undefined
   'offers.emptyFiltered.copy': undefined
+  'offers.reportContinuation': undefined
+  'offers.reportContinuing': undefined
+  'offers.reportContinuationResult': { queued: number; skipped: number; failed: number }
   'details.loading': undefined
   'details.error.loadFallback': undefined
   'details.error.saveFallback': undefined
@@ -587,6 +590,7 @@ export type TranslationParameters = {
   'import.gmail.selectMessage': { subject: string }
   'import.gmail.noSubject': undefined
   'import.gmail.alreadyImported': undefined
+  'import.gmail.openImportedReport': undefined
   'import.gmail.selectedCount': { count: number }
   'import.gmail.importHint': undefined
   'import.gmail.loadMore': undefined

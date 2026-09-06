@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Alert, PrimaryButton, SecondaryButton, SectionCard } from '../../../components/ui'
 import type { AppMode } from '../../access/AppModeProvider'
 import { useI18n } from '../../../i18n/I18nProvider'
@@ -215,7 +216,7 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
           <ul className="gmail-message-list" aria-label={t('import.gmail.resultsAria')}>
             {messages.map((message) => <li key={message.messageRef} className={message.alreadyImported ? 'gmail-message gmail-message--imported' : 'gmail-message'}>
               <label className="gmail-message__selector"><input type="checkbox" checked={selected.has(message.messageRef)} disabled={message.alreadyImported || importing} onChange={() => toggleMessage(message)} aria-label={t('import.gmail.selectMessage', { subject: message.subject || t('import.gmail.noSubject') })} /><span /></label>
-              <div className="gmail-message__content"><div className="gmail-message__heading"><strong>{message.subject || t('import.gmail.noSubject')}</strong>{message.alreadyImported && <span className="gmail-imported-badge">{t('import.gmail.alreadyImported')}</span>}</div><span>{message.senderLabel}</span><time dateTime={message.receivedAt}>{receivedDate(message.receivedAt, locale)}</time></div>
+              <div className="gmail-message__content"><div className="gmail-message__heading"><strong>{message.subject || t('import.gmail.noSubject')}</strong>{message.alreadyImported && <span className="gmail-imported-badge">{t('import.gmail.alreadyImported')}</span>}</div><span>{message.senderLabel}</span><time dateTime={message.receivedAt}>{receivedDate(message.receivedAt, locale)}</time>{message.importSessionId && <Link className="text-link" to={`/offers?importSessionId=${encodeURIComponent(message.importSessionId)}`}>{t('import.gmail.openImportedReport')}</Link>}</div>
             </li>)}
           </ul>
           <div className="gmail-results-actions"><div><strong>{t('import.gmail.selectedCount', { count: selectedCount })}</strong><span>{t('import.gmail.importHint')}</span></div><div className="action-row">{nextPageToken && <SecondaryButton onClick={() => void search(true)} disabled={searchState === 'loading' || importing}>{searchState === 'loading' ? t('import.gmail.loadingMore') : t('import.gmail.loadMore')}</SecondaryButton>}<PrimaryButton onClick={() => void importSelected()} disabled={!selectedCount || importing}>{importing ? t('import.gmail.importing') : t('import.gmail.importSelected')}</PrimaryButton></div></div>

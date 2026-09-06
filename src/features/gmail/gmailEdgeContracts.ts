@@ -31,6 +31,7 @@ export type GmailEdgeMessagePreview = {
   receivedAt: string
   sizeEstimate: number
   alreadyImported: boolean
+  importSessionId?: string
 }
 
 export type GmailSearchEdgeResponse = {

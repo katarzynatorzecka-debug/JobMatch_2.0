@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-import postgres from 'postgres'
+import { createClient } from 'npm:@supabase/supabase-js@2.111.0'
+import postgres from 'npm:postgres@3.4.7'
 import { type SecretKeyRing } from './crypto.ts'
 import { parseAllowedOrigins } from './cors.ts'
 import { GmailEdgeError } from './errors.ts'

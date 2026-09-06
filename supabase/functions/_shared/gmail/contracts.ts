@@ -98,7 +98,7 @@ export interface GmailStore {
   saveConnection(input: GmailConnection & { accountEmailHmac: string }): Promise<void>
   updateConnectionUse(userId: string, refreshToken?: GmailConnection['refreshToken']): Promise<void>
   markReauthRequired(userId: string): Promise<void>
-  committedMessageHashes(userId: string, connectionId: string, hashes: string[]): Promise<Set<string>>
+  committedMessageImports(userId: string, connectionId: string, hashes: string[]): Promise<Map<string, string>>
   stageReceipt(userId: string, connectionId: string, messageHash: string): Promise<{ id: string; status: 'staged' | 'committed' }>
   confirmReceipt(userId: string, receiptId: string, importSessionId: string, committedAt: string): Promise<boolean>
   deleteConnection(userId: string): Promise<void>

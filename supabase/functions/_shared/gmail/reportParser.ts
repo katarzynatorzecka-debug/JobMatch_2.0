@@ -1,4 +1,4 @@
-import PostalMime from 'postal-mime'
+import PostalMime from 'npm:postal-mime@2.7.5'
 import { normalizeRocketJobsSourceUrl } from '../rocketJobsSourceUrl.ts'
 import { GMAIL_MAX_MESSAGE_BYTES, GMAIL_ROCKETJOBS_DEFAULT_SENDER, type ImportedJobOffer, type ImportWarning } from './contracts.ts'
 import { GmailEdgeError } from './errors.ts'

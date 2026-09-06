@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 const state = vi.hoisted(() => ({ client: null as any }))
 vi.mock('../supabase/client', () => ({ get supabase() { return state.client } }))
-import { enqueueAndProcessAnalysis } from './analysisQueueService'
+import { enqueueAndProcessAnalysis, prepareHardFilterForAnalysis } from './analysisQueueService'
+const validProfile = { primaryRole: 'Automation Specialist', alternativeRoles: [], experienceSummary: 'Experienced automation specialist with practical delivery experience.', skills: ['Automation'], acceptedWorkModes: [], acceptedContractTypes: [], acceptedLocations: [], minimumSalary: null, studentStatusAvailable: false, excludedContractTypes: [], excludedWorkModes: [], excludedKeywords: [], requiresStudentStatus: false, additionalMustHave: '', additionalBlacklist: '', priorities: ['experience', 'skills', 'preferences', 'growth'] as const }
 
 describe('analysis queue service', () => {
   it('enqueues before any processor invocation', async () => {
@@ -50,5 +51,16 @@ describe('analysis queue service', () => {
     }
 
     await expect(enqueueAndProcessAnalysis(repository as never, 'offer-1')).rejects.toMatchObject({ code: 'EDGE_FUNCTION_HTTP_ERROR' })
+  })
+
+  it('persists a missing Hard Filter before queuing an individual offer', async () => {
+    const persistHardFilterBatch = vi.fn(async () => ({ profileVersionId: 'profile-v1', hardFilterResultIds: ['filter-1'] }))
+    const repository = {
+      loadOfferDetails: vi.fn(async () => ({ offer: { id: 'offer-123', title: 'Automation Specialist', company: 'Example', location: null }, currentVersion: { id: 'version-1', offerData: { missingFields: [], warnings: [] } }, listItem: { hardFilter: null } })),
+      loadWorkspace: vi.fn(async () => ({ profile: { profileData: validProfile } })),
+      persistHardFilterBatch,
+    }
+    await expect(prepareHardFilterForAnalysis(repository as never, 'offer-123')).resolves.toBe('needs_review')
+    expect(persistHardFilterBatch).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.objectContaining({ jobOfferId: 'offer-123', offerVersionId: 'version-1', status: 'needs_review' })] }))
   })
 })

@@ -198,7 +198,7 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
       const metadata = await mapWithConcurrency(result.ids.slice(0, GMAIL_MAX_RESULTS), (messageId) => dependencies.google.getMetadata(token, messageId))
       if (metadata.some((message, index) => message.id !== result.ids[index])) throw new GmailEdgeError('GMAIL_MESSAGE_INVALID', 422)
       const hashes = await Promise.all(metadata.map((message) => hmacSha256Hex(message.id, dependencies.config.messageHmacKey)))
-      const committed = await dependencies.store.committedMessageHashes(userId, connection.id, hashes)
+      const committed = await dependencies.store.committedMessageImports(userId, connection.id, hashes)
       const messages = await Promise.all(metadata.map(async (message, index) => ({
         messageRef: await createMessageRef(message.id, userId, connection.id, dependencies.config.tokenKeys),
         senderLabel: senderLabel(message.from),
@@ -206,6 +206,7 @@ export function createGmailService(dependencies: GmailServiceDependencies) {
         receivedAt: message.receivedAt,
         sizeEstimate: message.sizeEstimate,
         alreadyImported: committed.has(hashes[index]),
+        ...(committed.get(hashes[index]) ? { importSessionId: committed.get(hashes[index]) } : {}),
       })))
       return jsonResponse({ messages, ...(result.nextPageToken ? { nextPageToken: result.nextPageToken } : {}) }, gmailCorsHeaders(innerRequest, dependencies.config.allowedOrigins))
     })

@@ -68,8 +68,8 @@ class FakeStore implements GmailStore {
     if (refreshToken && this.connection) this.connection.refreshToken = refreshToken
   }
 
-  async committedMessageHashes(_userId: string, _connectionId: string, hashes: string[]) {
-    return new Set(hashes.filter((hash) => this.committed.has(hash)))
+  async committedMessageImports(_userId: string, _connectionId: string, hashes: string[]) {
+    return new Map(hashes.filter((hash) => this.committed.has(hash)).map((hash) => [hash, importSessionId]))
   }
 
   async stageReceipt(_userId: string, _connectionId: string, messageHash: string) {
@@ -224,6 +224,7 @@ describe('Gmail Edge Function service', () => {
     expect(google.metadataCalls).toHaveLength(7)
     expect(google.maxMetadata).toBeLessThanOrEqual(5)
     expect(payload.messages[0].alreadyImported).toBe(true)
+    expect(payload.messages[0].importSessionId).toBe(importSessionId)
     expect(payload.messages[0]).not.toHaveProperty('id')
     expect(payload.messages[0]).not.toHaveProperty('sender')
     expect(JSON.stringify(payload)).not.toContain('message-1')

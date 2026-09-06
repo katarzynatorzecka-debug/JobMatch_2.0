@@ -64,7 +64,7 @@ function validMessagePreview(value: unknown): value is GmailEdgeMessagePreview {
   if (typeof value.senderLabel !== 'string' || value.senderLabel.length > 320) return false
   if (typeof value.subject !== 'string' || value.subject.length > 1000) return false
   if (typeof value.receivedAt !== 'string' || Number.isNaN(Date.parse(value.receivedAt))) return false
-  return Number.isInteger(value.sizeEstimate) && Number(value.sizeEstimate) >= 0 && typeof value.alreadyImported === 'boolean'
+  return Number.isInteger(value.sizeEstimate) && Number(value.sizeEstimate) >= 0 && typeof value.alreadyImported === 'boolean' && (value.importSessionId === undefined || (typeof value.importSessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.importSessionId)))
 }
 
 function parseSearch(data: unknown): GmailSearchEdgeResponse | null {
@@ -78,6 +78,7 @@ function parseSearch(data: unknown): GmailSearchEdgeResponse | null {
       receivedAt: message.receivedAt,
       sizeEstimate: message.sizeEstimate,
       alreadyImported: message.alreadyImported,
+      ...(typeof message.importSessionId === 'string' ? { importSessionId: message.importSessionId } : {}),
     })),
     ...(typeof data.nextPageToken === 'string' ? { nextPageToken: data.nextPageToken } : {}),
   }

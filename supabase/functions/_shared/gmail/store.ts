@@ -111,13 +111,13 @@ export function createPostgresGmailStore(sql: Sql): GmailStore {
       await sql`update private_gmail.connections set status = 'reauth_required', updated_at = now() where user_id = ${userId}::uuid`
     },
 
-    async committedMessageHashes(userId, connectionId, hashes) {
-      if (!hashes.length) return new Set<string>()
-      const rows = await sql<Array<{ message_hmac: string }>>`
-        select message_hmac from private_gmail.import_receipts
+    async committedMessageImports(userId, connectionId, hashes) {
+      if (!hashes.length) return new Map<string, string>()
+      const rows = await sql<Array<{ message_hmac: string; import_session_id: string }>>`
+        select message_hmac, import_session_id from private_gmail.import_receipts
         where user_id = ${userId}::uuid and connection_id = ${connectionId}::uuid and status = 'committed' and message_hmac in ${sql(hashes)}
       `
-      return new Set(rows.map((row) => row.message_hmac))
+      return new Map(rows.filter((row) => typeof row.import_session_id === 'string').map((row) => [row.message_hmac, row.import_session_id]))
     },
 
     async stageReceipt(userId, connectionId, messageHash) {
