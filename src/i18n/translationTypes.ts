@@ -261,6 +261,7 @@ export type TranslationParameters = {
   'offers.filters.sort': undefined
   'offers.sort.newest': undefined
   'offers.sort.oldest': undefined
+  'offers.sort.analysisNewest': undefined
   'offers.sort.scoreDesc': undefined
   'offers.sort.scoreAsc': undefined
   'offers.filters.hardFilter': undefined

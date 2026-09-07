@@ -261,6 +261,7 @@ export const enTranslations = {
   'offers.filters.sort': 'Sort',
   'offers.sort.newest': 'Newest report',
   'offers.sort.oldest': 'Oldest report',
+  'offers.sort.analysisNewest': 'Newest analysis',
   'offers.sort.scoreDesc': 'Highest reliable match',
   'offers.sort.scoreAsc': 'Lowest reliable score',
   'offers.filters.hardFilter': 'Hard Filter',

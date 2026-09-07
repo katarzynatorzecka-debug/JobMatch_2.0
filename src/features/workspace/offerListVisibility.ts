@@ -1,11 +1,11 @@
 import type { WorkspaceOfferListItem } from './workspaceRepository'
 
 export type OfferListFilter = 'all' | 'pass' | 'needs_review' | 'fail'
-export type OfferListSort = 'newest' | 'oldest' | 'score_desc' | 'score_asc'
+export type OfferListSort = 'newest' | 'oldest' | 'analysis_newest' | 'score_desc' | 'score_asc'
 export type OfferListScope = 'active' | 'historical'
 export type OfferListQuery = { scope: OfferListScope; hardFilter: OfferListFilter; sourceType: string; importSessionId: string; showExcluded: boolean }
 
-export const defaultOfferListQuery: OfferListQuery = { scope: 'active', hardFilter: 'all', sourceType: '', importSessionId: '', showExcluded: false }
+export const defaultOfferListQuery: OfferListQuery = { scope: 'active', hardFilter: 'pass', sourceType: '', importSessionId: '', showExcluded: false }
 
 export function offerImportDate(item: WorkspaceOfferListItem) {
   return item.latestImportSessionAt
@@ -31,6 +31,14 @@ function compareImportDate(left: WorkspaceOfferListItem, right: WorkspaceOfferLi
   return right.offer.id.localeCompare(left.offer.id)
 }
 
+function compareAnalysisDate(left: WorkspaceOfferListItem, right: WorkspaceOfferListItem) {
+  const leftTimestamp = left.analysisState.lastAnalysisAt ? Date.parse(left.analysisState.lastAnalysisAt) : Number.NaN
+  const rightTimestamp = right.analysisState.lastAnalysisAt ? Date.parse(right.analysisState.lastAnalysisAt) : Number.NaN
+  if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && leftTimestamp !== rightTimestamp) return rightTimestamp - leftTimestamp
+  if (Number.isFinite(leftTimestamp) !== Number.isFinite(rightTimestamp)) return Number.isFinite(leftTimestamp) ? -1 : 1
+  return compareImportDate(left, right)
+}
+
 function compareAnalysisQuality(left: WorkspaceOfferListItem, right: WorkspaceOfferListItem) {
   const rank = (item: WorkspaceOfferListItem) => item.analysis?.scoring?.reliability === 'standard' ? 2 : item.analysis?.scoring?.reliability === 'limited' ? 1 : 0
   const rankDifference = rank(right) - rank(left)
@@ -50,7 +58,7 @@ export function sortWorkspaceOffers(items: WorkspaceOfferListItem[], sort: Offer
       if (quality) return quality
       if (leftScore !== null && rightScore !== null && leftScore !== rightScore) return sort === 'score_desc' ? rightScore - leftScore : leftScore - rightScore
     }
-    const chronological = compareImportDate(left, right)
+    const chronological = sort === 'analysis_newest' ? compareAnalysisDate(left, right) : compareImportDate(left, right)
     return sort === 'oldest' ? -chronological : chronological
   })
 }

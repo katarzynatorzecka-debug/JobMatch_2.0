@@ -261,6 +261,7 @@ export const plTranslations = {
   'offers.filters.sort': 'Sortowanie',
   'offers.sort.newest': 'Najnowszy raport',
   'offers.sort.oldest': 'Najstarszy raport',
+  'offers.sort.analysisNewest': 'Najnowsza analiza',
   'offers.sort.scoreDesc': 'Najwyższe wiarygodne dopasowanie',
   'offers.sort.scoreAsc': 'Najniższy wiarygodny wynik',
   'offers.filters.hardFilter': 'Hard Filter',
