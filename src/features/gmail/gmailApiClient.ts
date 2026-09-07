@@ -32,8 +32,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 async function responseErrorCode(error: unknown, data: unknown): Promise<GmailClientErrorCode> {
   if (isObject(data) && typeof data.code === 'string') return data.code as GmailClientErrorCode
-  if (isObject(error) && error.context instanceof Response) {
-    const body: unknown = await error.context.clone().json().catch(() => null)
+  const context = isObject(error) ? error.context : null
+  if (context && typeof context === 'object' && 'clone' in context && typeof context.clone === 'function') {
+    const body: unknown = await (context as Response).clone().json().catch(() => null)
     if (isObject(body) && typeof body.code === 'string') return body.code as GmailClientErrorCode
   }
   return 'GMAIL_CLIENT_UNAVAILABLE'
@@ -41,7 +42,15 @@ async function responseErrorCode(error: unknown, data: unknown): Promise<GmailCl
 
 async function defaultInvoker(name: GmailFunctionName, body: Record<string, unknown>): Promise<GmailInvokeResult> {
   if (!supabase) throw new GmailApiError('GMAIL_CLIENT_UNAVAILABLE')
-  return supabase.functions.invoke(name, { body })
+  const { data: { session: storedSession } } = await supabase.auth.getSession()
+  if (!storedSession) throw new GmailApiError('GMAIL_PERMISSION_DENIED')
+  let session = storedSession
+  if (session.expires_at !== undefined && session.expires_at * 1000 <= Date.now() + 60_000) {
+    const { data, error } = await supabase.auth.refreshSession()
+    if (error || !data.session) throw new GmailApiError('GMAIL_PERMISSION_DENIED')
+    session = data.session
+  }
+  return supabase.functions.invoke(name, { body, headers: { Authorization: `Bearer ${session.access_token}` } })
 }
 
 function validConnection(value: unknown): value is GmailConnectionSummary {
