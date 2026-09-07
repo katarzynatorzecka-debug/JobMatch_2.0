@@ -6,6 +6,7 @@ const newsletterHeaderAndOffer = `Dopasowaliśmy raport do Twoich preferencji\n*
 const currentLayoutWithoutElapsedTime = `Dopasowaliśmy raport do Twoich preferencji\n**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPraca hybrydowa\nhttps://rocketjobs.pl/oferta-pracy/example-data`
 const reportWithLocationsAndUnavailableSalary = `96 · RocketJobs · Armiger sp. z o.o.\nKatowice\nCustomer Success Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/armiger-customer-success-manager-katowice\n\nKAMSOFT S.A.\nKatowice\nSenior Implementation Specialist\nBrak widełek wynagrodzenia\nPraca hybrydowa\nUmowa o pracę\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/kamsoft-senior-implementation-specialist-katowice\n\nEnergomix S.A.\nPłock\nProject Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/energomix-project-manager-plock\n\nEduGO P.S.A.\nSopot\nEducation Project Manager\nPraca hybrydowa\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-education-project-manager-sopot`
 const reportWithRocketJobsChrome = `96\nRocketJobs\nTMS Personal\nGdańsk\nBądź pierwszym aplikującym!\nRecruitment Coordinator\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/tms-personal-recruitment-coordinator-gdansk`
+const reportWithEmbeddedWorkMode = `EduGO P.S.A.\nSopot\nBądź pierwszym aplikującym!\nInstruktor / Instruktorka tworzenia gier - firma edukacyjna, 100% zdalnie\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-instruktor-tworzenia-gier-sopot`
 
 describe('parseRocketJobsReport', () => {
   it('extracts normalized offers from anonymous RocketJobs snippets', () => {
@@ -42,6 +43,12 @@ describe('parseRocketJobsReport', () => {
   it('rejects RocketJobs chrome and keeps a real role as the title', () => {
     expect(parseRocketJobsReport(reportWithRocketJobsChrome).offers).toMatchObject([
       { title: 'Recruitment Coordinator', company: 'TMS Personal', location: 'Gdańsk' },
+    ])
+  })
+
+  it('keeps a title containing embedded work mode separate from an unlisted city', () => {
+    expect(parseRocketJobsReport(reportWithEmbeddedWorkMode).offers).toMatchObject([
+      { title: 'Instruktor / Instruktorka tworzenia gier - firma edukacyjna', company: 'EduGO P.S.A.', location: 'Sopot', workMode: '100% zdalnie' },
     ])
   })
 

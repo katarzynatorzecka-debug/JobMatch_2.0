@@ -26,11 +26,16 @@ function firstUsefulLines(block: string) {
 }
 
 function isLocationLine(line: string) {
-  return cityLine.test(line) || /\b(zdaln|remote|hybryd|stacjon|onsite)/i.test(line)
+  return cityLine.test(line) || isWorkModeLine(line)
 }
 
 function isWorkModeLine(line: string) {
-  return /\b(zdaln|remote|hybryd|stacjon|onsite)/i.test(line)
+  return /^(?:praca\s+)?(?:(?:w pełni|100%)\s+)?(?:zdaln\w*|remote|hybryd\w*|stacjonarn\w*|onsite)[.!]?$/i.test(line.trim())
+}
+
+function embeddedWorkMode(line: string) {
+  const match = line.match(/(?:,|–|—)\s*((?:100%|w pełni)\s+zdaln\w*|praca\s+zdaln\w*|praca\s+hybryd\w*|praca\s+stacjonarn\w*)[.!]?$/i)
+  return match ? { title: line.slice(0, match.index).trim(), workMode: match[1].trim() } : null
 }
 
 function isContractLine(line: string) {
@@ -65,10 +70,12 @@ function offerFromBlock(block: string, sourceUrl: string): ImportedJobOffer | nu
   const companyIndex = resolvedCompany ? useful.indexOf(resolvedCompany) : -1
   const nextLine = useful[companyIndex + 1]
   const positionalLocation = nextLine && !isOfferMetadataLine(nextLine) && useful.some((line, index) => index > companyIndex + 1 && !isOfferMetadataLine(line)) ? nextLine : undefined
-  const resolvedTitle = title || useful.find((line, index) => index > companyIndex && line !== positionalLocation && line !== resolvedCompany && !isOfferMetadataLine(line))
+  const titleLine = title || useful.find((line, index) => index > companyIndex && line !== positionalLocation && line !== resolvedCompany && !isOfferMetadataLine(line))
+  const embedded = titleLine ? embeddedWorkMode(titleLine) : null
+  const resolvedTitle = embedded?.title || titleLine
   if (!resolvedTitle || !resolvedCompany) return null
   const location = field(block, ['lokalizacja', 'miejsce pracy', 'location']) || positionalLocation || useful.find(isLocationLine)
-  const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || useful.find(isWorkModeLine)
+  const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || embedded?.workMode || useful.find(isWorkModeLine)
   const contractType = field(block, ['rodzaj umowy', 'umowa', 'contract']) || useful.find(isContractLine)
   const salary = field(block, ['wynagrodzenie', 'widełki', 'salary']) || useful.find((line) => !unavailableSalaryLine.test(line) && isSalaryLine(line))
   const optionalFields: Array<[string, string | undefined]> = [['lokalizacja', location], ['tryb pracy', workMode], ['forma współpracy', contractType], ['wynagrodzenie', salary]]

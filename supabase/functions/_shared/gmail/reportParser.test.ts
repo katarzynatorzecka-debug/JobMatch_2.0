@@ -7,6 +7,7 @@ const newsletterHeaderAndOffer = '**Twoje preferencje: ai, Najlepiej dopasowane,
 const currentLayoutWithoutElapsedTime = '**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPraca hybrydowa\nhttps://rocketjobs.pl/oferta-pracy/example-data'
 const reportWithLocationsAndUnavailableSalary = '96 · RocketJobs · Armiger sp. z o.o.\nKatowice\nCustomer Success Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/armiger-customer-success-manager-katowice\n\nKAMSOFT S.A.\nKatowice\nSenior Implementation Specialist\nBrak widełek wynagrodzenia\nPraca hybrydowa\nUmowa o pracę\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/kamsoft-senior-implementation-specialist-katowice\n\nEnergomix S.A.\nPłock\nProject Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/energomix-project-manager-plock\n\nEduGO P.S.A.\nSopot\nEducation Project Manager\nPraca hybrydowa\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-education-project-manager-sopot'
 const reportWithRocketJobsChrome = '96\nRocketJobs\nTMS Personal\nGdańsk\nBądź pierwszym aplikującym!\nRecruitment Coordinator\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/tms-personal-recruitment-coordinator-gdansk'
+const reportWithEmbeddedWorkMode = 'EduGO P.S.A.\nSopot\nBądź pierwszym aplikującym!\nInstruktor / Instruktorka tworzenia gier - firma edukacyjna, 100% zdalnie\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-instruktor-tworzenia-gier-sopot'
 
 function raw(body: string, sender = 'no-reply@rocketjobs.pl', contentType = 'text/plain; charset=UTF-8') {
   const message = `From: RocketJobs <${sender}>\r\nSubject: Synthetic report\r\nContent-Type: ${contentType}\r\n\r\n${body}`
@@ -54,6 +55,12 @@ describe('server-side Gmail report parser', () => {
     const expected = parseRocketJobsReport(reportWithRocketJobsChrome)
     expect(parseRocketJobsText(reportWithRocketJobsChrome)).toEqual(expected)
     await expect(parseGmailRawReport(raw(reportWithRocketJobsChrome))).resolves.toMatchObject({ offers: expected.offers })
+  })
+
+  it('keeps embedded work mode separate from a Gmail offer title and location', async () => {
+    const expected = parseRocketJobsReport(reportWithEmbeddedWorkMode)
+    expect(parseRocketJobsText(reportWithEmbeddedWorkMode)).toEqual(expected)
+    await expect(parseGmailRawReport(raw(reportWithEmbeddedWorkMode))).resolves.toMatchObject({ offers: expected.offers })
   })
 
   it('rejects unsupported senders, invalid RAW and reports without supported offers', async () => {
