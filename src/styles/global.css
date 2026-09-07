@@ -767,3 +767,10 @@ legend { color: var(--jm-muted); }
   .language-toggle { padding-right: .24rem; padding-left: .24rem; }
   .language-toggle__option { min-width: 1.8rem; padding-right: .25rem; padding-left: .25rem; }
 }
+
+/* Score guidance on Offers; partial-analysis text remains visible. */
+.offer-score--low { border-color: #efb4ab; background: #ffe5df; color: #873d32; }
+.offer-score--fair { border-color: #9fc7e4; background: #e2f2ff; color: #1d5b91; }
+.offer-score--good { border-color: #a4d3ae; background: #dff4e3; color: #245d35; }
+.offer-score--excellent { position: relative; padding-left: 2.2rem; border-color: #185c37; background: #196b40; color: #ffffff; }
+.offer-score .offer-score__star { position: absolute; left: .65rem; top: .7rem; margin: 0; font-size: 1.2rem; line-height: 1.3; color: #ffe08a; }

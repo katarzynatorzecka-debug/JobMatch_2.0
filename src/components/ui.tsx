@@ -18,7 +18,14 @@ const statusLabelKeys = { worth: 'ui.status.worth', review: 'ui.status.review', 
 export function StatusBadge({ status }: { status: DemoStatus }) { const { t } = useI18n(); const meta = statusMeta[status]; return <span className={`status-badge status-badge--${status}`}><span aria-hidden="true">{meta.symbol}</span>{t(statusLabelKeys[status])}</span> }
 const hardFilterMeta: Record<HardFilterStatus, { labelKey: 'ui.hardFilter.pass' | 'ui.hardFilter.review' | 'ui.hardFilter.fail'; symbol: string }> = { pass: { labelKey: 'ui.hardFilter.pass', symbol: '✓' }, weak: { labelKey: 'ui.hardFilter.review', symbol: '?' }, fail: { labelKey: 'ui.hardFilter.fail', symbol: '×' } }
 export function HardFilterStatusBadge({ status }: { status: HardFilterStatus }) { const { t } = useI18n(); const meta = hardFilterMeta[status]; return <span className={`status-badge status-badge--hard-${status}`}><span aria-hidden="true">{meta.symbol}</span>{t(meta.labelKey)}</span> }
-export function ScoreBadge({ score, limited = false }: { score: number; limited?: boolean }) { const { t } = useI18n(); return <span className={`score-badge${limited ? ' score-badge--limited' : ''}`} aria-label={limited ? t('ui.score.partialAria', { score }) : t('ui.score.standardAria', { score })}><strong>{score}</strong><span>/100</span>{limited && <small>{t('ui.score.partialLabel')}</small>}</span> }
+export function ScoreBadge({ score, limited = false, offerSignal = false }: { score: number; limited?: boolean; offerSignal?: boolean }) {
+  const { t } = useI18n()
+  const band = score <= 30 ? 'low' : score <= 60 ? 'fair' : score <= 85 ? 'good' : 'excellent'
+  return <span className={`score-badge${limited ? ' score-badge--limited' : ''}${offerSignal ? ` offer-score offer-score--${band}` : ''}`} aria-label={limited ? t('ui.score.partialAria', { score }) : t('ui.score.standardAria', { score })}>
+    {offerSignal && band === 'excellent' && <span className="offer-score__star" aria-hidden="true">★</span>}
+    <strong>{score}</strong><span>/100</span>{limited && <small>{t('ui.score.partialLabel')}</small>}
+  </span>
+}
 export function SourceBadge({ state }: { state: DemoOffer['sourceState'] }) { const { t } = useI18n(); return <span className="source-badge"><span aria-hidden="true">▣</span>{state === 'fallback' ? t('ui.source.fallback') : t('ui.source.partial')}</span> }
 export function CategoryScore({ label, score }: { label: string; score: number | null }) { const { t } = useI18n(); if (score === null) return <div className="category-score"><div><span>{label}</span><strong>{t('ui.noData')}</strong></div></div>; return <div className="category-score"><div><span>{label}</span><strong>{score}/100</strong></div><div className="progress-track" aria-label={t('ui.score.progressAria', { label, score })}><span style={{ width: `${score}%` }} /></div></div> }
 const categoryLabelKeys = { experience: 'ui.analysis.category.experience', skills: 'ui.analysis.category.skills', preferences: 'ui.analysis.category.preferences', growth: 'ui.analysis.category.growth' } as const
