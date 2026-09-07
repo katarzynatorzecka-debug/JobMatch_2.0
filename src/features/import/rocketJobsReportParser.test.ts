@@ -5,6 +5,7 @@ const report = `RocketJobs\nExample Labs\nWarszawa\nData Automation Specialist\n
 const newsletterHeaderAndOffer = `Dopasowaliśmy raport do Twoich preferencji\n**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**96 · RocketJobs · Mamy dla Ciebie nowe oferty\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data`
 const currentLayoutWithoutElapsedTime = `Dopasowaliśmy raport do Twoich preferencji\n**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPraca hybrydowa\nhttps://rocketjobs.pl/oferta-pracy/example-data`
 const reportWithLocationsAndUnavailableSalary = `96 · RocketJobs · Armiger sp. z o.o.\nKatowice\nCustomer Success Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/armiger-customer-success-manager-katowice\n\nKAMSOFT S.A.\nKatowice\nSenior Implementation Specialist\nBrak widełek wynagrodzenia\nPraca hybrydowa\nUmowa o pracę\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/kamsoft-senior-implementation-specialist-katowice\n\nEnergomix S.A.\nPłock\nProject Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/energomix-project-manager-plock\n\nEduGO P.S.A.\nSopot\nEducation Project Manager\nPraca hybrydowa\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-education-project-manager-sopot`
+const reportWithRocketJobsChrome = `96\nRocketJobs\nTMS Personal\nGdańsk\nBądź pierwszym aplikującym!\nRecruitment Coordinator\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/tms-personal-recruitment-coordinator-gdansk`
 
 describe('parseRocketJobsReport', () => {
   it('extracts normalized offers from anonymous RocketJobs snippets', () => {
@@ -35,6 +36,12 @@ describe('parseRocketJobsReport', () => {
       { title: 'Senior Implementation Specialist', company: 'KAMSOFT S.A.', location: 'Katowice', workMode: 'Praca hybrydowa', contractType: 'Umowa o pracę', salary: undefined },
       { title: 'Project Manager', company: 'Energomix S.A.', location: 'Płock', salary: undefined },
       { title: 'Education Project Manager', company: 'EduGO P.S.A.', location: 'Sopot', workMode: 'Praca hybrydowa' },
+    ])
+  })
+
+  it('rejects RocketJobs chrome and keeps a real role as the title', () => {
+    expect(parseRocketJobsReport(reportWithRocketJobsChrome).offers).toMatchObject([
+      { title: 'Recruitment Coordinator', company: 'TMS Personal', location: 'Gdańsk' },
     ])
   })
 

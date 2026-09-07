@@ -3,7 +3,7 @@ import { htmlToSafeText, normalizedKey, normalizeWhitespace, stableOfferId } fro
 import { normalizeRocketJobsSourceUrl } from '../../../supabase/functions/_shared/rocketJobsSourceUrl'
 
 const sourceUrlPattern = /https?:\/\/(?:www\.)?rocketjobs\.pl\/oferta(?:-pracy)?\/[^\s)>]+/gi
-const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły)$/i
+const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|bądź pierwszym aplikującym!?|badz pierwszym aplikujacym!?|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły|\d+)$/i
 const metaLine = /^(lokalizacja|miejsce pracy|tryb pracy|forma pracy|rodzaj umowy|umowa|wynagrodzenie|widełki|firma|company|stanowisko|oferta|salary)\s*:/i
 const newsletterChromeLine = /(twoje preferencje|najlepiej dopasowane|mamy dla ciebie nowe oferty)/i
 const cityLine = /(białystok|bielsko-biała|bydgoszcz|bytom|częstochowa|gdańsk|gdynia|gliwice|gorzów|grudziądz|katowice|kielce|koszalin|kraków|legnica|lublin|łódź|olsztyn|opole|płock|poznań|radom|rzeszów|rybnik|sosnowiec|szczecin|tarnów|toruń|tychy|warszawa|włocławek|wrocław|zabrze|zielona góra)/i
