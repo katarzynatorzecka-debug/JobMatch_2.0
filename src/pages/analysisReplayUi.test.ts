@@ -10,7 +10,9 @@ describe('analysis replay UI', () => {
     expect(detailsSource).toContain('analysisReplayAction')
     expect(offersSource).not.toContain('forceReanalysis ? { forceReanalysis } : undefined')
     expect(detailsSource).not.toContain('forceReanalysis ? { forceReanalysis } : undefined')
-    expect(offersSource).toContain("disabled={action === 'current' || action === 'in_progress'}")
+    expect(offersSource).toContain("disabled={action === 'current' || action === 'in_progress' || pendingAnalysisOfferIds.has(item.offer.id)}")
+    expect(offersSource).toContain("button--analysis-current")
+    expect(offersSource).toContain("button--analysis-pending")
     expect(detailsSource).toContain("disabled={replayAction === 'current' || replayAction === 'in_progress'}")
   })
 

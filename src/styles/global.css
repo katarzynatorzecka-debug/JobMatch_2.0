@@ -267,6 +267,9 @@ p, li, .page-intro { color: var(--jm-muted); }
 .button--secondary { border-color: #efbd78; background: #fffdf9; color: #a75d12; }
 .button--secondary:hover:not(:disabled) { border-color: var(--jm-orange); background: var(--jm-orange-soft); color: #874809; box-shadow: 0 5px 12px rgb(246 163 58 / 14%); }
 .button:disabled { opacity: .52; }
+.button--analysis-pending:disabled { display: inline-flex; gap: .45rem; align-items: center; border-color: #b9d7ec; background: #dbeaf5; color: #315b7a; opacity: .72; }
+.button--analysis-current:disabled { border-color: #a9d6b5; background: rgb(218 243 225 / 65%); color: #287044; opacity: 1; }
+.button__spinner { width: .9rem; height: .9rem; border: 2px solid rgb(49 91 122 / 28%); border-top-color: currentColor; border-radius: 50%; animation: jobmatch-spin .75s linear infinite; }
 .text-link, .text-action { color: #b86410; text-underline-offset: 3px; }
 .text-link:hover, .text-action:hover { color: #874809; }
 
@@ -767,3 +770,10 @@ legend { color: var(--jm-muted); }
   .language-toggle { padding-right: .24rem; padding-left: .24rem; }
   .language-toggle__option { min-width: 1.8rem; padding-right: .25rem; padding-left: .25rem; }
 }
+
+/* Score guidance on Offers; partial-analysis text remains visible. */
+.offer-score--low { border-color: #efb4ab; background: #ffe5df; color: #873d32; }
+.offer-score--fair { border-color: #9fc7e4; background: #e2f2ff; color: #1d5b91; }
+.offer-score--good { border-color: #a4d3ae; background: #dff4e3; color: #245d35; }
+.offer-score--excellent { position: relative; padding-left: 2.2rem; border-color: #185c37; background: #196b40; color: #ffffff; }
+.offer-score .offer-score__star { position: absolute; left: .65rem; top: .7rem; margin: 0; font-size: 1.2rem; line-height: 1.3; color: #ffe08a; }
