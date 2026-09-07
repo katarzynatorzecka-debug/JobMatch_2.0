@@ -267,6 +267,9 @@ p, li, .page-intro { color: var(--jm-muted); }
 .button--secondary { border-color: #efbd78; background: #fffdf9; color: #a75d12; }
 .button--secondary:hover:not(:disabled) { border-color: var(--jm-orange); background: var(--jm-orange-soft); color: #874809; box-shadow: 0 5px 12px rgb(246 163 58 / 14%); }
 .button:disabled { opacity: .52; }
+.button--analysis-pending:disabled { display: inline-flex; gap: .45rem; align-items: center; border-color: #b9d7ec; background: #dbeaf5; color: #315b7a; opacity: .72; }
+.button--analysis-current:disabled { border-color: #a9d6b5; background: rgb(218 243 225 / 65%); color: #287044; opacity: 1; }
+.button__spinner { width: .9rem; height: .9rem; border: 2px solid rgb(49 91 122 / 28%); border-top-color: currentColor; border-radius: 50%; animation: jobmatch-spin .75s linear infinite; }
 .text-link, .text-action { color: #b86410; text-underline-offset: 3px; }
 .text-link:hover, .text-action:hover { color: #874809; }
 
