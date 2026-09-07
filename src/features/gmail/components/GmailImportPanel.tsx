@@ -236,7 +236,7 @@ export function GmailImportPanel({ mode, onReportsImported, client = gmailApiCli
         {searchState === 'idle' && <p className="gmail-empty-state">{t('import.gmail.searchInitial')}</p>}
         {searchState === 'ready' && messages.length === 0 && <p className="gmail-empty-state">{t('import.gmail.noResults')}</p>}
         {messages.length > 0 && <>
-          <div className="gmail-results-heading"><h3>{t('import.gmail.resultsTitle', { count: messages.length })}</h3><span>{t('import.gmail.availableCount', { count: availableCount })}</span></div>
+          <div className="gmail-results-heading"><div><h3>{t('import.gmail.resultsTitle', { count: messages.length })}</h3><span>{t('import.gmail.availableCount', { count: availableCount })}</span></div><PrimaryButton onClick={() => void importSelected()} disabled={!selectedCount || importing}>{importing ? t('import.gmail.importing') : t('import.gmail.importSelected')}</PrimaryButton></div>
           <ul className="gmail-message-list" aria-label={t('import.gmail.resultsAria')}>
             {messages.map((message) => <li key={message.messageRef} className={message.alreadyImported ? 'gmail-message gmail-message--imported' : 'gmail-message'}>
               <label className="gmail-message__selector"><input type="checkbox" checked={selected.has(message.messageRef)} disabled={message.alreadyImported || importing} onChange={() => toggleMessage(message)} aria-label={t('import.gmail.selectMessage', { subject: message.subject || t('import.gmail.noSubject') })} /><span /></label>

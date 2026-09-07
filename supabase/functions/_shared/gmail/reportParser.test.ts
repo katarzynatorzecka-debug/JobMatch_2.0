@@ -5,6 +5,7 @@ import { parseGmailRawReport, parseRocketJobsText } from './reportParser'
 const report = 'Example Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data'
 const newsletterHeaderAndOffer = '**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**96 · RocketJobs · Mamy dla Ciebie nowe oferty\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data'
 const currentLayoutWithoutElapsedTime = '**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPraca hybrydowa\nhttps://rocketjobs.pl/oferta-pracy/example-data'
+const reportWithLocationsAndUnavailableSalary = '96 · RocketJobs · Armiger sp. z o.o.\nKatowice\nCustomer Success Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/armiger-customer-success-manager-katowice\n\nKAMSOFT S.A.\nKatowice\nSenior Implementation Specialist\nBrak widełek wynagrodzenia\nPraca hybrydowa\nUmowa o pracę\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/kamsoft-senior-implementation-specialist-katowice\n\nEnergomix S.A.\nPłock\nProject Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/energomix-project-manager-plock\n\nEduGO P.S.A.\nSopot\nEducation Project Manager\nPraca hybrydowa\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-education-project-manager-sopot'
 
 function raw(body: string, sender = 'no-reply@rocketjobs.pl', contentType = 'text/plain; charset=UTF-8') {
   const message = `From: RocketJobs <${sender}>\r\nSubject: Synthetic report\r\nContent-Type: ${contentType}\r\n\r\n${body}`
@@ -40,6 +41,12 @@ describe('server-side Gmail report parser', () => {
     expect(parseRocketJobsText(currentLayoutWithoutElapsedTime).offers).toMatchObject([{ title: 'Data Analyst', company: 'Example Labs' }])
     const parsed = await parseGmailRawReport(raw(currentLayoutWithoutElapsedTime))
     expect(parsed.offers).toMatchObject([{ title: 'Data Analyst', company: 'Example Labs' }])
+  })
+
+  it('keeps Gmail title, company, location and optional fields aligned for current report cards', async () => {
+    const expected = parseRocketJobsReport(reportWithLocationsAndUnavailableSalary)
+    expect(parseRocketJobsText(reportWithLocationsAndUnavailableSalary)).toEqual(expected)
+    await expect(parseGmailRawReport(raw(reportWithLocationsAndUnavailableSalary))).resolves.toMatchObject({ offers: expected.offers })
   })
 
   it('rejects unsupported senders, invalid RAW and reports without supported offers', async () => {

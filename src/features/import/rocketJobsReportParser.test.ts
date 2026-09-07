@@ -4,6 +4,7 @@ import { parseRocketJobsReport } from './rocketJobsReportParser'
 const report = `RocketJobs\nExample Labs\nWarszawa\nData Automation Specialist\n120–150 PLN/h\nPraca zdalna\nUmowa B2B\nPozostało: 5 dni\nhttps://rocketjobs.pl/oferta/example-data-automation\n\nNorthstar\nGdańsk\nProduct Analyst\nPraca hybrydowa\nUmowa o pracę\nPozostało: 3 dni\nhttps://rocketjobs.pl/oferta/northstar-product-analyst`
 const newsletterHeaderAndOffer = `Dopasowaliśmy raport do Twoich preferencji\n**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**96 · RocketJobs · Mamy dla Ciebie nowe oferty\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/example-data`
 const currentLayoutWithoutElapsedTime = `Dopasowaliśmy raport do Twoich preferencji\n**Twoje preferencje: ai, Najlepiej dopasowane, Od wczoraj**\nhttps://rocketjobs.pl/oferta-pracy/newsletter-header\n\nExample Labs\nWarszawa\nData Analyst\nPraca hybrydowa\nhttps://rocketjobs.pl/oferta-pracy/example-data`
+const reportWithLocationsAndUnavailableSalary = `96 · RocketJobs · Armiger sp. z o.o.\nKatowice\nCustomer Success Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/armiger-customer-success-manager-katowice\n\nKAMSOFT S.A.\nKatowice\nSenior Implementation Specialist\nBrak widełek wynagrodzenia\nPraca hybrydowa\nUmowa o pracę\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/kamsoft-senior-implementation-specialist-katowice\n\nEnergomix S.A.\nPłock\nProject Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/energomix-project-manager-plock\n\nEduGO P.S.A.\nSopot\nEducation Project Manager\nPraca hybrydowa\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-education-project-manager-sopot`
 
 describe('parseRocketJobsReport', () => {
   it('extracts normalized offers from anonymous RocketJobs snippets', () => {
@@ -26,6 +27,15 @@ describe('parseRocketJobsReport', () => {
 
   it('parses the current compact card layout without an elapsed-time line', () => {
     expect(parseRocketJobsReport(currentLayoutWithoutElapsedTime).offers).toMatchObject([{ title: 'Data Analyst', company: 'Example Labs' }])
+  })
+
+  it('keeps city names and unavailable-salary copy out of titles while preserving their fields', () => {
+    expect(parseRocketJobsReport(reportWithLocationsAndUnavailableSalary).offers).toMatchObject([
+      { title: 'Customer Success Manager', company: 'Armiger sp. z o.o.', location: 'Katowice', salary: undefined },
+      { title: 'Senior Implementation Specialist', company: 'KAMSOFT S.A.', location: 'Katowice', workMode: 'Praca hybrydowa', contractType: 'Umowa o pracę', salary: undefined },
+      { title: 'Project Manager', company: 'Energomix S.A.', location: 'Płock', salary: undefined },
+      { title: 'Education Project Manager', company: 'EduGO P.S.A.', location: 'Sopot', workMode: 'Praca hybrydowa' },
+    ])
   })
 
   it('repairs legacy report URLs before storing an offer', () => {

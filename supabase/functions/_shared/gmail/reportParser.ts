@@ -7,6 +7,8 @@ const sourceUrlPattern = /https?:\/\/(?:www\.)?rocketjobs\.pl\/oferta(?:-pracy)?
 const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły)$/i
 const metaLine = /^(lokalizacja|miejsce pracy|tryb pracy|forma pracy|rodzaj umowy|umowa|wynagrodzenie|widełki|firma|company|stanowisko|oferta|salary)\s*:/i
 const newsletterChromeLine = /(twoje preferencje|najlepiej dopasowane|mamy dla ciebie nowe oferty)/i
+const cityLine = /(białystok|bielsko-biała|bydgoszcz|bytom|częstochowa|gdańsk|gdynia|gliwice|gorzów|grudziądz|katowice|kielce|koszalin|kraków|legnica|lublin|łódź|olsztyn|opole|płock|poznań|radom|rzeszów|rybnik|sosnowiec|szczecin|tarnów|toruń|tychy|warszawa|włocławek|wrocław|zabrze|zielona góra)/i
+const unavailableSalaryLine = /^(brak\s+)?(widełek|widelek)(\s+wynagrodzenia)?$|^brak\s+(widełek|widelek|wynagrodzenia|stawek)(\s+wynagrodzenia)?$/i
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\u00a0/g, ' ').replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
@@ -32,7 +34,7 @@ function stableOfferId(title: string, company: string, sourceUrl?: string) {
 }
 
 function cleanLine(line: string) {
-  return line.replace(/\s*\(https?:\/\/[^)]+\)\s*/gi, '').replace(/^[-–—•·]\s*/, '').trim()
+  return line.replace(/\s*\(https?:\/\/[^)]+\)\s*/gi, '').replace(/^[-–—•·]\s*/, '').replace(/^\d+\s*(?:[·•]\s*)?rocketjobs(?:\s*[·•]\s*)?/i, '').trim()
 }
 
 function field(block: string, labels: string[]) {
@@ -45,6 +47,30 @@ function firstUsefulLines(block: string) {
   return block.split('\n').map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !newsletterChromeLine.test(line) && !metaLine.test(line) && !/^https?:\/\//i.test(line) && !/^\[image:/i.test(line))
 }
 
+function isLocationLine(line: string) {
+  return cityLine.test(line) || /\b(zdaln|remote|hybryd|stacjon|onsite)/i.test(line)
+}
+
+function isWorkModeLine(line: string) {
+  return /\b(zdaln|remote|hybryd|stacjon|onsite)/i.test(line)
+}
+
+function isContractLine(line: string) {
+  return /\b(b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt)/i.test(line)
+}
+
+function isSalaryLine(line: string) {
+  return unavailableSalaryLine.test(line) || /(pln|zł|eur|usd|netto|brutto)\b/i.test(line)
+}
+
+function isElapsedLine(line: string) {
+  return /^(pozosta[lł]o|dodano|wygasa|opublikowano)\b/i.test(line)
+}
+
+function isOfferMetadataLine(line: string) {
+  return isLocationLine(line) || isWorkModeLine(line) || isContractLine(line) || isSalaryLine(line) || isElapsedLine(line)
+}
+
 function hasCompactOfferCard(useful: string[], elapsedIndex: number) {
   if (elapsedIndex >= 2 && useful.slice(Math.max(0, elapsedIndex - 4), elapsedIndex).length >= 2) return true
   return useful.length >= 3 && useful.some((line) => /(zdaln|remote|hybryd|stacjon|b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt|pln|zł|eur|usd|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line))
@@ -54,16 +80,18 @@ function offerFromBlock(block: string, sourceUrl: string): ImportedJobOffer | nu
   const title = field(block, ['stanowisko', 'oferta', 'job title', 'position'])
   const company = field(block, ['firma', 'company', 'pracodawca'])
   const useful = firstUsefulLines(block)
-  const elapsedIndex = useful.findIndex((line) => /^(pozosta[lł]o|dodano|wygasa|opublikowano)\b/i.test(line))
+  const elapsedIndex = useful.findIndex(isElapsedLine)
   if (!(title && company) && !hasCompactOfferCard(useful, elapsedIndex)) return null
-  const cardLines = elapsedIndex >= 5 ? useful.slice(Math.max(0, elapsedIndex - 7), elapsedIndex) : useful
-  const resolvedCompany = company || cardLines[0] || useful[0]
-  const resolvedTitle = title || useful.find((line, index) => index > 0 && line !== resolvedCompany && !/(zdaln|remote|hybryd|stacjon|b2b|umowa|pln|zł|eur|usd|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line)) || cardLines[2]
+  const resolvedCompany = company || useful.find((line) => !isOfferMetadataLine(line))
+  const companyIndex = resolvedCompany ? useful.indexOf(resolvedCompany) : -1
+  const nextLine = useful[companyIndex + 1]
+  const positionalLocation = nextLine && !isOfferMetadataLine(nextLine) && useful.some((line, index) => index > companyIndex + 1 && !isOfferMetadataLine(line)) ? nextLine : undefined
+  const resolvedTitle = title || useful.find((line, index) => index > companyIndex && line !== positionalLocation && line !== resolvedCompany && !isOfferMetadataLine(line))
   if (!resolvedTitle || !resolvedCompany) return null
-  const location = field(block, ['lokalizacja', 'miejsce pracy', 'location']) || cardLines[1] || useful.find((line) => /(kraków|warszaw|gdańsk|wrocław|poznań|łódź|zdaln|remote|hybryd)/i.test(line))
-  const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || cardLines.find((line) => /(zdaln|remote|hybryd|stacjon)/i.test(line))
-  const contractType = field(block, ['rodzaj umowy', 'umowa', 'contract']) || cardLines.find((line) => /(b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt)/i.test(line))
-  const salary = field(block, ['wynagrodzenie', 'widełki', 'salary']) || cardLines.find((line) => /(pln|zł|eur|usd|netto|brutto)\b/i.test(line))
+  const location = field(block, ['lokalizacja', 'miejsce pracy', 'location']) || positionalLocation || useful.find(isLocationLine)
+  const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || useful.find(isWorkModeLine)
+  const contractType = field(block, ['rodzaj umowy', 'umowa', 'contract']) || useful.find(isContractLine)
+  const salary = field(block, ['wynagrodzenie', 'widełki', 'salary']) || useful.find((line) => !unavailableSalaryLine.test(line) && isSalaryLine(line))
   const optionalFields: Array<[string, string | undefined]> = [['lokalizacja', location], ['tryb pracy', workMode], ['forma współpracy', contractType], ['wynagrodzenie', salary]]
   const missingFields = optionalFields.filter(([, value]) => !value).map(([name]) => name)
   const warning = missingFields.length ? `Brak danych: ${missingFields.join(', ')}.` : undefined

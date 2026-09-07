@@ -212,6 +212,7 @@ body, .app-shell { min-height: 100vh; background: linear-gradient(180deg, #fffdf
 .import-source-card--expanded { grid-column: 1 / -1; }
 .gmail-search-panel { display: grid; gap: var(--jm-space-4); padding-top: var(--jm-space-4); margin-top: var(--jm-space-2); border-top: 1px solid #cfe0ec; }
 .gmail-search-heading, .gmail-results-heading, .gmail-results-actions { display: flex; justify-content: space-between; gap: var(--jm-space-3); align-items: center; }
+.gmail-results-heading > div { display: grid; gap: .15rem; }
 .gmail-search-heading h3, .gmail-results-heading h3 { margin: 0 0 .25rem; color: var(--jm-navy); font-size: 1.05rem; }
 .gmail-search-heading p, .gmail-results-heading span, .gmail-results-actions span { margin: 0; color: var(--jm-muted); font-size: .85rem; }
 .gmail-preset { padding: .45rem .7rem; border: 1px solid #b9d9ef; border-radius: 999px; background: #fff; color: #255c91; cursor: pointer; font: inherit; font-size: .78rem; font-weight: 800; }
