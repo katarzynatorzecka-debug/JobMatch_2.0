@@ -5,6 +5,7 @@ import { GmailEdgeError } from './errors.ts'
 
 const sourceUrlPattern = /https?:\/\/(?:www\.)?rocketjobs\.pl\/oferta(?:-pracy)?\/[^\s)>]+/gi
 const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|bądź pierwszym aplikującym!?|badz pierwszym aplikujacym!?|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły|\d+)$/i
+const marketingLine = /(zbuduj swoją karierę|zbuduj swoja kariere|rozwijaj zespół|rozwijaj zespol|sprawdź nowe oferty pracy|sprawdz nowe oferty pracy)/i
 const metaLine = /^(lokalizacja|miejsce pracy|tryb pracy|forma pracy|rodzaj umowy|umowa|wynagrodzenie|widełki|firma|company|stanowisko|oferta|salary)\s*:/i
 const newsletterChromeLine = /(twoje preferencje|najlepiej dopasowane|mamy dla ciebie nowe oferty)/i
 const cityLine = /(białystok|bielsko-biała|bydgoszcz|bytom|częstochowa|gdańsk|gdynia|gliwice|gorzów|grudziądz|katowice|kielce|koszalin|kraków|legnica|lublin|łódź|olsztyn|opole|płock|poznań|radom|rzeszów|rybnik|sosnowiec|szczecin|tarnów|toruń|tychy|warszawa|włocławek|wrocław|zabrze|zielona góra)/i
@@ -44,7 +45,7 @@ function field(block: string, labels: string[]) {
 }
 
 function firstUsefulLines(block: string) {
-  return block.split('\n').map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !newsletterChromeLine.test(line) && !metaLine.test(line) && !/^https?:\/\//i.test(line) && !/^\[image:/i.test(line))
+  return block.split('\n').filter((line) => !/https?:\/\//i.test(line)).map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !marketingLine.test(line) && !newsletterChromeLine.test(line) && !metaLine.test(line) && !/^\[image:/i.test(line))
 }
 
 function isLocationLine(line: string) {
@@ -115,7 +116,7 @@ export function parseRocketJobsText(input: string) {
     const initialSourceUrl = normalizeRocketJobsSourceUrl(match[0])
     const initialOffer = offerFromBlock(block, initialSourceUrl)
     if (!initialOffer) return null
-    const sourceUrl = normalizeRocketJobsSourceUrl(match[0], initialOffer.location)
+    const sourceUrl = normalizeRocketJobsSourceUrl(match[0])
     const offer = sourceUrl === initialSourceUrl ? initialOffer : offerFromBlock(block, sourceUrl)
     return offer ? { offer, key: normalizedKey(sourceUrl) } : null
   }).filter((value): value is { offer: ImportedJobOffer; key: string } => value !== null)

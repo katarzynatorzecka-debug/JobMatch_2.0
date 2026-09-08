@@ -7,6 +7,7 @@ const currentLayoutWithoutElapsedTime = `Dopasowaliśmy raport do Twoich prefere
 const reportWithLocationsAndUnavailableSalary = `96 · RocketJobs · Armiger sp. z o.o.\nKatowice\nCustomer Success Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/armiger-customer-success-manager-katowice\n\nKAMSOFT S.A.\nKatowice\nSenior Implementation Specialist\nBrak widełek wynagrodzenia\nPraca hybrydowa\nUmowa o pracę\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/kamsoft-senior-implementation-specialist-katowice\n\nEnergomix S.A.\nPłock\nProject Manager\nBrak widełek wynagrodzenia\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/energomix-project-manager-plock\n\nEduGO P.S.A.\nSopot\nEducation Project Manager\nPraca hybrydowa\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-education-project-manager-sopot`
 const reportWithRocketJobsChrome = `96\nRocketJobs\nTMS Personal\nGdańsk\nBądź pierwszym aplikującym!\nRecruitment Coordinator\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/tms-personal-recruitment-coordinator-gdansk`
 const reportWithEmbeddedWorkMode = `EduGO P.S.A.\nSopot\nBądź pierwszym aplikującym!\nInstruktor / Instruktorka tworzenia gier - firma edukacyjna, 100% zdalnie\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta-pracy/edugo-instruktor-tworzenia-gier-sopot`
+const multiLocationCard = `Tagvenue <https://rocket.pl/?utm_source=internal-email>\nAdmind\nKatowice\nZbuduj swoją karierę od Doradcy do Managera Sprzedaży\nSystems & Automation Specialist\nPraca w pełni zdalna\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta/admind-systems-automation-specialist-krakow-bi-data`
 
 describe('parseRocketJobsReport', () => {
   it('extracts normalized offers from anonymous RocketJobs snippets', () => {
@@ -52,13 +53,19 @@ describe('parseRocketJobsReport', () => {
     ])
   })
 
+  it('keeps a multi-location source URL canonical and ignores marketing or linked card chrome', () => {
+    expect(parseRocketJobsReport(multiLocationCard).offers).toMatchObject([
+      { title: 'Systems & Automation Specialist', company: 'Admind', location: 'Katowice', sourceUrl: 'https://rocketjobs.pl/oferta-pracy/admind-systems-automation-specialist-krakow-bi-data' },
+    ])
+  })
+
   it('repairs legacy report URLs before storing an offer', () => {
     const parsed = parseRocketJobsReport(`Example Labs\nWarszawa\nSEO Specialist\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta/example-seo?utm_campaign=no-category?utm_source=mail`)
     expect(parsed.offers[0]?.sourceUrl).toBe('https://rocketjobs.pl/oferta-pracy/example-seo?utm_campaign=no-category&utm_source=mail')
   })
 
-  it('uses the recognized location when repairing a legacy report URL', () => {
+  it('preserves the source location when repairing a legacy report URL', () => {
     const parsed = parseRocketJobsReport(`Internet Plus\nPoznań\nMłodszy Specjalista SEO\nPozostało: 2 dni\nhttps://rocketjobs.pl/oferta/internet-plus-seo-kielce-marketing-marketing`)
-    expect(parsed.offers[0]?.sourceUrl).toBe('https://rocketjobs.pl/oferta-pracy/internet-plus-seo-poznan-marketing-marketing')
+    expect(parsed.offers[0]?.sourceUrl).toBe('https://rocketjobs.pl/oferta-pracy/internet-plus-seo-kielce-marketing-marketing')
   })
 })
