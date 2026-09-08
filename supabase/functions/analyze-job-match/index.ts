@@ -14,6 +14,7 @@ const model = 'gpt-5.4-mini'
 const promptVersion = 'jobmatch-job-match-v7-bilingual'
 const algorithmVersion = SCORING_ALGORITHM_VERSION
 const analysisContractVersion = 'jobmatch-analysis-contract-vnext-d'
+type LoadedOfferSource = OfferSourceSnapshot & { sourceFailureCode?: 'SOURCE_NOT_FOUND' }
 function response(body: Record<string, unknown>, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } }) }
 function failure(code: string, status: number, diagnostics: Record<string, unknown> = {}) { console.info(JSON.stringify({ diagnostic: code, httpStatus: status, ...diagnostics })); return response({ code, error: code }, status) }
 const categories = ['experience', 'skills', 'preferences', 'growth'] as const
@@ -22,12 +23,15 @@ function validPriorities(value: unknown): value is string[] {
   return Array.isArray(value) && value.length === 4 && new Set(value).size === 4 && value.every((item) => typeof item === 'string' && allowed.includes(item))
 }
 
-async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>) {
+async function loadPublicOfferSource(supabaseUrl: string, authorization: string, offer: Record<string, unknown>): Promise<LoadedOfferSource> {
   const sourceUrl = typeof offer.sourceUrl === 'string' ? normalizeRocketJobsSourceUrl(offer.sourceUrl, typeof offer.location === 'string' ? offer.location : undefined) : ''
   if (!sourceUrl) return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] }
   try {
     const source = await fetch(`${supabaseUrl}/functions/v1/fetch-offer-page`, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' }, body: JSON.stringify({ offerId: typeof offer.id === 'string' ? offer.id : 'workspace-offer', sourceUrl, offer }) })
-    if (!source.ok) return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'] }
+    if (!source.ok) {
+      const failure = await source.json().catch(() => null) as { code?: unknown } | null
+      return { sourceQuality: 'partial' as const, text: '', requirements: [], responsibilities: [], benefits: [], missingInformation: ['pełna treść oferty'], sourceFailureCode: failure?.code === 'SOURCE_NOT_FOUND' ? 'SOURCE_NOT_FOUND' : undefined }
+    }
     const data = await source.json() as Record<string, unknown>
     const description = typeof data.description === 'string' ? data.description : ''
     const requirements = Array.isArray(data.requirements) ? data.requirements.filter((item): item is string => typeof item === 'string') : []
@@ -80,6 +84,25 @@ async function loadOfferAnalysisContract(worker: ReturnType<typeof createClient>
     contractHash: typeof data.analysis_contract_hash === 'string' ? data.analysis_contract_hash : null,
     contractVersion: typeof data.analysis_contract_version === 'string' ? data.analysis_contract_version : null,
   }
+}
+
+async function loadHistoricalOfferSource(worker: ReturnType<typeof createClient>, userId: string, offerId: string, currentOfferVersionId: string) {
+  const { data, error } = await worker.from('offer_versions')
+    .select('id,analysis_source_snapshot,analysis_source_hash')
+    .eq('user_id', userId)
+    .eq('job_offer_id', offerId)
+    .neq('id', currentOfferVersionId)
+    .not('analysis_source_snapshot', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(12)
+  if (error) return null
+  for (const row of data ?? []) {
+    if (!isOfferSourceSnapshot(row.analysis_source_snapshot)) continue
+    const source = { ...row.analysis_source_snapshot, requirements: row.analysis_source_snapshot.requirements ?? [], responsibilities: row.analysis_source_snapshot.responsibilities ?? [], benefits: row.analysis_source_snapshot.benefits ?? [] }
+    if (!hasRunnableSourceContent(source)) continue
+    return { source, sourceHash: typeof row.analysis_source_hash === 'string' ? row.analysis_source_hash : await sourceHash(source) }
+  }
+  return null
 }
 
 async function persistOfferAnalysisContract(worker: ReturnType<typeof createClient>, userId: string, offerVersionId: string, source: OfferSourceSnapshot, rubric: OfferIntelligenceRubric) {
@@ -142,16 +165,28 @@ Deno.serve(async (request) => {
   const contract = await loadOfferAnalysisContract(worker, String(queueItem.user_id ?? ''), String(queueItem.offer_version_id ?? ''))
   if (contract.error) return await failQueue('WORKSPACE_ANALYSIS_CONTRACT_UNAVAILABLE')
   const refreshStoredSource = shouldRefreshOfferSourceSnapshot({ hasStoredSource: Boolean(contract.source), storedContractVersion: contract.contractVersion, activeContractVersion: analysisContractVersion })
-  let source: OfferSourceSnapshot = refreshStoredSource ? await loadPublicOfferSource(url, authorization, offer) : contract.source ?? await loadPublicOfferSource(url, authorization, offer)
+  const loadedSource: LoadedOfferSource = refreshStoredSource ? await loadPublicOfferSource(url, authorization, offer) : contract.source ?? await loadPublicOfferSource(url, authorization, offer)
+  let source: OfferSourceSnapshot = loadedSource
+  let sourceFailureCode = loadedSource.sourceFailureCode
   let nextSourceHash = await sourceHash(source)
   let rubric: OfferIntelligenceRubric | null = contract.contractVersion === analysisContractVersion && contract.rubric?.sourceSnapshotHash === nextSourceHash ? contract.rubric : null
   if (!rubric && source.sourceQuality !== 'full' && contract.source) {
     const refreshedSource = await loadPublicOfferSource(url, authorization, offer)
     const refreshedHash = await sourceHash(refreshedSource)
-    if (refreshedSource.sourceQuality === 'full') { source = refreshedSource; nextSourceHash = refreshedHash }
+    if (refreshedSource.sourceQuality === 'full') { source = refreshedSource; nextSourceHash = refreshedHash; sourceFailureCode = undefined }
+  }
+  if (!hasRunnableSourceContent(source)) {
+    const historicalSource = await loadHistoricalOfferSource(worker, String(queueItem.user_id ?? ''), String(queueItem.job_offer_id ?? ''), String(queueItem.offer_version_id ?? ''))
+    if (historicalSource) {
+      source = historicalSource.source
+      nextSourceHash = historicalSource.sourceHash
+      sourceFailureCode = undefined
+      rubric = null
+      console.info(JSON.stringify({ diagnostic: 'WORKSPACE_ANALYSIS_HISTORICAL_SOURCE_FALLBACK', queueItemId }))
+    }
   }
   if (!rubric) {
-    if (!hasRunnableSourceContent(source)) return await failQueue('WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
+    if (!hasRunnableSourceContent(source)) return await failQueue(sourceFailureCode === 'SOURCE_NOT_FOUND' ? 'WORKSPACE_ANALYSIS_SOURCE_UNAVAILABLE' : 'WORKSPACE_ANALYSIS_SOURCE_INCOMPLETE')
     let intelligenceResponse: Response | null = null
     const intelligenceSchemas = offerIntelligenceRequestSchemas(source)
     for (let schemaIndex = 0; schemaIndex < intelligenceSchemas.length; schemaIndex += 1) {

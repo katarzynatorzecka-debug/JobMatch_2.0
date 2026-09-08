@@ -72,6 +72,14 @@ describe('AI criterion output contract', () => {
     expect(edgeSource.indexOf('WORKSPACE_ANALYSIS_RUBRIC_INSUFFICIENT')).toBeLessThan(edgeSource.indexOf('requestOpenAi(apiKey, attempt === 0 ? prompt : recoveryPrompt'))
   })
 
+  it('reuses a runnable historical source snapshot when the current offer URL is unavailable', () => {
+    expect(edgeSource).toContain('loadHistoricalOfferSource')
+    expect(edgeSource).toContain(".eq('job_offer_id', offerId)")
+    expect(edgeSource).toContain(".not('analysis_source_snapshot', 'is', null)")
+    expect(edgeSource).toContain('WORKSPACE_ANALYSIS_HISTORICAL_SOURCE_FALLBACK')
+    expect(edgeSource).toContain('hasRunnableSourceContent(source)')
+  })
+
   it('allows empty categories but never an entirely empty provider rubric', () => {
     expect(isAnalysisOutput({ criteria: { ...criteria, growth: [] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(true)
     expect(isAnalysisOutput({ criteria: { experience: [], skills: [], preferences: [], growth: [] }, summary: 'Podsumowanie.', strengths: [], risks: [], missingInformation: [] })).toBe(false)

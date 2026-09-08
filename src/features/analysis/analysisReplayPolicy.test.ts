@@ -22,6 +22,12 @@ describe('analysis replay policy', () => {
     expect(analysisReplayLabel('retry_failed', true)).toBe('Ponów analizę')
   })
 
+  it('does not replay an offer whose public source was confirmed unavailable', () => {
+    const action = analysisReplayAction({ hasLatestVersion: false, freshness: 'missing', queueStatus: 'failed', errorCode: 'WORKSPACE_ANALYSIS_SOURCE_UNAVAILABLE' })
+    expect(action).toBe('source_unavailable')
+    expect(analysisReplayLabel(action)).toBe('Źródło oferty nie jest już dostępne')
+  })
+
   it('localizes replay actions in English', () => {
     expect(analysisReplayLabel('current', false, 'en')).toBe('Result is up to date')
     expect(analysisReplayLabel('retry_failed', true, 'en')).toBe('Retry analysis')

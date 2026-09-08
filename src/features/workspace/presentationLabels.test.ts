@@ -58,6 +58,7 @@ describe('presentation labels', () => {
     expect(analysisStateLabel({ queueStatus: 'queued', errorCode: null, freshness: 'missing' })).toBe('Oczekuje na analizę')
     expect(analysisStateLabel({ queueStatus: 'processing', errorCode: null, freshness: 'missing' })).toBe('Analiza w toku')
     expect(analysisStateLabel({ queueStatus: null, errorCode: 'PROVIDER_TIMEOUT', freshness: 'current' })).toBe('Analiza nie powiodła się. Spróbuj ponownie.')
+    expect(analysisStateLabel({ queueStatus: 'failed', errorCode: 'WORKSPACE_ANALYSIS_SOURCE_UNAVAILABLE', freshness: 'missing' })).toBe('Źródło oferty nie jest już dostępne.')
     expect(analysisStateLabel({ queueStatus: null, errorCode: null, freshness: 'stale_profile' })).toBe('Wynik wymaga ponownej analizy')
   })
 

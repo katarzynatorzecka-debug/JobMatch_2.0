@@ -126,6 +126,7 @@ export function analysisFreshnessLabel(value: AnalysisFreshnessStatus, locale: L
 }
 
 export function analysisStateLabel(input: { queueStatus?: AnalysisQueueStatus | null; errorCode?: string | null; freshness: AnalysisFreshnessStatus }, locale: Locale = 'pl'): string {
+  if (input.errorCode === 'WORKSPACE_ANALYSIS_SOURCE_UNAVAILABLE') return translate(locale, 'domain.analysis.sourceUnavailable')
   if (input.errorCode) return translate(locale, 'domain.analysis.failed')
   if (input.queueStatus === 'queued') return translate(locale, 'domain.analysis.queued')
   if (input.queueStatus === 'processing') return translate(locale, 'domain.analysis.processing')

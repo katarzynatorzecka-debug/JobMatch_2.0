@@ -11,6 +11,7 @@ import scoringRecoveryR9 from '../../../supabase/migrations/20260902213911_scori
 import retryFailedQueue from '../../../supabase/migrations/20260904170000_retry_failed_analysis_queue.sql?raw'
 import bilingualQueue from '../../../supabase/migrations/20260905133731_bilingual_analysis_queue_v7.sql?raw'
 import retryFailedQueueFix from '../../../supabase/migrations/20260908120000_retry_failed_queue_unique_fix.sql?raw'
+import terminalMissingSource from '../../../supabase/migrations/20260908160000_terminal_missing_offer_source.sql?raw'
 
 describe('analysis identity migration', () => {
   it('adds identity storage and a lookup index without destructive operations', () => {
@@ -110,6 +111,12 @@ describe('analysis identity migration', () => {
     expect(retryFailedQueueFix).toContain("status = 'queued' and last_error is not null")
     expect(retryFailedQueueFix).toContain('for update')
     expect(retryFailedQueueFix).not.toMatch(/\b(truncate|delete)\b/i)
+  })
+
+  it('makes a confirmed missing public source terminal without deleting queue history', () => {
+    expect(terminalMissingSource).toContain("error_code in ('ANALYSIS_PROVIDER_RECEIPT_SAVE_FAILED', 'WORKSPACE_ANALYSIS_SOURCE_UNAVAILABLE')")
+    expect(terminalMissingSource).toContain("status = 'failed'")
+    expect(terminalMissingSource).not.toMatch(/\b(drop|truncate|delete)\b/i)
   })
 
   it('moves new and reusable queue identities to bilingual v7 without rewriting prior analysis history', () => {

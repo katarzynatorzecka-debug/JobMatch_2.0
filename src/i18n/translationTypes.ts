@@ -137,6 +137,7 @@ export type TranslationParameters = {
   'domain.analysis.missing': undefined
   'domain.analysis.stale': undefined
   'domain.analysis.failed': undefined
+  'domain.analysis.sourceUnavailable': undefined
   'domain.analysis.queued': undefined
   'domain.analysis.processing': undefined
   'domain.analysis.date': { date: string }
@@ -145,6 +146,7 @@ export type TranslationParameters = {
   'domain.analysis.replay.current': undefined
   'domain.analysis.replay.refresh': undefined
   'domain.analysis.replay.initial': undefined
+  'domain.analysis.replay.sourceUnavailable': undefined
   'domain.analysis.status.ready': undefined
   'domain.analysis.status.retry': undefined
   'domain.analysis.status.rejected': undefined
