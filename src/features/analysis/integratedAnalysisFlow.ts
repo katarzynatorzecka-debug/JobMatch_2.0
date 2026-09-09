@@ -68,12 +68,13 @@ export async function waitForIntegratedAnalysisCompletion(
   const maxAttempts = options.maxAttempts ?? 60
   const wait = options.wait ?? waitForQueueTransition
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const queueItem = (await repository.listActiveAnalysisQueueItems([offerId]))[0]
+    if (queueItem?.lastError) throw new Error(queueItem.lastError)
+    if (queueItem) { await wait(); continue }
     const details = await repository.loadOfferDetails(offerId)
     if (details.listItem?.analysis) return details.listItem.analysis
     if (details.analysisState.errorCode) throw new Error(details.analysisState.errorCode)
-    const status = details.analysisState.queueItem?.status
-    if (status !== 'queued' && status !== 'processing') throw new Error('ANALYSIS_QUEUE_NOT_COMPLETED')
-    await wait()
+    throw new Error('ANALYSIS_QUEUE_NOT_COMPLETED')
   }
   throw new Error('ANALYSIS_QUEUE_TIMEOUT')
 }

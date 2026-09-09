@@ -4,7 +4,7 @@ import { CURRENT_ANALYSIS_ALGORITHM_VERSION, CURRENT_ANALYSIS_MODEL_VERSION, CUR
 import type { AnalysisQueueItem, AnalysisVersion, HardFilterResultRecord, ImportOfferLink, OfferUserState, OfferVersion, ProfileVersion, WorkspaceImportSession, WorkspaceJobAnalysis, WorkspaceJobOffer, WorkspaceProfile } from '../../contracts/workspace'
 import { classifyDedupMatch } from './deduplication'
 import { projectWorkspaceOfferDetails, projectWorkspaceOfferList } from './workspaceReadModel'
-import { assertUniqueHardFilterItems, type HardFilterBatchInput, type HardFilterBatchResult, type ReactivateImportResult, type RevertImportResult, type WorkspaceImportInput, type WorkspaceImportResult, type WorkspaceOfferDetails, type WorkspaceRepository, type WorkspaceSnapshot } from './workspaceRepository'
+import { assertUniqueHardFilterItems, type ActiveAnalysisQueueItem, type HardFilterBatchInput, type HardFilterBatchResult, type ReactivateImportResult, type RevertImportResult, type WorkspaceImportInput, type WorkspaceImportResult, type WorkspaceOfferDetails, type WorkspaceRepository, type WorkspaceSnapshot } from './workspaceRepository'
 
 const KEY = 'jobmatch.demo.workspace.v1'
 type Store = { profile: WorkspaceProfile | null; activeImportSessionId: string | null; profileVersions: ProfileVersion[]; sessions: WorkspaceImportSession[]; offers: WorkspaceJobOffer[]; versions: OfferVersion[]; links: ImportOfferLink[]; states: OfferUserState[]; hardFilters: HardFilterResultRecord[]; queue: AnalysisQueueItem[]; workspaceAnalyses: WorkspaceJobAnalysis[]; analysisVersions: AnalysisVersion[]; results: Record<string, WorkspaceImportResult>; viewed: Array<{ userId: string; jobOfferId: string; viewedAt: string }> }
@@ -30,6 +30,12 @@ export function localWorkspaceRepository(userId = 'demo-user', storage: Pick<Sto
     async loadWorkspace() { return snapshot(read()) },
     async loadOfferList(includeHistorical = false) { return projectWorkspaceOfferList(snapshot(read()), includeHistorical) },
     async loadOfferDetails(offerId) { return projectWorkspaceOfferDetails(snapshot(read()), offerId) satisfies WorkspaceOfferDetails },
+    async listActiveAnalysisQueueItems(offerIds) {
+      const allowedOfferIds = offerIds?.length ? new Set(offerIds) : null
+      return read().queue
+        .filter((item) => (item.status === 'queued' || item.status === 'processing') && (!allowedOfferIds || allowedOfferIds.has(item.jobOfferId)))
+        .map((item): ActiveAnalysisQueueItem => ({ id: item.id, jobOfferId: item.jobOfferId, status: item.status, lastError: item.lastError }))
+    },
     async importReport(input) {
       const store = read(); const existing = store.results[input.idempotencyKey]
       if (existing) { const session = store.sessions.find((item) => item.id === existing.importSessionId); if (!session) throw new Error('WORKSPACE_IMPORT_NOT_FOUND'); if (session.status === 'reverted') { session.status = session.invalidCount > 0 ? 'partial' : 'active'; session.reactivatedAt = new Date().toISOString(); session.operationMetadata = { ...session.operationMetadata, reactivatedAt: session.reactivatedAt } }; store.activeImportSessionId = session.id; write(store); return { ...copy(existing), status: session.status === 'partial' ? 'partial' : 'active', idempotent: true } }

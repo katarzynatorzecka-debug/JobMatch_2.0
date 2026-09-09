@@ -83,6 +83,8 @@ export type WorkspaceOfferDetails = {
   listItem: WorkspaceOfferListItem | null
 }
 
+export type ActiveAnalysisQueueItem = Pick<AnalysisQueueItem, 'id' | 'jobOfferId' | 'status' | 'lastError'>
+
 export type HardFilterBatchItem = { jobOfferId: string; offerVersionId: string; status: 'pass' | 'needs_review' | 'fail'; reasons: unknown[]; missingInformation: unknown[]; checkedCriteria: unknown[] }
 export type HardFilterBatchInput = { profile: UserProfile; profileHash: string; algorithmVersion: string; items: HardFilterBatchItem[] }
 export type HardFilterBatchResult = { profileVersionId: string; hardFilterResultIds: string[] }
@@ -102,6 +104,7 @@ export interface WorkspaceRepository {
   loadWorkspace(): Promise<WorkspaceSnapshot>
   loadOfferList(includeHistorical?: boolean): Promise<WorkspaceOfferListItem[]>
   loadOfferDetails(offerId: string): Promise<WorkspaceOfferDetails>
+  listActiveAnalysisQueueItems(offerIds?: string[]): Promise<ActiveAnalysisQueueItem[]>
   setActiveImportSession(importSessionId: string | null): Promise<void>
   importReport(input: WorkspaceImportInput): Promise<WorkspaceImportResult>
   persistHardFilterBatch(input: HardFilterBatchInput): Promise<HardFilterBatchResult>

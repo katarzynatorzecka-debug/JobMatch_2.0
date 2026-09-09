@@ -25,7 +25,22 @@ export function OfferDetailsPage() {
   const { offerId } = useParams<{ offerId: string }>(); const { mode, session } = useAppMode(); const [details, setDetails] = useState<WorkspaceOfferDetails | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('')
   const load = useCallback(async (markViewed = false) => { if (!mode || !offerId) return; setLoading(true); setError(''); try { const repository = workspaceRepositoryFor(mode, session?.user); if (markViewed) await repository.markViewed(offerId); setDetails(await repository.loadOfferDetails(offerId)) } catch (cause) { setError(cause instanceof Error ? cause.message : t('details.error.loadFallback')) } finally { setLoading(false) } }, [mode, offerId, session])
   useEffect(() => { void load(true) }, [load])
-  useEffect(() => { if (!details?.analysisState.queueItem) return; const timer = window.setTimeout(() => void load(), 1500); return () => window.clearTimeout(timer) }, [details?.analysisState.queueItem, load])
+  const pollingQueueItem = details?.analysisState.queueItem
+  useEffect(() => {
+    if (!mode || !offerId || !pollingQueueItem || pollingQueueItem.lastError) return
+    let disposed = false
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const queueItem = (await workspaceRepositoryFor(mode, session?.user).listActiveAnalysisQueueItems([offerId]))[0]
+        if (disposed) return
+        if (!queueItem || queueItem.lastError) { await load(); return }
+        timer = window.setTimeout(() => void poll(), 3000)
+      } catch (cause) { if (!disposed) setError(cause instanceof Error ? cause.message : t('details.error.loadFallback')) }
+    }
+    timer = window.setTimeout(() => void poll(), 3000)
+    return () => { disposed = true; if (timer !== undefined) window.clearTimeout(timer) }
+  }, [mode, offerId, session, pollingQueueItem?.id, pollingQueueItem?.lastError, load, t])
   const mutate = async (action: (repository: ReturnType<typeof workspaceRepositoryFor>) => Promise<void>) => { if (!mode) return; try { await action(workspaceRepositoryFor(mode, session?.user)); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : t('details.error.saveFallback')) } }
   if (loading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">{t('details.loading')}</span></section>
   if (error) return <section className="page page--wide"><Alert title={t('details.error.title')} tone="warning">{error}</Alert><button className="button button--primary" onClick={() => void load()}>{t('details.action.retry')}</button></section>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { WorkspaceRepositoryError } from './workspaceRpc'
-import { mapHardFilter, mapOffer, mapState } from './supabaseWorkspaceRepository'
+import { mapActiveQueueItem, mapHardFilter, mapOffer, mapState } from './supabaseWorkspaceRepository'
 
 const id = '11111111-1111-4111-8111-111111111111'
 const otherId = '22222222-2222-4222-8222-222222222222'
@@ -22,5 +22,9 @@ describe('Supabase workspace row boundary', () => {
     const legacyOffer = { id, user_id: otherId, source_type: null, source_url: null, normalized_source_url: null, canonical_fingerprint: null, title: 'Legacy offer', company: 'Legacy company', location: null, current_data: {}, source_data: null, first_seen_at: null, last_seen_at: null, current_version_id: null, created_at: createdAt, updated_at: createdAt }
 
     expect(() => mapOffer(legacyOffer)).toThrow('Nieprawidłowy rekord workspace: job_offers (sourceType, firstSeenAt, lastSeenAt).')
+  })
+
+  it('maps the narrow active-queue projection without exposing the full queue row', () => {
+    expect(mapActiveQueueItem({ id, job_offer_id: otherId, status: 'processing', last_error: null })).toEqual({ id, jobOfferId: otherId, status: 'processing', lastError: null })
   })
 })

@@ -47,7 +47,30 @@ export function OffersPage() {
   const { mode, session } = useAppMode(); const [items, setItems] = useState<WorkspaceOfferListItem[]>([]); const [importSessions, setImportSessions] = useState<WorkspaceImportSession[]>([]); const [initialLoading, setInitialLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState(''); const [view, setView] = useState<OffersViewState>(readOffersView); const [continuingReport, setContinuingReport] = useState(false); const [continuationSummary, setContinuationSummary] = useState<{ queued: number; skipped: number; failed: number } | null>(null); const [pendingAnalysisOfferIds, setPendingAnalysisOfferIds] = useState<Set<string>>(() => new Set()); const hasLoaded = useRef(false)
   const load = useCallback(async (initial = false) => { if (!mode) return; if (initial) setInitialLoading(true); else setRefreshing(true); setError(''); try { const repository = workspaceRepositoryFor(mode, session?.user); const [nextItems, nextImportSessions] = await Promise.all([repository.loadOfferList(view.scope === 'historical'), repository.listImportSessions()]); setItems(nextItems); setImportSessions(nextImportSessions) } catch (cause) { setError(cause instanceof Error ? cause.message : t('offers.error.loadFallback')) } finally { if (initial) setInitialLoading(false); else setRefreshing(false) } }, [mode, session, view.scope])
   useEffect(() => { if (!mode) return; const initial = !hasLoaded.current; void load(initial).finally(() => { hasLoaded.current = true }) }, [mode, load])
-  useEffect(() => { const hasActiveQueue = items.some((item) => item.analysisState.queueItem?.status === 'queued' || item.analysisState.queueItem?.status === 'processing'); if (!hasActiveQueue) return; const timer = window.setTimeout(() => void load(), 1500); return () => window.clearTimeout(timer) }, [items, load])
+  const pollingOfferIds = items.filter((item) => (item.analysisState.queueItem?.status === 'queued' || item.analysisState.queueItem?.status === 'processing') && !item.analysisState.queueItem?.lastError).map((item) => item.offer.id).join(',')
+  useEffect(() => {
+    if (!mode || !pollingOfferIds) return
+    const offerIds = pollingOfferIds.split(',')
+    let disposed = false
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const queueItems = await workspaceRepositoryFor(mode, session?.user).listActiveAnalysisQueueItems(offerIds)
+        if (disposed) return
+        const byOfferId = new Map(queueItems.map((item) => [item.jobOfferId, item]))
+        const needsRefresh = offerIds.some((offerId) => !byOfferId.has(offerId) || Boolean(byOfferId.get(offerId)?.lastError))
+        if (needsRefresh) { await load(); return }
+        setItems((current) => current.map((item) => {
+          const queueItem = byOfferId.get(item.offer.id)
+          if (!queueItem || !item.analysisState.queueItem) return item
+          return { ...item, analysisState: { ...item.analysisState, queueItem: { ...item.analysisState.queueItem, status: queueItem.status, lastError: queueItem.lastError } } }
+        }))
+        timer = window.setTimeout(() => void poll(), 3000)
+      } catch (cause) { if (!disposed) setError(cause instanceof Error ? cause.message : t('offers.error.loadFallback')) }
+    }
+    timer = window.setTimeout(() => void poll(), 3000)
+    return () => { disposed = true; if (timer !== undefined) window.clearTimeout(timer) }
+  }, [mode, session, pollingOfferIds, load, t])
   useEffect(() => { try { window.sessionStorage.setItem(offersViewStorageKey, JSON.stringify(view)) } catch { /* session storage is optional */ } }, [view])
   const mutate = async (action: (repository: ReturnType<typeof workspaceRepositoryFor>) => Promise<void>) => { if (!mode) return; try { await action(workspaceRepositoryFor(mode, session?.user)); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : t('offers.error.saveFallback')) } }
   const queueLabel = (item: WorkspaceOfferListItem) => analysisStateLabel({ queueStatus: item.analysisState.queueItem?.status, errorCode: item.analysisState.errorCode, freshness: item.analysisState.freshness }, locale)

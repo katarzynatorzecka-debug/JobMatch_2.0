@@ -79,16 +79,19 @@ describe('integrated analysis batch', () => {
   it('waits for the durable queue projection instead of optimistically completing an authenticated tile', async () => {
     const analysis = { offerId: 'offer-1', overallScore: 82 }
     const loadOfferDetails = vi.fn()
-      .mockResolvedValueOnce({ listItem: null, analysisState: { queueItem: { status: 'processing' }, errorCode: null } })
       .mockResolvedValueOnce({ listItem: { analysis }, analysisState: { queueItem: null, errorCode: null } })
-    await expect(waitForIntegratedAnalysisCompletion({ loadOfferDetails } as never, 'offer-1', { maxAttempts: 2, wait: async () => undefined })).resolves.toEqual(analysis)
-    expect(loadOfferDetails).toHaveBeenCalledTimes(2)
+    const listActiveAnalysisQueueItems = vi.fn()
+      .mockResolvedValueOnce([{ id: 'queue-1', jobOfferId: 'offer-1', status: 'processing', lastError: null }])
+      .mockResolvedValueOnce([])
+    await expect(waitForIntegratedAnalysisCompletion({ loadOfferDetails, listActiveAnalysisQueueItems } as never, 'offer-1', { maxAttempts: 2, wait: async () => undefined })).resolves.toEqual(analysis)
+    expect(loadOfferDetails).toHaveBeenCalledTimes(1)
+    expect(listActiveAnalysisQueueItems).toHaveBeenCalledTimes(2)
   })
 
   it('returns a controlled timeout when a durable queue never completes, without requesting another analysis', async () => {
-    const loadOfferDetails = vi.fn(async () => ({ listItem: null, analysisState: { queueItem: { status: 'queued' }, errorCode: null } }))
-    await expect(waitForIntegratedAnalysisCompletion({ loadOfferDetails } as never, 'offer-1', { maxAttempts: 2, wait: async () => undefined })).rejects.toThrow('ANALYSIS_QUEUE_TIMEOUT')
-    expect(loadOfferDetails).toHaveBeenCalledTimes(2)
+    const listActiveAnalysisQueueItems = vi.fn(async () => [{ id: 'queue-1', jobOfferId: 'offer-1', status: 'queued', lastError: null }])
+    await expect(waitForIntegratedAnalysisCompletion({ listActiveAnalysisQueueItems } as never, 'offer-1', { maxAttempts: 2, wait: async () => undefined })).rejects.toThrow('ANALYSIS_QUEUE_TIMEOUT')
+    expect(listActiveAnalysisQueueItems).toHaveBeenCalledTimes(2)
   })
 
   it('uses one explicit override enqueue for a rejected offer and does not duplicate its local completion', async () => {
