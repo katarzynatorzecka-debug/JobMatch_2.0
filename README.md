@@ -2,6 +2,8 @@
 
 [Open the app](https://job-match-2-0.vercel.app)
 
+**Portfolio walkthrough:** on the opening screen, select **Try JobMatch**. It opens a local sample-data flow without registration, a real CV, or a Gmail connection.
+
 JobMatch is a portfolio project that supports a more structured job-search process. It helps turn a CV and job sources into a clear match analysis and an application-message draft.
 
 ## What it does
@@ -18,7 +20,7 @@ The analysis is a decision-support tool — it does not replace a candidate's ow
 
 ## Get started
 
-1. Create an account, sign in, or try the local demo mode.
+1. For a ready-to-use portfolio walkthrough, select **Try JobMatch** on the opening screen. It uses local sample data.
 2. Upload a CV or complete the profile manually.
 3. Choose one of three ways to import offers:
    - connect Gmail, search selected recruitment-email reports, and choose messages to import;
