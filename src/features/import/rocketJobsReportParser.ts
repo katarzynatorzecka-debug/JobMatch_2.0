@@ -1,14 +1,19 @@
 import type { ImportedJobOffer, ImportWarning } from '../../contracts/import'
 import { htmlToSafeText, normalizedKey, normalizeWhitespace, stableOfferId } from './importUtils'
+import { normalizeRocketJobsSourceUrl } from '../../../supabase/functions/_shared/rocketJobsSourceUrl'
 
 const sourceUrlPattern = /https?:\/\/(?:www\.)?rocketjobs\.pl\/oferta(?:-pracy)?\/[^\s)>]+/gi
-const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły)$/i
+const ignoredLines = /^(zobacz ofertę|aplikuj|sprawdź ofertę|bądź pierwszym aplikującym!?|badz pierwszym aplikujacym!?|rocketjobs|więcej ofert|job alert|unsubscribe|wypisz|poznaj szczegóły|\d+)$/i
+const marketingLine = /(zbuduj swoją karierę|zbuduj swoja kariere|rozwijaj zespół|rozwijaj zespol|sprawdź nowe oferty pracy|sprawdz nowe oferty pracy)/i
 const metaLine = /^(lokalizacja|miejsce pracy|tryb pracy|forma pracy|rodzaj umowy|umowa|wynagrodzenie|widełki|firma|company|stanowisko|oferta|salary)\s*:/i
+const newsletterChromeLine = /(twoje preferencje|najlepiej dopasowane|mamy dla ciebie nowe oferty)/i
+const cityLine = /(białystok|bielsko-biała|bydgoszcz|bytom|częstochowa|gdańsk|gdynia|gliwice|gorzów|grudziądz|katowice|kielce|koszalin|kraków|legnica|lublin|łódź|olsztyn|opole|płock|poznań|radom|rzeszów|rybnik|sosnowiec|szczecin|tarnów|toruń|tychy|warszawa|włocławek|wrocław|zabrze|zielona góra)/i
+const unavailableSalaryLine = /^(brak\s+)?(widełek|widelek)(\s+wynagrodzenia)?$|^brak\s+(widełek|widelek|wynagrodzenia|stawek)(\s+wynagrodzenia)?$/i
 
 type Candidate = { offer: ImportedJobOffer; key: string }
 
 function cleanLine(line: string) {
-  return line.replace(/\s*\(https?:\/\/[^)]+\)\s*/gi, '').replace(/^[-–—•·]\s*/, '').trim()
+  return line.replace(/\s*\(https?:\/\/[^)]+\)\s*/gi, '').replace(/^[-–—•·]\s*/, '').replace(/^\d+\s*(?:[·•]\s*)?rocketjobs(?:\s*[·•]\s*)?/i, '').trim()
 }
 
 function field(block: string, labels: string[]) {
@@ -18,23 +23,62 @@ function field(block: string, labels: string[]) {
 }
 
 function firstUsefulLines(block: string) {
-  return block.split('\n').map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !metaLine.test(line) && !/^https?:\/\//i.test(line) && !/^\[image:/i.test(line))
+  return block.split('\n').filter((line) => !/https?:\/\//i.test(line)).map(cleanLine).filter((line) => line.length >= 2 && line.length <= 180 && !ignoredLines.test(line) && !marketingLine.test(line) && !newsletterChromeLine.test(line) && !metaLine.test(line) && !/^\[image:/i.test(line))
+}
+
+function isLocationLine(line: string) {
+  return cityLine.test(line) || isWorkModeLine(line)
+}
+
+function isWorkModeLine(line: string) {
+  return /^(?:praca\s+)?(?:(?:w pełni|100%)\s+)?(?:zdaln\w*|remote|hybryd\w*|stacjonarn\w*|onsite)[.!]?$/i.test(line.trim())
+}
+
+function embeddedWorkMode(line: string) {
+  const match = line.match(/(?:,|–|—)\s*((?:100%|w pełni)\s+zdaln\w*|praca\s+zdaln\w*|praca\s+hybryd\w*|praca\s+stacjonarn\w*)[.!]?$/i)
+  return match ? { title: line.slice(0, match.index).trim(), workMode: match[1].trim() } : null
+}
+
+function isContractLine(line: string) {
+  return /\b(b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt)/i.test(line)
+}
+
+function isSalaryLine(line: string) {
+  return unavailableSalaryLine.test(line) || /(pln|zł|eur|usd|netto|brutto)\b/i.test(line)
+}
+
+function isElapsedLine(line: string) {
+  return /^(pozosta[lł]o|dodano|wygasa|opublikowano)\b/i.test(line)
+}
+
+function isOfferMetadataLine(line: string) {
+  return isLocationLine(line) || isWorkModeLine(line) || isContractLine(line) || isSalaryLine(line) || isElapsedLine(line)
+}
+
+function hasCompactOfferCard(useful: string[], elapsedIndex: number) {
+  if (elapsedIndex >= 2 && useful.slice(Math.max(0, elapsedIndex - 4), elapsedIndex).length >= 2) return true
+  return useful.length >= 3 && useful.some((line) => /(zdaln|remote|hybryd|stacjon|b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt|pln|zł|eur|usd|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line))
 }
 
 function offerFromBlock(block: string, sourceUrl: string): ImportedJobOffer | null {
   const title = field(block, ['stanowisko', 'oferta', 'job title', 'position'])
   const company = field(block, ['firma', 'company', 'pracodawca'])
   const useful = firstUsefulLines(block)
-  const elapsedIndex = useful.findIndex((line) => /^(pozostało|dodano|wygasa|opublikowano)\b/i.test(line))
-  const cardLines = elapsedIndex >= 5 ? useful.slice(Math.max(0, elapsedIndex - 7), elapsedIndex) : useful
+  const elapsedIndex = useful.findIndex(isElapsedLine)
+  if (!(title && company) && !hasCompactOfferCard(useful, elapsedIndex)) return null
   // The two RocketJobs report layouts use company → location → title in their compact card.
-  const resolvedCompany = company || cardLines[0] || useful[0]
-  const resolvedTitle = title || cardLines[2] || useful.find((line, index) => index > 0 && line !== resolvedCompany && !/(zdaln|hybryd|b2b|umowa|pln|zł|kraków|warszaw|gdańsk|wrocław|poznań|łódź)/i.test(line))
+  const resolvedCompany = company || useful.find((line) => !isOfferMetadataLine(line))
+  const companyIndex = resolvedCompany ? useful.indexOf(resolvedCompany) : -1
+  const nextLine = useful[companyIndex + 1]
+  const positionalLocation = nextLine && !isOfferMetadataLine(nextLine) && useful.some((line, index) => index > companyIndex + 1 && !isOfferMetadataLine(line)) ? nextLine : undefined
+  const titleLine = title || useful.find((line, index) => index > companyIndex && line !== positionalLocation && line !== resolvedCompany && !isOfferMetadataLine(line))
+  const embedded = titleLine ? embeddedWorkMode(titleLine) : null
+  const resolvedTitle = embedded?.title || titleLine
   if (!resolvedTitle || !resolvedCompany) return null
-  const location = field(block, ['lokalizacja', 'miejsce pracy', 'location']) || cardLines[1] || useful.find((line) => /(kraków|warszaw|gdańsk|wrocław|poznań|łódź|zdaln|remote|hybryd)/i.test(line))
-  const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || cardLines.find((line) => /(zdaln|remote|hybryd|stacjon)/i.test(line))
-  const contractType = field(block, ['rodzaj umowy', 'umowa', 'contract']) || cardLines.find((line) => /(b2b|umowa o pracę|uop|zlecenie|freelance|kontrakt)/i.test(line))
-  const salary = field(block, ['wynagrodzenie', 'widełki', 'salary']) || cardLines.find((line) => /(pln|zł|eur|usd|netto|brutto)\b/i.test(line))
+  const location = field(block, ['lokalizacja', 'miejsce pracy', 'location']) || positionalLocation || useful.find(isLocationLine)
+  const workMode = field(block, ['tryb pracy', 'forma pracy', 'work mode']) || embedded?.workMode || useful.find(isWorkModeLine)
+  const contractType = field(block, ['rodzaj umowy', 'umowa', 'contract']) || useful.find(isContractLine)
+  const salary = field(block, ['wynagrodzenie', 'widełki', 'salary']) || useful.find((line) => !unavailableSalaryLine.test(line) && isSalaryLine(line))
   const optionalFields: Array<[string, string | undefined]> = [['lokalizacja', location], ['tryb pracy', workMode], ['forma współpracy', contractType], ['wynagrodzenie', salary]]
   const missingFields = optionalFields.filter(([, value]) => !value).map(([name]) => name)
   const warning = missingFields.length ? `Brak danych: ${missingFields.join(', ')}.` : undefined
@@ -51,8 +95,12 @@ export function parseRocketJobsReport(input: string) {
   const candidates: Candidate[] = matches.map((match, index) => {
     const previousEnd = index === 0 ? Math.max(0, match.index! - 1300) : matches[index - 1].index! + matches[index - 1][0].length
     const block = text.slice(previousEnd, match.index).trim()
-    const offer = offerFromBlock(block, match[0])
-    return offer ? { offer, key: normalizedKey(match[0]) } : null
+    const initialSourceUrl = normalizeRocketJobsSourceUrl(match[0])
+    const initialOffer = offerFromBlock(block, initialSourceUrl)
+    if (!initialOffer) return null
+    const sourceUrl = normalizeRocketJobsSourceUrl(match[0])
+    const offer = sourceUrl === initialSourceUrl ? initialOffer : offerFromBlock(block, sourceUrl)
+    return offer ? { offer, key: normalizedKey(sourceUrl) } : null
   }).filter((value): value is Candidate => value !== null)
 
   const offers: ImportedJobOffer[] = []

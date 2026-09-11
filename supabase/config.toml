@@ -1,0 +1,22 @@
+project_id = "jobmatch"
+
+[functions.gmail-oauth-start]
+verify_jwt = true
+
+[functions.gmail-oauth-callback]
+verify_jwt = false
+
+[functions.gmail-connection-status]
+verify_jwt = true
+
+[functions.gmail-search]
+verify_jwt = true
+
+[functions.gmail-import-selected]
+verify_jwt = true
+
+[functions.gmail-confirm-import]
+verify_jwt = true
+
+[functions.gmail-disconnect]
+verify_jwt = true

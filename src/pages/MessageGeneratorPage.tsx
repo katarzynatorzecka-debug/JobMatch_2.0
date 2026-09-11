@@ -1,31 +1,63 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { Alert, PageHeader, PrimaryButton, SecondaryButton, SectionCard } from '../components/ui'
-import { findDemoOffer } from '../demo/offers'
+import type { JobAnalysis } from '../contracts/jobAnalysis'
+import type { UserProfile } from '../contracts/profile'
+import type { ProfilePresentationMetadata } from '../contracts/profilePresentation'
+import { useAppMode } from '../features/access/AppModeProvider'
+import { localProfileRepository, supabaseProfileRepository } from '../features/supabase/repositories'
+import { workspaceRepositoryFor } from '../features/workspace/workspaceService'
+import type { WorkspaceJobOffer } from '../contracts/workspace'
+import { createMessage, type MessageTone } from '../features/message/messageGenerator'
+import { useI18n } from '../i18n/I18nProvider'
+import { recommendationLabel } from '../features/workspace/presentationLabels'
 
-type Tone = 'Naturalny' | 'Formalny' | 'Bezpośredni'
-const toneIntroductions: Record<Tone, string> = { Naturalny: 'Dzień dobry,\n\nzainteresowała mnie oferta', Formalny: 'Szanowni Państwo,\n\nchciałabym wyrazić zainteresowanie ofertą', Bezpośredni: 'Dzień dobry,\n\npiszę w sprawie oferty' }
-
-function createMessage(tone: Tone, title: string, company: string) {
-  return `${toneIntroductions[tone]} „${title}” w ${company}.\n\nDoświadczenie w pracy z danymi, automatyzacją i uporządkowanymi procesami chciałabym wykorzystać w tym obszarze. Chętnie opowiem, jak podchodzę do budowania praktycznych rozwiązań dla zespołów.\n\nPozdrawiam,\n[Twoje imię]`
-}
+type GeneratorContext = { offer: WorkspaceJobOffer; profile: UserProfile; analysis: JobAnalysis | null; presentation: ProfilePresentationMetadata }
 
 export function MessageGeneratorPage() {
+  const { t, locale } = useI18n()
   const { offerId } = useParams<{ offerId: string }>()
-  const offer = findDemoOffer(offerId)
-  const [tone, setTone] = useState<Tone>('Naturalny')
+  const { mode, session } = useAppMode()
+  const [context, setContext] = useState<GeneratorContext | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [tone, setTone] = useState<MessageTone>('Naturalny')
   const [message, setMessage] = useState('')
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle')
   const [hasManualEdit, setHasManualEdit] = useState(false)
   const [confirmRegenerate, setConfirmRegenerate] = useState(false)
-  if (!offer) return <Navigate to="/offers" replace />
-  const generate = () => { setMessage(createMessage(tone, offer.title, offer.company)); setCopyState('idle'); setHasManualEdit(false); setConfirmRegenerate(false) }
+  const [generationError, setGenerationError] = useState('')
+
+  useEffect(() => {
+    if (!mode || !offerId) return
+    let active = true
+    setLoading(true); setError('')
+    const repository = workspaceRepositoryFor(mode, session?.user)
+    const profileRepository = mode === 'authenticated' && session ? supabaseProfileRepository(session.user) : localProfileRepository
+    void Promise.all([repository.loadOfferDetails(offerId), profileRepository.load()]).then(([details, profileResult]) => {
+      if (!active) return
+      if (!details.offer || !details.listItem) throw new Error(t('message.error.offerMissing'))
+      if (!profileResult.data) throw new Error(profileResult.error ?? t('message.error.profileMissing'))
+      setContext({ offer: details.offer, profile: profileResult.data, analysis: details.listItem.analysis, presentation: profileResult.presentation })
+    }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : t('message.error.prepare')) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [mode, offerId, session])
+
+  if (loading) return <section className="page page--loading-surface" aria-busy="true"><span className="loading-spinner" aria-hidden="true" /><span className="sr-only" role="status">{t('message.loading')}</span></section>
+  if (error || !context || !offerId) return <section className="page page--message"><Alert title={t('message.error.openTitle')} tone="warning">{error || t('message.error.contextMissing')}</Alert><Link className="button button--secondary" to={offerId ? `/offers/${offerId}` : '/offers'}>{t('message.backDetails')}</Link></section>
+
+  const generate = () => {
+    try { setGenerationError(''); setMessage(createMessage(tone, context.offer, context.profile, context.analysis)); setCopyState('idle'); setHasManualEdit(false); setConfirmRegenerate(false) }
+    catch { setGenerationError(t('message.error.generate')) }
+  }
   const requestGenerate = () => { if (message && hasManualEdit) setConfirmRegenerate(true); else generate() }
   const copy = async () => { try { if (!navigator.clipboard) throw new Error('Brak Clipboard API'); await navigator.clipboard.writeText(message); setCopyState('success') } catch { setCopyState('error') } }
-  return <section className="page page--message"><Link className="back-link" to={`/offers/${offer.id}`}>← Wróć do szczegółów</Link><PageHeader eyebrow="Wiadomość demonstracyjna" title="Napisz do pracodawcy" intro={`${offer.title} · ${offer.company}`} />
-    <SectionCard className="message-context"><strong>Oferta:</strong><span>{offer.title}</span><strong>Firma:</strong><span>{offer.company}</span></SectionCard>
-    <SectionCard title="Wybierz ton"><fieldset className="tone-selector"><legend className="sr-only">Ton wiadomości</legend>{(['Naturalny', 'Formalny', 'Bezpośredni'] as Tone[]).map((option) => <label key={option}><input type="radio" name="tone" value={option} checked={tone === option} onChange={() => setTone(option)} />{option}</label>)}</fieldset><PrimaryButton onClick={requestGenerate}>{message ? 'Wygeneruj ponownie' : 'Wygeneruj wiadomość'}</PrimaryButton></SectionCard>
-    <SectionCard title="Treść wiadomości"><label className="sr-only" htmlFor="generated-message">Edytowalna treść wiadomości</label><textarea id="generated-message" className="message-editor" rows={11} value={message} onChange={(event) => { setMessage(event.target.value); setHasManualEdit(true); setCopyState('idle') }} placeholder="Wygeneruj wiadomość lub wpisz własną treść." /><div className="editor-footer"><span>{message.length} znaków</span><PrimaryButton onClick={copy} disabled={!message}>{copyState === 'success' ? 'Skopiowano' : 'Kopiuj wiadomość'}</PrimaryButton></div>{confirmRegenerate && <Alert title="Zastąpić ręczne zmiany?" tone="warning">Wprowadzone poprawki zostaną nadpisane nową wersją demonstracyjną.<div className="action-row"><SecondaryButton onClick={() => setConfirmRegenerate(false)}>Zachowaj obecną treść</SecondaryButton><PrimaryButton onClick={generate}>Zastąp wiadomość</PrimaryButton></div></Alert>}{copyState === 'success' && <Alert title="Wiadomość skopiowana" tone="success">Możesz wkleić ją w wybranym miejscu.</Alert>}{copyState === 'error' && <Alert title="Nie udało się skopiować wiadomości" tone="warning">Zaznacz i skopiuj tekst ręcznie — przeglądarka nie udostępniła schowka.</Alert>}{!message && <p className="field-hint">Wpisz lub wygeneruj treść wiadomości.</p>}</SectionCard>
-    <div className="action-row"><SecondaryButton onClick={() => setMessage('')}>Wyczyść treść</SecondaryButton><Link className="button button--secondary" to="/offers">Wróć do listy ofert</Link></div>
+
+  const toneLabels: Record<MessageTone, string> = { Naturalny: t('message.tone.natural'), Formalny: t('message.tone.formal'), Bezpośredni: t('message.tone.direct') }
+  return <section className="page page--message"><Link className="back-link" to={`/offers/${context.offer.id}`}>← {t('message.backDetails')}</Link><PageHeader eyebrow={t('message.header.eyebrow')} title={t('message.header.title')} intro={`${context.offer.title} · ${context.offer.company}`} />
+    <SectionCard className="message-context"><strong>{t('message.field.offer')}</strong><span>{context.offer.title}</span><strong>{t('message.field.company')}</strong><span>{context.offer.company}</span>{context.analysis && <><strong>{t('message.field.currentAnalysis')}</strong><span>{recommendationLabel(context.analysis.recommendation, locale)}</span></>}</SectionCard>
+    <SectionCard title={t('message.tone.section')}><fieldset className="tone-selector"><legend className="sr-only">{t('message.tone.legend')}</legend>{(['Naturalny', 'Formalny', 'Bezpośredni'] as MessageTone[]).map((option) => <label key={option}><input type="radio" name="tone" value={option} checked={tone === option} onChange={() => setTone(option)} />{toneLabels[option]}</label>)}</fieldset><PrimaryButton onClick={requestGenerate}>{message ? t('message.action.regenerate') : t('message.action.generate')}</PrimaryButton></SectionCard>
+    <SectionCard title={t('message.content.section')}><label className="sr-only" htmlFor="generated-message">{t('message.content.label')}</label><textarea id="generated-message" className="message-editor" rows={11} value={message} onChange={(event) => { setMessage(event.target.value); setHasManualEdit(true); setCopyState('idle') }} placeholder={t('message.content.placeholder')} /><div className="editor-footer"><span>{t('message.content.characters', { count: message.length })}</span><PrimaryButton onClick={copy} disabled={!message}>{copyState === 'success' ? t('message.action.copied') : t('message.action.copy')}</PrimaryButton></div>{generationError && <Alert title={t('message.error.generationTitle')} tone="warning">{generationError}</Alert>}{confirmRegenerate && <Alert title={t('message.confirm.title')} tone="warning">{t('message.confirm.copy')}<div className="action-row"><SecondaryButton onClick={() => setConfirmRegenerate(false)}>{t('message.confirm.keep')}</SecondaryButton><PrimaryButton onClick={generate}>{t('message.confirm.replace')}</PrimaryButton></div></Alert>}{copyState === 'success' && <Alert title={t('message.copy.successTitle')} tone="success">{t('message.copy.successCopy')}</Alert>}{copyState === 'error' && <Alert title={t('message.copy.errorTitle')} tone="warning">{t('message.copy.errorCopy')}</Alert>}{!message && <p className="field-hint">{t('message.empty')}</p>}</SectionCard>
+    <div className="action-row"><SecondaryButton onClick={() => setMessage('')}>{t('message.action.clear')}</SecondaryButton><Link className="button button--secondary" to="/offers">{t('message.action.backOffers')}</Link></div>
   </section>
 }

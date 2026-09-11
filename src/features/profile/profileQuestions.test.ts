@@ -19,4 +19,9 @@ describe('profile onboarding questions', () => {
     const profile = { ...defaultProfile, primaryRole: 'Recognised role', skills: ['SQL'], acceptedWorkModes: ['remote' as const] }
     expect(profile.primaryRole).toBe('Recognised role'); expect(profile.skills).toEqual(['SQL'])
   })
+  it('returns English presentation text without changing question identities', () => {
+    const questions = getProfileQuestions(missingDraft, defaultProfile, 'en')
+    expect(questions.map((question) => question.id)).toContain('role')
+    expect(questions[0].title).toBe('What is the main role you are looking for?')
+  })
 })

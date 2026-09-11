@@ -24,4 +24,11 @@ describe('validateImportedReport timestamps', () => {
   it('rejects an invalid timestamp', () => {
     expect(validateImportedReport(report('not-a-timestamp')).success).toBe(false)
   })
+
+  it('normalizes legacy reports and validates the current Gmail contract', () => {
+    const legacy = validateImportedReport(report('2026-08-01T09:10:00.000Z'))
+    expect(legacy.success && legacy.data).toMatchObject({ version: 2, reportProvider: 'rocketjobs', acquisitionChannel: 'eml' })
+    expect(validateImportedReport({ ...legacy.success && legacy.data, source: 'rocketjobs-gmail', acquisitionChannel: 'gmail' }).success).toBe(true)
+    expect(validateImportedReport({ ...legacy.success && legacy.data, source: 'rocketjobs-gmail', acquisitionChannel: 'eml' }).success).toBe(false)
+  })
 })
